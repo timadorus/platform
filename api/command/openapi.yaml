@@ -1,0 +1,681 @@
+openapi: 3.0.3
+info:
+  title: Timadorus Command API
+  version: 0.1.0
+  description: >
+    Write-side (command) API for the Timadorus CQRS/ES platform. Every mutating operation
+    requires a bearer token. Entity/Object/Character land in later phases (see docs/adr and
+    the implementation plan).
+servers:
+  - url: /
+
+security:
+  - bearerAuth: []
+
+paths:
+  /users:
+    post:
+      operationId: createUser
+      summary: Create a new User.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUserRequest"
+      responses:
+        "201":
+          description: User created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserCreatedResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /users/{userId}:
+    patch:
+      operationId: renameUser
+      summary: Rename a User.
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RenameRequest"
+      responses:
+        "204":
+          description: Renamed.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /users/{userId}/archive:
+    post:
+      operationId: archiveUser
+      summary: Archive a User. Idempotent.
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "200":
+          description: Archived (or already archived).
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /universes:
+    post:
+      operationId: createUniverse
+      summary: Create a new Universe.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUniverseRequest"
+      responses:
+        "201":
+          description: Universe created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UniverseCreatedResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /universes/{universeId}:
+    patch:
+      operationId: renameUniverse
+      summary: Rename a Universe.
+      parameters:
+        - $ref: "#/components/parameters/UniverseId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RenameRequest"
+      responses:
+        "204":
+          description: Renamed.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /universes/{universeId}/archive:
+    post:
+      operationId: archiveUniverse
+      summary: Archive a Universe. Idempotent.
+      parameters:
+        - $ref: "#/components/parameters/UniverseId"
+      responses:
+        "200":
+          description: Archived (or already archived).
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /universes/{universeId}/creators/{userId}:
+    post:
+      operationId: addUniverseCreator
+      summary: Add a Creator to a Universe. Idempotent.
+      parameters:
+        - $ref: "#/components/parameters/UniverseId"
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "204":
+          description: Added (or already present).
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+    delete:
+      operationId: removeUniverseCreator
+      summary: Remove a Creator from a Universe. Rejected if this is the last Creator.
+      parameters:
+        - $ref: "#/components/parameters/UniverseId"
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "204":
+          description: Removed.
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /universes/{universeId}/campaigns:
+    post:
+      operationId: createCampaign
+      summary: Create a new Campaign under a Universe.
+      parameters:
+        - $ref: "#/components/parameters/UniverseId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCampaignRequest"
+      responses:
+        "201":
+          description: Campaign created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CampaignCreatedResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /campaigns/{campaignId}:
+    patch:
+      operationId: renameCampaign
+      summary: Rename a Campaign.
+      parameters:
+        - $ref: "#/components/parameters/CampaignId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RenameRequest"
+      responses:
+        "204":
+          description: Renamed.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /campaigns/{campaignId}/archive:
+    post:
+      operationId: archiveCampaign
+      summary: Archive a Campaign. Idempotent.
+      parameters:
+        - $ref: "#/components/parameters/CampaignId"
+      responses:
+        "200":
+          description: Archived (or already archived).
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /campaigns/{campaignId}/gamemasters/{userId}:
+    post:
+      operationId: addCampaignGamemaster
+      summary: Add a Gamemaster to a Campaign. Idempotent.
+      parameters:
+        - $ref: "#/components/parameters/CampaignId"
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "204":
+          description: Added (or already present).
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+    delete:
+      operationId: removeCampaignGamemaster
+      summary: Remove a Gamemaster from a Campaign. Rejected if this is the last Gamemaster.
+      parameters:
+        - $ref: "#/components/parameters/CampaignId"
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "204":
+          description: Removed.
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /universes/{universeId}/entities:
+    post:
+      operationId: createEntity
+      summary: Create a new Entity under a Universe.
+      parameters:
+        - $ref: "#/components/parameters/UniverseId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateEntityRequest"
+      responses:
+        "201":
+          description: Entity created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EntityCreatedResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /entities/{entityId}:
+    patch:
+      operationId: renameEntity
+      summary: Rename an Entity.
+      parameters:
+        - $ref: "#/components/parameters/EntityId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RenameRequest"
+      responses:
+        "204":
+          description: Renamed.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /entities/{entityId}/archive:
+    post:
+      operationId: archiveEntity
+      summary: Archive an Entity. Idempotent.
+      parameters:
+        - $ref: "#/components/parameters/EntityId"
+      responses:
+        "200":
+          description: Archived (or already archived).
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /campaigns/{campaignId}/characters:
+    post:
+      operationId: createCharacter
+      summary: >
+        Create a new Character under a Campaign, atomically creating its paired Entity
+        (plan §4.4). The response includes both ids since the Entity was created implicitly
+        and the client has no other way to learn its id.
+      parameters:
+        - $ref: "#/components/parameters/CampaignId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCharacterRequest"
+      responses:
+        "201":
+          description: Character (and its paired Entity) created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CharacterCreatedResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /characters/{characterId}:
+    patch:
+      operationId: renameCharacter
+      summary: Rename a Character.
+      parameters:
+        - $ref: "#/components/parameters/CharacterId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RenameRequest"
+      responses:
+        "204":
+          description: Renamed.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /characters/{characterId}/archive:
+    post:
+      operationId: archiveCharacter
+      summary: Archive a Character. Idempotent.
+      parameters:
+        - $ref: "#/components/parameters/CharacterId"
+      responses:
+        "200":
+          description: Archived (or already archived).
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /characters/{characterId}/player:
+    put:
+      operationId: setCharacterPlayer
+      summary: Reassign a Character's Player. There is no "unset" — a Character always has exactly one Player.
+      parameters:
+        - $ref: "#/components/parameters/CharacterId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetPlayerRequest"
+      responses:
+        "204":
+          description: Reassigned.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /universes/{universeId}/objects:
+    post:
+      operationId: createObject
+      summary: Create a new Object under a Universe.
+      parameters:
+        - $ref: "#/components/parameters/UniverseId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateObjectRequest"
+      responses:
+        "201":
+          description: Object created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ObjectCreatedResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /objects/{objectId}:
+    patch:
+      operationId: renameObject
+      summary: Rename an Object.
+      parameters:
+        - $ref: "#/components/parameters/ObjectId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RenameRequest"
+      responses:
+        "204":
+          description: Renamed.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /objects/{objectId}/archive:
+    post:
+      operationId: archiveObject
+      summary: Archive an Object. Idempotent.
+      parameters:
+        - $ref: "#/components/parameters/ObjectId"
+      responses:
+        "200":
+          description: Archived (or already archived).
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    UniverseId:
+      name: universeId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    CampaignId:
+      name: campaignId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    EntityId:
+      name: entityId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    CharacterId:
+      name: characterId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ObjectId:
+      name: objectId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  schemas:
+    CreateObjectRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+
+    ObjectCreatedResponse:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+          format: uuid
+
+    CreateCharacterRequest:
+      type: object
+      required: [name, playerUserId]
+      properties:
+        name:
+          type: string
+        playerUserId:
+          type: string
+          format: uuid
+
+    CharacterCreatedResponse:
+      type: object
+      required: [characterId, entityId]
+      properties:
+        characterId:
+          type: string
+          format: uuid
+        entityId:
+          type: string
+          format: uuid
+
+    SetPlayerRequest:
+      type: object
+      required: [userId]
+      properties:
+        userId:
+          type: string
+          format: uuid
+
+    CreateEntityRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+
+    EntityCreatedResponse:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+          format: uuid
+
+    CreateCampaignRequest:
+      type: object
+      required: [name, gamemasterUserIds]
+      properties:
+        name:
+          type: string
+        gamemasterUserIds:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            format: uuid
+
+    CampaignCreatedResponse:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+          format: uuid
+
+    CreateUserRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+
+    UserCreatedResponse:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+          format: uuid
+
+    CreateUniverseRequest:
+      type: object
+      required: [name, creatorUserIds]
+      properties:
+        name:
+          type: string
+        creatorUserIds:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            format: uuid
+
+    RenameRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+
+    UniverseCreatedResponse:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+          format: uuid
+
+    Problem:
+      description: RFC 7807 problem+json error body.
+      type: object
+      properties:
+        title:
+          type: string
+        detail:
+          type: string
+        status:
+          type: integer
+
+  responses:
+    BadRequest:
+      description: Malformed request.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    NotFound:
+      description: Aggregate or referenced parent/user not found.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Conflict:
+      description: Invariant violation (e.g. last creator), archived aggregate, or optimistic concurrency conflict.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    UnprocessableEntity:
+      description: Domain validation failure (e.g. empty name).
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"

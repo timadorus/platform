@@ -1,0 +1,373 @@
+openapi: 3.0.3
+info:
+  title: Timadorus Query API
+  version: 0.1.0
+  description: >
+    Read-side (query) API for the Timadorus CQRS/ES platform. Every operation requires a
+    bearer token. The remaining hierarchy lands in later phases (see the implementation
+    plan).
+servers:
+  - url: /
+
+security:
+  - bearerAuth: []
+
+paths:
+  /users/{userId}:
+    get:
+      operationId: getUser
+      summary: Get a User by id.
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "200":
+          description: The User.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /universes/{universeId}:
+    get:
+      operationId: getUniverse
+      summary: Get a Universe by id.
+      parameters:
+        - $ref: "#/components/parameters/UniverseId"
+      responses:
+        "200":
+          description: The Universe.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Universe"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /universes/{universeId}/creators:
+    get:
+      operationId: listUniverseCreators
+      summary: List a Universe's Creators.
+      parameters:
+        - $ref: "#/components/parameters/UniverseId"
+      responses:
+        "200":
+          description: Creator user ids.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+                  format: uuid
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /universes/{universeId}/campaigns:
+    get:
+      operationId: listCampaignsByUniverse
+      summary: List non-archived Campaigns under a Universe.
+      parameters:
+        - $ref: "#/components/parameters/UniverseId"
+      responses:
+        "200":
+          description: Campaigns.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Campaign"
+
+  /universes/{universeId}/entities:
+    get:
+      operationId: listEntitiesByUniverse
+      summary: List non-archived Entities under a Universe.
+      parameters:
+        - $ref: "#/components/parameters/UniverseId"
+      responses:
+        "200":
+          description: Entities.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Entity"
+
+  /universes/{universeId}/objects:
+    get:
+      operationId: listObjectsByUniverse
+      summary: List non-archived Objects under a Universe.
+      parameters:
+        - $ref: "#/components/parameters/UniverseId"
+      responses:
+        "200":
+          description: Objects.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Object"
+
+  /campaigns/{campaignId}:
+    get:
+      operationId: getCampaign
+      summary: Get a Campaign by id.
+      parameters:
+        - $ref: "#/components/parameters/CampaignId"
+      responses:
+        "200":
+          description: The Campaign.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campaign"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /campaigns/{campaignId}/gamemasters:
+    get:
+      operationId: listCampaignGamemasters
+      summary: List a Campaign's Gamemasters.
+      parameters:
+        - $ref: "#/components/parameters/CampaignId"
+      responses:
+        "200":
+          description: Gamemaster user ids.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+                  format: uuid
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /campaigns/{campaignId}/characters:
+    get:
+      operationId: listCharactersByCampaign
+      summary: List non-archived Characters under a Campaign.
+      parameters:
+        - $ref: "#/components/parameters/CampaignId"
+      responses:
+        "200":
+          description: Characters.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Character"
+
+  /entities/{entityId}:
+    get:
+      operationId: getEntity
+      summary: Get an Entity by id.
+      parameters:
+        - $ref: "#/components/parameters/EntityId"
+      responses:
+        "200":
+          description: The Entity.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Entity"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /characters/{characterId}:
+    get:
+      operationId: getCharacter
+      summary: Get a Character by id.
+      parameters:
+        - $ref: "#/components/parameters/CharacterId"
+      responses:
+        "200":
+          description: The Character.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Character"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /objects/{objectId}:
+    get:
+      operationId: getObject
+      summary: Get an Object by id.
+      parameters:
+        - $ref: "#/components/parameters/ObjectId"
+      responses:
+        "200":
+          description: The Object.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Object"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    UniverseId:
+      name: universeId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    CampaignId:
+      name: campaignId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    EntityId:
+      name: entityId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    CharacterId:
+      name: characterId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ObjectId:
+      name: objectId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  schemas:
+    Object:
+      type: object
+      required: [id, name, universeId, isArchived]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        universeId:
+          type: string
+          format: uuid
+        isArchived:
+          type: boolean
+
+    Character:
+      type: object
+      required: [id, name, campaignId, entityId, playerUserId, isArchived]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        campaignId:
+          type: string
+          format: uuid
+        entityId:
+          type: string
+          format: uuid
+        playerUserId:
+          type: string
+          format: uuid
+        isArchived:
+          type: boolean
+
+    Entity:
+      type: object
+      required: [id, name, universeId, isArchived]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        universeId:
+          type: string
+          format: uuid
+        isArchived:
+          type: boolean
+
+    Campaign:
+      type: object
+      required: [id, name, universeId, isArchived]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        universeId:
+          type: string
+          format: uuid
+        isArchived:
+          type: boolean
+
+    User:
+      type: object
+      required: [id, name, isArchived]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        isArchived:
+          type: boolean
+
+    Universe:
+      type: object
+      required: [id, name, isArchived]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        isArchived:
+          type: boolean
+
+    Problem:
+      description: RFC 7807 problem+json error body.
+      type: object
+      properties:
+        title:
+          type: string
+        detail:
+          type: string
+        status:
+          type: integer
+
+  responses:
+    NotFound:
+      description: Not found.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
