@@ -64,9 +64,11 @@ helm install my-platform deploy/helm/timadorus-platform \
 | `nats.enabled` | `true` | deploy NATS JetStream as a subchart dependency |
 | `nats.externalURL` | `""` | used instead when `nats.enabled: false` |
 | `jwt.mode` | `jwks` | `jwks` or `hmac` |
-| `jwt.jwksURL` / `.issuer` / `.audience` | `""` | used when `jwt.mode: jwks` |
+| `jwt.issuer` / `.audience` | `""` | always set (both `jwks` and `hmac` modes) |
+| `jwt.jwksURL` | `""` | required when `jwt.mode: jwks` |
 | `jwt.hmac.existingSecret` / `.secretKey` / `.keyID` | `""` / `JWT_HMAC_SECRET` / `dev` | used when `jwt.mode: hmac` |
 | `gateway.create` | `true` | `true`: chart creates its own `Gateway`; `false`: attach to an existing one |
 | `gateway.gatewayClassName` | `""` (required when `create: true`) | `GatewayClass` for the chart-owned `Gateway` |
 | `gateway.tls.enabled` / `.secretName` | `false` / `""` | optional HTTPS listener on the chart-owned `Gateway` |
-| `gateway.existing.name` / `.namespace` / `.sectionName` | `""` | required when `create: false` — coordinates of the pre-existing `Gateway` to attach to |
+| `gateway.existing.name` | `""` (required when `create: false`) | name of the pre-existing `Gateway` to attach to |
+| `gateway.existing.namespace` / `.sectionName` | `""` | optional — namespace and section name of the pre-existing `Gateway` (omitted if empty) |
