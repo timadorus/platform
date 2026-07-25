@@ -1,0 +1,9 @@
+.git/
+*.swp
+*.bak
+*.orig
+*~
+.project
+.idea/
+*.tmproj
+.vscode/

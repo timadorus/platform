@@ -1,0 +1,103 @@
+# Default values for timadorus-platform.
+
+commandApi:
+  image:
+    repository: timadorus/command-api
+    tag: ""
+    pullPolicy: IfNotPresent
+  replicas: 1
+  containerPort: 8081
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  route:
+    hostname: ""
+
+queryApi:
+  image:
+    repository: timadorus/query-api
+    tag: ""
+    pullPolicy: IfNotPresent
+  replicas: 1
+  containerPort: 8082
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  route:
+    hostname: ""
+
+projector:
+  image:
+    repository: timadorus/projector
+    tag: ""
+    pullPolicy: IfNotPresent
+  replicas: 1
+  containerPort: 8083
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+migration:
+  image:
+    repository: timadorus/migrate
+    tag: ""
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+postgres:
+  # Name of a pre-existing Secret in the release namespace holding a full DATABASE_URL
+  # (e.g. postgres://user:pass@host:5432/db?sslmode=...). Required — the chart never
+  # templates this Secret itself.
+  existingSecret: ""
+  secretKey: "DATABASE_URL"
+
+nats:
+  # true: deploy NATS JetStream as a subchart dependency of this release.
+  # false: use nats.externalURL instead.
+  enabled: true
+  externalURL: ""
+  config:
+    jetstream:
+      enabled: true
+
+jwt:
+  # "jwks" or "hmac" — selects which of the two blocks below is used.
+  mode: jwks
+  jwksURL: ""
+  issuer: ""
+  audience: ""
+  hmac:
+    existingSecret: ""
+    secretKey: "JWT_HMAC_SECRET"
+    keyID: "dev"
+
+gateway:
+  # true: chart creates its own Gateway (gatewayClassName required below).
+  # false: attach both HTTPRoutes to an existing Gateway (gateway.existing.* required below).
+  create: true
+  gatewayClassName: ""
+  tls:
+    enabled: false
+    secretName: ""
+  existing:
+    name: ""
+    namespace: ""
+    sectionName: ""

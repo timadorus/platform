@@ -1,0 +1,12 @@
+apiVersion: v2
+name: timadorus-platform
+description: Helm chart for the Timadorus CQRS/ES platform (command-api, query-api, projector)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+
+dependencies:
+  - name: nats
+    version: "2.14.2"
+    repository: "https://nats-io.github.io/k8s/helm/charts/"
+    condition: nats.enabled
