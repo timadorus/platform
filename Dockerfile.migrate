@@ -1,0 +1,22 @@
+# Build: docker build -f Dockerfile.migrate -t timadorus/migrate .
+# Run:   docker run --rm -e DATABASE_URL=... timadorus/migrate up
+
+FROM golang:1.26-alpine AS build
+RUN apk add --no-cache ca-certificates
+RUN CGO_ENABLED=0 go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.19.1
+
+FROM alpine:3.20
+RUN apk add --no-cache bash
+COPY --from=build /go/bin/migrate /usr/local/bin/migrate
+COPY internal/eventstore/postgres/migrations /migrations/internal/eventstore/postgres/migrations
+COPY internal/projection/checkpoint/migrations /migrations/internal/projection/checkpoint/migrations
+COPY internal/projection/universe/migrations /migrations/internal/projection/universe/migrations
+COPY internal/projection/user/migrations /migrations/internal/projection/user/migrations
+COPY internal/projection/campaign/migrations /migrations/internal/projection/campaign/migrations
+COPY internal/projection/entity/migrations /migrations/internal/projection/entity/migrations
+COPY internal/projection/character/migrations /migrations/internal/projection/character/migrations
+COPY internal/projection/object/migrations /migrations/internal/projection/object/migrations
+COPY scripts/migrate-up.sh /usr/local/bin/migrate-up.sh
+ENV MIGRATIONS_BASE=/migrations
+ENV MIGRATE_BIN=migrate
+ENTRYPOINT ["/usr/local/bin/migrate-up.sh"]
