@@ -1,0 +1,29 @@
+{{- if .Values.gateway.create }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: {{ include "timadorus-platform.fullname" . }}
+  labels:
+    {{- include "timadorus-platform.labels" . | nindent 4 }}
+spec:
+  gatewayClassName: {{ required "gateway.gatewayClassName must be set when gateway.create is true" .Values.gateway.gatewayClassName }}
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: Same
+    {{- if .Values.gateway.tls.enabled }}
+    - name: https
+      protocol: HTTPS
+      port: 443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: {{ required "gateway.tls.secretName must be set when gateway.tls.enabled is true" .Values.gateway.tls.secretName }}
+      allowedRoutes:
+        namespaces:
+          from: Same
+    {{- end }}
+{{- end }}
