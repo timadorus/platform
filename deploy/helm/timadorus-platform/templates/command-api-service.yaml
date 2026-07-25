@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "timadorus-platform.fullname" . }}-command-api
+  labels:
+    {{- include "timadorus-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: command-api
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "timadorus-platform.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: command-api
+  ports:
+    - name: http
+      port: {{ .Values.commandApi.containerPort }}
+      targetPort: http

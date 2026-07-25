@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "timadorus-platform.fullname" . }}-command-api
+  labels:
+    {{- include "timadorus-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: command-api
+spec:
+  replicas: {{ .Values.commandApi.replicas }}
+  selector:
+    matchLabels:
+      {{- include "timadorus-platform.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: command-api
+  template:
+    metadata:
+      labels:
+        {{- include "timadorus-platform.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: command-api
+    spec:
+      containers:
+        - name: command-api
+          image: "{{ .Values.commandApi.image.repository }}:{{ .Values.commandApi.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.commandApi.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.commandApi.containerPort }}
+          env:
+            - name: COMMAND_API_ADDR
+              value: ":{{ .Values.commandApi.containerPort }}"
+            {{- include "timadorus-platform.databaseURLEnv" . | nindent 12 }}
+            - name: NATS_URL
+              value: {{ include "timadorus-platform.natsURL" . | quote }}
+            {{- include "timadorus-platform.jwtEnv" . | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.commandApi.resources | nindent 12 }}
