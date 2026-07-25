@@ -18,7 +18,7 @@ func addCampaignFlag(cmd *cobra.Command) {
 func registerCampaignCommands(a *App) {
 	createCampaignCmd := &cobra.Command{
 		Use:   "campaign <name> <gamemasterUserId>...",
-		Short: "Create a new Campaign under a Universe (POST /universes/{universeId}/campaigns)",
+		Short: "Create a new Campaign under a Universe",
 		Args:  cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, cfg, err := a.client()
@@ -41,7 +41,7 @@ func registerCampaignCommands(a *App) {
 
 	a.renameCmd.AddCommand(&cobra.Command{
 		Use:   "campaign <campaignId> <name>",
-		Short: "Rename a Campaign (PATCH /campaigns/{campaignId})",
+		Short: "Rename a Campaign",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, _, err := a.client()
@@ -54,7 +54,7 @@ func registerCampaignCommands(a *App) {
 
 	a.archiveCmd.AddCommand(&cobra.Command{
 		Use:   "campaign <campaignId>",
-		Short: "Archive a Campaign, idempotent (POST /campaigns/{campaignId}/archive)",
+		Short: "Archive a Campaign, idempotent",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, _, err := a.client()
@@ -67,7 +67,7 @@ func registerCampaignCommands(a *App) {
 
 	a.getCmd.AddCommand(&cobra.Command{
 		Use:   "campaign <campaignId>",
-		Short: "Get a Campaign by id (GET /campaigns/{campaignId})",
+		Short: "Get a Campaign by id",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, _, err := a.client()
@@ -80,7 +80,7 @@ func registerCampaignCommands(a *App) {
 
 	addGamemasterCmd := &cobra.Command{
 		Use:   "gamemaster <userId>",
-		Short: "Add a Gamemaster to a Campaign, idempotent (POST /campaigns/{campaignId}/gamemasters/{userId})",
+		Short: "Add a Gamemaster to a Campaign, idempotent",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, cfg, err := a.client()
@@ -101,7 +101,7 @@ func registerCampaignCommands(a *App) {
 	// timadorusctl delete gamemaster <userId>
 	deleteGamemasterCmd := &cobra.Command{
 		Use:   "gamemaster <userId>",
-		Short: "Remove a Gamemaster from a Campaign; rejected if it's the last one (DELETE /campaigns/{campaignId}/gamemasters/{userId})",
+		Short: "Remove a Gamemaster from a Campaign; rejected if it's the last one",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, cfg, err := a.client()
@@ -121,7 +121,7 @@ func registerCampaignCommands(a *App) {
 
 	listGamemasterCmd := &cobra.Command{
 		Use:   "gamemaster",
-		Short: "List a Campaign's Gamemasters (GET /campaigns/{campaignId}/gamemasters)",
+		Short: "List a Campaign's Gamemasters",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, cfg, err := a.client()
@@ -141,7 +141,7 @@ func registerCampaignCommands(a *App) {
 
 	listCampaignCmd := &cobra.Command{
 		Use:   "campaign",
-		Short: "List non-archived Campaigns under a Universe (GET /universes/{universeId}/campaigns)",
+		Short: "List non-archived Campaigns under a Universe",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, cfg, err := a.client()

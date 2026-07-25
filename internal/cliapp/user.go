@@ -11,7 +11,7 @@ import (
 func registerUserCommands(a *App) {
 	a.createCmd.AddCommand(&cobra.Command{
 		Use:   "user <name>",
-		Short: "Create a new User (POST /users)",
+		Short: "Create a new User",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, _, err := a.client()
@@ -24,7 +24,7 @@ func registerUserCommands(a *App) {
 
 	a.renameCmd.AddCommand(&cobra.Command{
 		Use:   "user <userId> <name>",
-		Short: "Rename a User (PATCH /users/{userId})",
+		Short: "Rename a User",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, _, err := a.client()
@@ -37,7 +37,7 @@ func registerUserCommands(a *App) {
 
 	a.archiveCmd.AddCommand(&cobra.Command{
 		Use:   "user <userId>",
-		Short: "Archive a User, idempotent (POST /users/{userId}/archive)",
+		Short: "Archive a User (idempotent)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, _, err := a.client()
@@ -50,7 +50,7 @@ func registerUserCommands(a *App) {
 
 	a.getCmd.AddCommand(&cobra.Command{
 		Use:   "user <userId>",
-		Short: "Get a User by id (GET /users/{userId})",
+		Short: "Get a User by id",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, _, err := a.client()

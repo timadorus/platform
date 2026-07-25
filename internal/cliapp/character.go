@@ -14,7 +14,7 @@ import (
 func registerCharacterCommands(a *App) {
 	createCharacterCmd := &cobra.Command{
 		Use:   "character <name> <playerUserId>",
-		Short: "Create a new Character under a Campaign, atomically creating its paired Entity (POST /campaigns/{campaignId}/characters)",
+		Short: "Create a new Character under a Campaign, atomically creating its paired Entity",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, cfg, err := a.client()
@@ -37,7 +37,7 @@ func registerCharacterCommands(a *App) {
 
 	a.renameCmd.AddCommand(&cobra.Command{
 		Use:   "character <characterId> <name>",
-		Short: "Rename a Character (PATCH /characters/{characterId})",
+		Short: "Rename a Character",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, _, err := a.client()
@@ -50,7 +50,7 @@ func registerCharacterCommands(a *App) {
 
 	a.archiveCmd.AddCommand(&cobra.Command{
 		Use:   "character <characterId>",
-		Short: "Archive a Character, idempotent (POST /characters/{characterId}/archive)",
+		Short: "Archive a Character (idempotent)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, _, err := a.client()
@@ -63,7 +63,7 @@ func registerCharacterCommands(a *App) {
 
 	a.getCmd.AddCommand(&cobra.Command{
 		Use:   "character <characterId>",
-		Short: "Get a Character by id (GET /characters/{characterId})",
+		Short: "Get a Character by id",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, _, err := a.client()
@@ -76,7 +76,7 @@ func registerCharacterCommands(a *App) {
 
 	a.setCmd.AddCommand(&cobra.Command{
 		Use:   "player <characterId> <userId>",
-		Short: `Reassign a Character's Player; there is no "unset" (PUT /characters/{characterId}/player)`,
+		Short: `Reassign a Character's Player; there is no "unset" operation.`,
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, _, err := a.client()
@@ -89,7 +89,7 @@ func registerCharacterCommands(a *App) {
 
 	listCharacterCmd := &cobra.Command{
 		Use:   "character",
-		Short: "List non-archived Characters under a Campaign (GET /campaigns/{campaignId}/characters)",
+		Short: "List non-archived Characters under a Campaign",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, cfg, err := a.client()

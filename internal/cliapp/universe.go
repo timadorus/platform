@@ -19,7 +19,7 @@ func addUniverseFlag(cmd *cobra.Command) {
 func registerUniverseCommands(a *App) {
 	a.createCmd.AddCommand(&cobra.Command{
 		Use:   "universe <name> <creatorUserId>...",
-		Short: "Create a new Universe (POST /universes)",
+		Short: "Create a new Universe",
 		Args:  cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, _, err := a.client()
@@ -35,7 +35,7 @@ func registerUniverseCommands(a *App) {
 
 	a.renameCmd.AddCommand(&cobra.Command{
 		Use:   "universe <universeId> <name>",
-		Short: "Rename a Universe (PATCH /universes/{universeId})",
+		Short: "Rename a Universe",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, _, err := a.client()
@@ -48,7 +48,7 @@ func registerUniverseCommands(a *App) {
 
 	a.archiveCmd.AddCommand(&cobra.Command{
 		Use:   "universe <universeId>",
-		Short: "Archive a Universe, idempotent (POST /universes/{universeId}/archive)",
+		Short: "Archive a Universe (idempotent)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, _, err := a.client()
@@ -61,7 +61,7 @@ func registerUniverseCommands(a *App) {
 
 	a.getCmd.AddCommand(&cobra.Command{
 		Use:   "universe <universeId>",
-		Short: "Get a Universe by id (GET /universes/{universeId})",
+		Short: "Get a Universe by id",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, _, err := a.client()
@@ -74,7 +74,7 @@ func registerUniverseCommands(a *App) {
 
 	addCreatorCmd := &cobra.Command{
 		Use:   "creator <userId>",
-		Short: "Add a Creator to a Universe, idempotent (POST /universes/{universeId}/creators/{userId})",
+		Short: "Add a Creator to a Universe (idempotent)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, cfg, err := a.client()
@@ -94,7 +94,7 @@ func registerUniverseCommands(a *App) {
 
 	deleteCreatorCmd := &cobra.Command{
 		Use:   "creator <userId>",
-		Short: "Remove a Creator from a Universe; rejected if it's the last one (DELETE /universes/{universeId}/creators/{userId})",
+		Short: "Remove a Creator from a Universe; rejected if it's the last one",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, cfg, err := a.client()
@@ -114,7 +114,7 @@ func registerUniverseCommands(a *App) {
 
 	listCreatorCmd := &cobra.Command{
 		Use:   "creator",
-		Short: "List a Universe's Creators (GET /universes/{universeId}/creators)",
+		Short: "List a Universe's Creators",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, cfg, err := a.client()

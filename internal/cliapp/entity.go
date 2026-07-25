@@ -13,7 +13,7 @@ import (
 func registerEntityCommands(a *App) {
 	createEntityCmd := &cobra.Command{
 		Use:   "entity <name>",
-		Short: "Create a new Entity under a Universe (POST /universes/{universeId}/entities)",
+		Short: "Create a new Entity under a Universe",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, cfg, err := a.client()
@@ -33,7 +33,7 @@ func registerEntityCommands(a *App) {
 
 	a.renameCmd.AddCommand(&cobra.Command{
 		Use:   "entity <entityId> <name>",
-		Short: "Rename an Entity (PATCH /entities/{entityId})",
+		Short: "Rename an Entity",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, _, err := a.client()
@@ -46,7 +46,7 @@ func registerEntityCommands(a *App) {
 
 	a.archiveCmd.AddCommand(&cobra.Command{
 		Use:   "entity <entityId>",
-		Short: "Archive an Entity, idempotent (POST /entities/{entityId}/archive)",
+		Short: "Archive an Entity (idempotent)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, _, err := a.client()
@@ -59,7 +59,7 @@ func registerEntityCommands(a *App) {
 
 	a.getCmd.AddCommand(&cobra.Command{
 		Use:   "entity <entityId>",
-		Short: "Get an Entity by id (GET /entities/{entityId})",
+		Short: "Get an Entity by id",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, _, err := a.client()
@@ -72,7 +72,7 @@ func registerEntityCommands(a *App) {
 
 	listEntityCmd := &cobra.Command{
 		Use:   "entity",
-		Short: "List non-archived Entities under a Universe (GET /universes/{universeId}/entities)",
+		Short: "List non-archived Entities under a Universe",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, cfg, err := a.client()

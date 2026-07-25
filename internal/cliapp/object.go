@@ -12,7 +12,7 @@ import (
 func registerObjectCommands(a *App) {
 	createObjectCmd := &cobra.Command{
 		Use:   "object <name>",
-		Short: "Create a new Object under a Universe (POST /universes/{universeId}/objects)",
+		Short: "Create a new Object under a Universe",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, cfg, err := a.client()
@@ -32,7 +32,7 @@ func registerObjectCommands(a *App) {
 
 	a.renameCmd.AddCommand(&cobra.Command{
 		Use:   "object <objectId> <name>",
-		Short: "Rename an Object (PATCH /objects/{objectId})",
+		Short: "Rename an Object",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, _, err := a.client()
@@ -45,7 +45,7 @@ func registerObjectCommands(a *App) {
 
 	a.archiveCmd.AddCommand(&cobra.Command{
 		Use:   "object <objectId>",
-		Short: "Archive an Object, idempotent (POST /objects/{objectId}/archive)",
+		Short: "Archive an Object (idempotent)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, _, err := a.client()
@@ -58,7 +58,7 @@ func registerObjectCommands(a *App) {
 
 	a.getCmd.AddCommand(&cobra.Command{
 		Use:   "object <objectId>",
-		Short: "Get an Object by id (GET /objects/{objectId})",
+		Short: "Get an Object by id",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, _, err := a.client()
@@ -71,7 +71,7 @@ func registerObjectCommands(a *App) {
 
 	listObjectCmd := &cobra.Command{
 		Use:   "object",
-		Short: "List non-archived Objects under a Universe (GET /universes/{universeId}/objects)",
+		Short: "List non-archived Objects under a Universe",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, cfg, err := a.client()
