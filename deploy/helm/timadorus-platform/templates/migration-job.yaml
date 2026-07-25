@@ -8,7 +8,10 @@ metadata:
   annotations:
     helm.sh/hook: pre-install,pre-upgrade
     helm.sh/hook-weight: "0"
-    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+    # Only before-hook-creation: a completed Job must survive so `kubectl logs job/...`
+    # (documented in NOTES.txt) keeps working after install. hook-succeeded would delete it
+    # immediately on success, before anyone could inspect the migration output.
+    helm.sh/hook-delete-policy: before-hook-creation
 spec:
   backoffLimit: 2
   template:
