@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "timadorus-platform.fullname" . }}-query-api
+  labels:
+    {{- include "timadorus-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: query-api
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "timadorus-platform.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: query-api
+  ports:
+    - name: http
+      port: {{ .Values.queryApi.containerPort }}
+      targetPort: http

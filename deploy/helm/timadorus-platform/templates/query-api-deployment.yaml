@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "timadorus-platform.fullname" . }}-query-api
+  labels:
+    {{- include "timadorus-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: query-api
+spec:
+  replicas: {{ .Values.queryApi.replicas }}
+  selector:
+    matchLabels:
+      {{- include "timadorus-platform.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: query-api
+  template:
+    metadata:
+      labels:
+        {{- include "timadorus-platform.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: query-api
+    spec:
+      containers:
+        - name: query-api
+          image: "{{ .Values.queryApi.image.repository }}:{{ .Values.queryApi.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.queryApi.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.queryApi.containerPort }}
+          env:
+            - name: QUERY_API_ADDR
+              value: ":{{ .Values.queryApi.containerPort }}"
+            {{- include "timadorus-platform.databaseURLEnv" . | nindent 12 }}
+            {{- include "timadorus-platform.jwtEnv" . | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.queryApi.resources | nindent 12 }}
