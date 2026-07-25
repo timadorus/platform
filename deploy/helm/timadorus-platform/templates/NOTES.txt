@@ -1,0 +1,19 @@
+Timadorus platform release "{{ .Release.Name }}" deployed to namespace "{{ .Release.Namespace }}".
+
+Migration Job logs:
+  kubectl logs -n {{ .Release.Namespace }} job/{{ include "timadorus-platform.fullname" . }}-migrate
+
+{{- if .Values.gateway.create }}
+Gateway "{{ include "timadorus-platform.fullname" . }}" created (gatewayClassName: {{ .Values.gateway.gatewayClassName }}).
+{{- else }}
+Routes attached to existing Gateway "{{ .Values.gateway.existing.name }}"{{ if .Values.gateway.existing.namespace }} in namespace "{{ .Values.gateway.existing.namespace }}"{{ end }}.
+{{- end }}
+
+Routes:
+  command-api -> http://{{ .Values.commandApi.route.hostname }}/
+  query-api   -> http://{{ .Values.queryApi.route.hostname }}/
+
+Check rollout status:
+  kubectl rollout status -n {{ .Release.Namespace }} deployment/{{ include "timadorus-platform.fullname" . }}-command-api
+  kubectl rollout status -n {{ .Release.Namespace }} deployment/{{ include "timadorus-platform.fullname" . }}-query-api
+  kubectl rollout status -n {{ .Release.Namespace }} deployment/{{ include "timadorus-platform.fullname" . }}-projector
