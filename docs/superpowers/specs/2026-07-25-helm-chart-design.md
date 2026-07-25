@@ -21,8 +21,10 @@ optionally bundled (via the official `nats-io/k8s` Helm chart as a dependency) o
 - Run the platform's existing `golang-migrate`-based schema migrations automatically on
   install/upgrade, without duplicating the schema-owner list that already lives in the
   `Makefile`.
-- Expose command-api and query-api externally via Gateway API `Gateway` + `HTTPRoute`
-  resources, with optional TLS.
+- Expose command-api and query-api externally via Gateway API `HTTPRoute` resources, attached
+  either to a `Gateway` the chart creates itself or to a pre-existing `Gateway` (owned by a
+  platform team, another release, etc.) — selectable via values, with optional TLS when the
+  chart creates the `Gateway`.
 - Never have the chart itself template a Kubernetes `Secret` containing a real credential —
   Postgres connection info and the JWT HMAC secret (if used) are referenced via
   `existingSecret` values, provisioned out of band.
@@ -35,9 +37,6 @@ optionally bundled (via the official `nats-io/k8s` Helm chart as a dependency) o
 - No autoscaling (HPA), PodDisruptionBudget, or NetworkPolicy resources — just `replicas` +
   resource requests/limits in values, consistent with the plan's existing YAGNI stance
   (docs/PLAN.md §13 already defers Kubernetes-manifest detail).
-- No chart support for attaching to a pre-existing Gateway — the chart always creates its own
-  `Gateway` resource (per explicit user decision; revisit if a real "shared Gateway owned by a
-  platform team" need surfaces).
 - No path-based routing between command-api and query-api on one hostname — they get separate
   hostnames, avoiding any dependency on Gateway API method-matching support across
   implementations.
@@ -60,7 +59,7 @@ deploy/helm/timadorus-platform/
     query-api-httproute.yaml
     projector-deployment.yaml
     projector-service.yaml        # ClusterIP, for /metrics scraping only — no route
-    gateway.yaml                  # one Gateway resource shared by both HTTPRoutes
+    gateway.yaml                  # Gateway resource, rendered only when gateway.create is true
     migration-job.yaml            # pre-install,pre-upgrade hook Job
     NOTES.txt
 ```
@@ -99,16 +98,30 @@ All templates live flat in `templates/` (no per-service subdirectories) — file
 
 ### Gateway + HTTPRoutes
 
-- `gateway.yaml` templates a single `gateway.networking.k8s.io/v1` `Gateway`:
-  - `spec.gatewayClassName`: `{{ required "gateway.gatewayClassName must be set — it is cluster-specific (e.g. the installed Gateway API controller's class)" .Values.gateway.gatewayClassName }}`
+`gateway.create` (bool, default `true`) selects between two mutually exclusive modes:
+
+- **`gateway.create: true`** — `gateway.yaml` templates a `gateway.networking.k8s.io/v1`
+  `Gateway` owned by this release:
+  - `spec.gatewayClassName`: `{{ required "gateway.gatewayClassName must be set when gateway.create is true — it is cluster-specific (e.g. the installed Gateway API controller's class)" .Values.gateway.gatewayClassName }}`
   - an `http` listener (port 80) always present
   - an optional `https` listener (port 443, `tls.mode: Terminate`, `certificateRefs` from
     `gateway.tls.secretName`) when `gateway.tls.enabled` is true
-- `command-api-httproute.yaml` / `query-api-httproute.yaml`: each a `HTTPRoute` with
-  `parentRefs` pointing at the chart's own `Gateway`, `hostnames: [<component>.<value>]`
-  (`commandApi.route.hostname` / `queryApi.route.hostname` — both required values, no sensible
-  default since they're deployment-specific DNS names), a single `PathPrefix: /` match, and a
-  `backendRef` to the corresponding Service/port.
+  - both HTTPRoutes' `parentRefs` point at this chart-owned `Gateway` by name (no
+    `namespace`/`sectionName` needed — same release, same namespace, both listeners open to
+    routes).
+- **`gateway.create: false`** — `gateway.yaml` renders nothing (no `Gateway` resource in this
+  release). Both HTTPRoutes' `parentRefs` instead point at an existing `Gateway` described by
+  `gateway.existing.name` (required in this mode), `gateway.existing.namespace` (optional,
+  defaults to the release namespace — set this when the target `Gateway` lives elsewhere and
+  its listeners allow routes `From: All`), and `gateway.existing.sectionName` (optional, targets
+  one specific listener on that `Gateway` rather than all of them). `gateway.gatewayClassName`
+  and `gateway.tls.*` are ignored in this mode — TLS termination is whatever the existing
+  `Gateway`'s owner already configured.
+- Either way, `command-api-httproute.yaml` / `query-api-httproute.yaml` each add
+  `hostnames: [<component>.<value>]` (`commandApi.route.hostname` / `queryApi.route.hostname` —
+  both required values, no sensible default since they're deployment-specific DNS names), a
+  single `PathPrefix: /` match, and a `backendRef` to the corresponding Service/port — this part
+  is identical in both modes.
 
 ### Migration Job
 
@@ -202,10 +215,15 @@ jwt:
     keyID: "dev"
 
 gateway:
-  gatewayClassName: ""  # required, cluster-specific
+  create: true            # true: chart creates its own Gateway; false: attach to an existing one
+  gatewayClassName: ""     # required when create: true; cluster-specific
   tls:
-    enabled: false
+    enabled: false         # only used when create: true
     secretName: ""
+  existing:
+    name: ""               # required when create: false
+    namespace: ""          # optional when create: false, defaults to the release namespace
+    sectionName: ""        # optional when create: false, targets one listener on the existing Gateway
 ```
 
 ## Testing / verification
@@ -213,7 +231,10 @@ gateway:
 - `helm lint deploy/helm/timadorus-platform`.
 - `helm template` with a minimal values override (dummy `existingSecret` names, dummy
   hostnames, dummy `gatewayClassName`) — confirm all resources render, `nats.enabled=true` and
-  `nats.enabled=false` both render cleanly, `gateway.tls.enabled` both ways render cleanly.
+  `nats.enabled=false` both render cleanly, `gateway.tls.enabled` both ways render cleanly,
+  `gateway.create=true` (no `gateway.existing.*` needed) and `gateway.create=false` (with
+  `gateway.existing.name` set, and confirm no `Gateway` resource is rendered) both render
+  cleanly.
 - `helm dependency update` succeeds and pulls the pinned `nats` chart version.
 - Manual: `helm install` against a local cluster (e.g. kind) with a real Postgres reachable via
   a pre-created Secret, confirm the migration Job runs to completion before the three
