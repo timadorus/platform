@@ -15,6 +15,13 @@ Gateway API. See `docs/PLAN.md` for the platform architecture this chart deploys
 - Images for `command-api`, `query-api`, `projector`, and `migrate` built and pushed somewhere
   the cluster can pull from (`Dockerfile.command-api`, `Dockerfile.query-api`,
   `Dockerfile.projector`, `Dockerfile.migrate` at the repo root).
+- When `nats.enabled: true` (the default), the bundled NATS subchart provisions a JetStream
+  PersistentVolumeClaim (10Gi by default) against the cluster's **default StorageClass**. If the
+  cluster has no default StorageClass, the NATS pod stays `Pending` forever and `helm install
+  --wait` will time out with no obvious cause from this chart's own values. Either ensure a
+  default StorageClass exists, or set `nats.config.jetstream.fileStore.pvc.storageClassName`
+  explicitly. All `nats.config.*` values pass straight through to the bundled `nats/nats`
+  subchart — see that subchart's own `values.yaml` for the full list of options.
 
 ## Install
 

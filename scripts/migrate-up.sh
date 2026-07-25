@@ -22,13 +22,18 @@ schema_owners=(
   "projection_object:internal/projection/object/migrations"
 )
 
+case "$DATABASE_URL" in
+  *\?*) sep='&' ;;
+  *) sep='?' ;;
+esac
+
 for owner in "${schema_owners[@]}"; do
   name="${owner%%:*}"
   path="${owner#*:}"
   echo "==> migrate ${direction}: ${name}"
   if [ "$direction" = "down" ]; then
-    $MIGRATE_BIN -database "${DATABASE_URL}&x-migrations-table=schema_migrations_${name}" -source "file://${MIGRATIONS_BASE}/${path}" down 1
+    $MIGRATE_BIN -database "${DATABASE_URL}${sep}x-migrations-table=schema_migrations_${name}" -source "file://${MIGRATIONS_BASE}/${path}" down 1
   else
-    $MIGRATE_BIN -database "${DATABASE_URL}&x-migrations-table=schema_migrations_${name}" -source "file://${MIGRATIONS_BASE}/${path}" "$direction"
+    $MIGRATE_BIN -database "${DATABASE_URL}${sep}x-migrations-table=schema_migrations_${name}" -source "file://${MIGRATIONS_BASE}/${path}" "$direction"
   fi
 done

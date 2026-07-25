@@ -35,7 +35,7 @@ externally supplied URL.
 {{- if .Values.nats.enabled -}}
 nats://{{ .Release.Name }}-nats:4222
 {{- else -}}
-{{- .Values.nats.externalURL -}}
+{{- required "nats.externalURL is required when nats.enabled is false" .Values.nats.externalURL -}}
 {{- end -}}
 {{- end -}}
 
