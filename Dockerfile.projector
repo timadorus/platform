@@ -1,0 +1,14 @@
+# Build: docker build -f Dockerfile.projector -t timadorus/projector .
+# Run:   docker run -p 8083:8083 --env-file .env timadorus/projector
+
+FROM golang:1.26-alpine AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/projector ./cmd/projector
+
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /out/projector /projector
+EXPOSE 8083
+ENTRYPOINT ["/projector"]

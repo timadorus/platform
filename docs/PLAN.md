@@ -786,7 +786,59 @@ HTTP request → event metadata → outbox → NATS message metadata → project
 on all 3 binaries; graceful shutdown; poison-queue/DLQ wiring in the projection router; Dockerfiles per
 binary; JWT hardening (alg allow-list, aud/iss checks); CI running the full suite incl. testcontainers
 and an automated e2e slice; outbox relay HA/failover drill; documentation pass + security review of the
-auth middleware. **Status: not started.**
+auth middleware. **Status: done**, with two items deliberately not automated (see below).
+
+Implementation notes:
+- **Correlation IDs**: `internal/observability.WithCorrelationID`/`CorrelationID` thread a
+  per-HTTP-request id (generated or propagated via `X-Request-Id`) through
+  `internal/eventstore/postgres.Store.Append`'s `metadata` column (`eventMetadata{CorrelationID,
+  CausationID}` — causation is set equal to correlation for v1, since every event in an Append
+  call has exactly one direct cause, the inbound request; a real distinct causation chain isn't
+  needed yet), which the outbox relay copies verbatim into `bus.Envelope.Metadata`, which
+  `internal/projection.Router` decodes back out (`Envelope.CorrelationID()`) for its log lines.
+- **Metrics** (`internal/observability/metrics.go`, exposed at `/metrics` via `promhttp.Handler()`
+  on all 3 binaries): `timadorus_http_request_duration_seconds` (command-api/query-api, labelled
+  by matched *route template* not raw path, to keep cardinality bounded),
+  `timadorus_event_append_duration_seconds`, `timadorus_outbox_publish_lag_seconds`,
+  `timadorus_projection_lag_seconds` (needed adding a `CreatedAt` field to `bus.Envelope`, populated
+  from `outbox.created_at`, beyond the original §7 sketch), and
+  `timadorus_projection_events_total{result="ok|retry|dead_letter"}`.
+- **Health/readiness**: `internal/observability.HealthzHandler`/`ReadyzHandler` (the latter pings
+  the Postgres pool). Mounted at `/healthz`, `/readyz`, `/metrics` on all 3 binaries — the
+  projector gained its own small unauthenticated HTTP server (`PROJECTOR_ADDR`, default `:8083`)
+  for this, since it previously had no HTTP surface at all. On command-api/query-api these paths
+  are exempted from both OpenAPI schema validation and JWT auth via `internal/auth.Middleware`'s
+  `operationalPaths` skip-list (`nethttpmiddleware.Options.Skipper`), since they aren't part of
+  either public API contract.
+- **Poison-queue/DLQ**: `internal/projection.Router` now tracks consecutive-failure counts
+  per message UUID (process-local, resets on restart) and, after `defaultMaxAttempts` (5), records
+  the message to a new `projection_dead_letters` table (`internal/projection/checkpoint/deadletter.go`,
+  migration `0002_projection_dead_letters` under the `projection_checkpoint` schema owner) and Acks
+  it rather than Nacking forever — otherwise one permanently-broken message would block that
+  projection's entire single-consumer stream indefinitely.
+- **Graceful shutdown**: command-api now waits (`sync.WaitGroup`) for the outbox relay goroutine to
+  observe context cancellation and release its `pg_advisory_lock` before the process exits, rather
+  than firing-and-forgetting it — avoids a fast restart racing the new instance's leader election.
+- **JWT hardening**: `jwt.WithAcceptableSkew` (60s) added; algorithm-confusion/`alg: none` defense
+  turns out to already be structural in jwx v3's `jwt.WithKeySet` (it requires every key to carry an
+  explicit `alg` and refuses to verify against a key whose `alg` doesn't match the token header — the
+  header's claimed algorithm is never trusted on its own), so no separate allow-list check was needed
+  beyond documenting why.
+- **Dockerfiles**: `Dockerfile.command-api`/`.projector`/`.query-api` at the repo root, multi-stage
+  (`golang:1.26-alpine` builder → `gcr.io/distroless/static-debian12:nonroot` runtime, `CGO_ENABLED=0`).
+  Built and smoke-tested against the real `docker-compose` Postgres/NATS (`/healthz`, `/readyz`,
+  `/metrics` all confirmed working from inside the container).
+- **CI**: added `go mod tidy` (no-diff) and `go generate` (no-diff, proves specs/codegen stay in
+  sync) checks to the existing build/vet/test job, plus a separate lint job. The lint job is
+  `continue-on-error: true`: no golangci-lint release (v1 or v2) yet ships a toolchain that can
+  type-check a module declaring `go 1.26` in `go.mod` — it's a hard panic in `go/types` on an older
+  analyzing toolchain, not something a golangci-lint config can route around. `go vet` remains the
+  enforced static check until golangci-lint catches up.
+- **Not automated** (documented gaps, not silently dropped): an automated end-to-end
+  `test/e2e/vertical_slice_test.go` (§11 already flagged this; the Phase 1-4 verification scenarios
+  were all run manually instead) and an outbox-relay multi-replica HA/failover drill (the
+  `pg_advisory_lock` leader-election mechanism was built and is exercised implicitly by every
+  single-replica run, but a real concurrent-replica failover test was not performed).
 
 ---
 

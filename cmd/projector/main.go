@@ -6,16 +6,21 @@ package main
 import (
 	"context"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
+	"time"
 
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/timadorus/platform/internal/bus"
 	"github.com/timadorus/platform/internal/config"
+	"github.com/timadorus/platform/internal/observability"
 	"github.com/timadorus/platform/internal/projection"
 	campaignprojection "github.com/timadorus/platform/internal/projection/campaign"
 	characterprojection "github.com/timadorus/platform/internal/projection/character"
@@ -62,6 +67,37 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		objectprojection.NewProjector(),
 	}
 
+	// The projector has no public API (plan §9's read/write import-graph rule keeps it out
+	// of both OpenAPI specs), so this endpoint set is unauthenticated ops surface only:
+	// /healthz, /readyz, /metrics. A failure here is logged but never fatal — it must never
+	// take down actual event processing.
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", observability.HealthzHandler())
+	mux.HandleFunc("/readyz", observability.ReadyzHandler(pool))
+	mux.Handle("/metrics", promhttp.Handler())
+	httpServer := &http.Server{
+		Addr:              cfg.HTTPAddr,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+
+	var httpWG sync.WaitGroup
+	httpWG.Add(1)
+	go func() {
+		defer httpWG.Done()
+		logger.Info("projector: observability endpoints listening", "addr", cfg.HTTPAddr)
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("projector: observability http server failed", "error", err)
+		}
+	}()
+
 	logger.Info("projector: starting", "projectors", len(projectors))
-	return router.Run(ctx, projectors)
+	runErr := router.Run(ctx, projectors) // blocks until ctx is cancelled
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_ = httpServer.Shutdown(shutdownCtx)
+	httpWG.Wait()
+
+	return runErr
 }

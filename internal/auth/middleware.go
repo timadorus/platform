@@ -13,6 +13,16 @@ import (
 
 var errMissingBearerToken = errors.New("auth: missing or malformed bearer token")
 
+// operationalPaths are mounted directly on each binary's router (see
+// internal/observability.HealthzHandler/ReadyzHandler and cmd/*/main.go's /metrics
+// registration) rather than declared in the OpenAPI spec — they're not part of the public
+// command/query contract, so they must skip both schema validation and bearer-token auth.
+var operationalPaths = map[string]bool{
+	"/healthz": true,
+	"/readyz":  true,
+	"/metrics": true,
+}
+
 // Middleware builds the oapi-codegen request-validator middleware for spec, wired to verify
 // bearer tokens declared via the spec's bearerAuth securityScheme. Mounted with
 // mux.Router.Use in each binary (see plan §10) — validates both the request body/params
@@ -27,6 +37,9 @@ func Middleware(spec *openapi3.T, verifier *Verifier) func(http.Handler) http.Ha
 		// spec's `servers` entry would just produce noisy false positives for now.
 		DoNotValidateServers:  true,
 		SilenceServersWarning: true,
+		Skipper: func(r *http.Request) bool {
+			return operationalPaths[r.URL.Path]
+		},
 	})
 }
 

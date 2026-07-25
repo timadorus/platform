@@ -13,6 +13,45 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.26"
-      - run: go build ./...
-      - run: go vet ./...
-      - run: go test ./...
+          cache: true
+
+      - name: go build
+        run: go build ./...
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go mod tidy (no diff)
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+
+      - name: verify generated OpenAPI code is up to date
+        run: |
+          go generate ./...
+          git diff --exit-code -- api/command/gen api/query/gen
+
+      # Runs the full suite, including testcontainers-backed integration tests
+      # (internal/eventstore/postgres, internal/projection/universe) — ubuntu-latest runners
+      # have Docker preinstalled, so testcontainers talks to it directly with no extra
+      # `services:` containers needed here.
+      - name: go test
+        run: go test ./... -timeout 5m
+
+  lint:
+    runs-on: ubuntu-latest
+    # Non-blocking for now: no golangci-lint release yet ships a toolchain that can
+    # type-check a module declaring `go 1.26` in go.mod (it's a hard panic in go/types
+    # itself when the analyzing toolchain is older than the target — not something a
+    # golangci-lint config can route around). `go vet` in build-test is the enforced static
+    # check in the meantime; flip continue-on-error off once golangci-lint catches up.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest

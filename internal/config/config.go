@@ -49,12 +49,17 @@ func LoadQueryAPI() QueryAPI {
 }
 
 type Projector struct {
+	// HTTPAddr serves /healthz, /readyz, /metrics only — the projector has no public API,
+	// so unlike command-api/query-api this port carries no OpenAPI-defined routes and needs
+	// no auth middleware.
+	HTTPAddr    string
 	DatabaseURL string
 	NATSURL     string
 }
 
 func LoadProjector() Projector {
 	return Projector{
+		HTTPAddr:    getEnv("PROJECTOR_ADDR", ":8083"),
 		DatabaseURL: getEnv("DATABASE_URL", "postgres://timadorus:timadorus@localhost:5432/timadorus?sslmode=disable"),
 		NATSURL:     getEnv("NATS_URL", "nats://localhost:4222"),
 	}

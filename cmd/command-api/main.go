@@ -10,12 +10,14 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/timadorus/platform/api/command/gen"
 	"github.com/timadorus/platform/internal/auth"
@@ -42,6 +44,7 @@ import (
 	"github.com/timadorus/platform/internal/eventsourcing"
 	"github.com/timadorus/platform/internal/eventstore/postgres"
 	httpcommand "github.com/timadorus/platform/internal/httpapi/command"
+	"github.com/timadorus/platform/internal/observability"
 	"github.com/timadorus/platform/internal/outbox"
 )
 
@@ -120,7 +123,12 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	}
 
 	router := mux.NewRouter()
+	router.Use(observability.RequestLogging(logger))
+	router.Use(observability.HTTPMetrics("command-api"))
 	router.Use(auth.Middleware(spec, verifier))
+	router.HandleFunc("/healthz", observability.HealthzHandler())
+	router.HandleFunc("/readyz", observability.ReadyzHandler(pool))
+	router.Handle("/metrics", promhttp.Handler())
 	gen.HandlerFromMux(strictHandler, router)
 
 	watermillLogger := watermill.NewSlogLogger(logger)
@@ -130,7 +138,12 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	}
 
 	relay := outbox.NewRelay(pool, publisher, logger)
-	go relay.Run(ctx)
+	var relayWG sync.WaitGroup
+	relayWG.Add(1)
+	go func() {
+		defer relayWG.Done()
+		relay.Run(ctx)
+	}()
 
 	httpServer := &http.Server{
 		Addr:              cfg.HTTPAddr,
@@ -150,8 +163,17 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		return httpServer.Shutdown(shutdownCtx)
+		err := httpServer.Shutdown(shutdownCtx)
+		// Wait for the outbox relay to release its advisory lock (if held) and return,
+		// so a fast restart doesn't race the new instance's leader-election attempt. Safe
+		// to wait here specifically because ctx (which relay.Run watches) is already done.
+		relayWG.Wait()
+		return err
 	case err := <-errCh:
+		// ctx is NOT done in this branch (the HTTP server failed on its own, independent of
+		// shutdown signal) — relay.Run(ctx) is still running and won't return on its own, so
+		// waiting on relayWG here would hang forever. Just report the error; the process is
+		// exiting via main()'s os.Exit(1) regardless.
 		return err
 	}
 }

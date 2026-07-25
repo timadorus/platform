@@ -14,11 +14,13 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/timadorus/platform/api/query/gen"
 	"github.com/timadorus/platform/internal/auth"
 	"github.com/timadorus/platform/internal/config"
 	httpquery "github.com/timadorus/platform/internal/httpapi/query"
+	"github.com/timadorus/platform/internal/observability"
 	campaignquery "github.com/timadorus/platform/internal/query/campaign"
 	characterquery "github.com/timadorus/platform/internal/query/character"
 	entityquery "github.com/timadorus/platform/internal/query/entity"
@@ -68,7 +70,12 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	}
 
 	router := mux.NewRouter()
+	router.Use(observability.RequestLogging(logger))
+	router.Use(observability.HTTPMetrics("query-api"))
 	router.Use(auth.Middleware(spec, verifier))
+	router.HandleFunc("/healthz", observability.HealthzHandler())
+	router.HandleFunc("/readyz", observability.ReadyzHandler(pool))
+	router.Handle("/metrics", promhttp.Handler())
 	gen.HandlerFromMux(strictHandler, router)
 
 	httpServer := &http.Server{

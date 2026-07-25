@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/timadorus/platform/internal/bus"
+	"github.com/timadorus/platform/internal/observability"
 )
 
 const (
@@ -88,6 +89,7 @@ type outboxRow struct {
 	eventType     string
 	payload       json.RawMessage
 	metadata      json.RawMessage
+	createdAt     time.Time
 }
 
 func (r *Relay) publishBatch(ctx context.Context) error {
@@ -98,7 +100,7 @@ func (r *Relay) publishBatch(ctx context.Context) error {
 	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
 
 	rows, err := tx.Query(ctx,
-		`SELECT id, global_seq, aggregate_id, aggregate_type, version, event_type, payload, metadata
+		`SELECT id, global_seq, aggregate_id, aggregate_type, version, event_type, payload, metadata, created_at
 		 FROM outbox WHERE published_at IS NULL
 		 ORDER BY id
 		 FOR UPDATE SKIP LOCKED
@@ -112,7 +114,7 @@ func (r *Relay) publishBatch(ctx context.Context) error {
 	for rows.Next() {
 		var row outboxRow
 		if err := rows.Scan(&row.id, &row.globalSeq, &row.aggregateID, &row.aggregateType,
-			&row.version, &row.eventType, &row.payload, &row.metadata); err != nil {
+			&row.version, &row.eventType, &row.payload, &row.metadata, &row.createdAt); err != nil {
 			rows.Close()
 			return fmt.Errorf("outbox: scan row: %w", err)
 		}
@@ -132,6 +134,7 @@ func (r *Relay) publishBatch(ctx context.Context) error {
 			EventType:     row.eventType,
 			Payload:       row.payload,
 			Metadata:      row.metadata,
+			CreatedAt:     row.createdAt,
 		}
 		body, err := json.Marshal(envelope)
 		if err != nil {
@@ -147,6 +150,7 @@ func (r *Relay) publishBatch(ctx context.Context) error {
 			// at-least-once regardless.
 			return fmt.Errorf("outbox: publish row %d: %w", row.id, err)
 		}
+		observability.OutboxPublishLagSeconds.Observe(time.Since(row.createdAt).Seconds())
 
 		if _, err := tx.Exec(ctx, `UPDATE outbox SET published_at = now() WHERE id = $1`, row.id); err != nil {
 			return fmt.Errorf("outbox: mark row %d published: %w", row.id, err)

@@ -1,0 +1,14 @@
+# Build: docker build -f Dockerfile.command-api -t timadorus/command-api .
+# Run:   docker run -p 8081:8081 --env-file .env timadorus/command-api
+
+FROM golang:1.26-alpine AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/command-api ./cmd/command-api
+
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /out/command-api /command-api
+EXPOSE 8081
+ENTRYPOINT ["/command-api"]

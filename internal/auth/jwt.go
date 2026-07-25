@@ -6,11 +6,20 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/lestrrat-go/jwx/v3/jwk"
 	"github.com/lestrrat-go/jwx/v3/jwt"
 )
+
+// acceptableClockSkew bounds how far apart this server's clock and the token issuer's clock
+// may drift and still have exp/nbf/iat checks pass. Kept intentionally small — this is
+// tolerance for real clock drift between servers, not a way to paper over misconfiguration.
+const acceptableClockSkew = 60 * time.Second
+
+var errEmptyToken = errors.New("auth: empty bearer token")
 
 // Verifier verifies signed JWT bearer tokens against a key set. Pluggability = the key set,
 // issuer, and audience all come from config (internal/config), so swapping identity
@@ -60,10 +69,26 @@ func NewStaticSecretKeySet(kid string, secret []byte) (jwk.Set, error) {
 // Verify parses and validates raw as a signed JWT, checking the signature against the
 // configured key set plus (if configured) issuer and audience, and returns the claims
 // handlers need.
+//
+// Algorithm-confusion / "alg: none" defense: this is structural, not a separate check here.
+// jwt.WithKeySet requires every key in the set to carry an explicit "alg" (see
+// NewStaticSecretKeySet, and JWKS documents from a real IdP normally set this per key too),
+// and jwx refuses to verify using a key whose alg doesn't match the token's header — the
+// token's own header is never trusted to pick the algorithm. A bare unsigned ("none") token
+// has no matching key by construction and is rejected the same way a wrong-signature token
+// is: as a verification failure below, not a special case.
 func (v *Verifier) Verify(ctx context.Context, raw string) (Claims, error) {
-	// ValidateOption implements ParseOption, so issuer/audience/context checks can be passed
-	// straight to Parse alongside the key set.
-	parseOpts := []jwt.ParseOption{jwt.WithKeySet(v.keySet), jwt.WithContext(ctx)}
+	if raw == "" {
+		return Claims{}, errEmptyToken
+	}
+
+	// ValidateOption implements ParseOption, so issuer/audience/context/skew checks can be
+	// passed straight to Parse alongside the key set.
+	parseOpts := []jwt.ParseOption{
+		jwt.WithKeySet(v.keySet),
+		jwt.WithContext(ctx),
+		jwt.WithAcceptableSkew(acceptableClockSkew),
+	}
 	if v.issuer != "" {
 		parseOpts = append(parseOpts, jwt.WithIssuer(v.issuer))
 	}
