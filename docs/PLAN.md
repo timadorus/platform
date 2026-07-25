@@ -867,6 +867,107 @@ Implementation notes:
 
 ---
 
+## 14. CLI Tool: `timadorusctl`
+
+A cobra-based CLI client (`cmd/timadorusctl`, `internal/cliapp`) that issues command-api and
+query-api HTTP calls and prints every response as JSON to stdout — a scriptable operator tool
+for the platform, analogous in spirit to `kubectl`. **Status: done**, verified end to end
+against the live services (user/universe/campaign/entity/character create, rename, archive,
+add/delete gamemaster including the last-gamemaster-invariant 409, the atomic
+Character+Entity creation, and interactive id prompting with persistence).
+
+### 14.1 Command shape
+
+`timadorusctl <verb> <resource> [args...] [flags]` — verbs map directly to HTTP semantics,
+resources are the singular aggregate/relationship name:
+
+| Verb | HTTP | Meaning |
+|---|---|---|
+| `create` | POST (primary creation) | Create a new aggregate |
+| `rename` | PATCH | Rename an aggregate |
+| `archive` | POST `.../archive` | Archive an aggregate (idempotent) |
+| `add` | POST (sub-resource) | Add a user to a collection relationship (creator/gamemaster) |
+| `delete` | DELETE (sub-resource) | Remove a user from a collection relationship |
+| `set` | PUT | Reassign a mandatory single-value reference (player) |
+| `get` | GET (single) | Fetch one aggregate/projection by id |
+| `list` | GET (collection) | List a collection scoped to a parent |
+
+Examples (the two given in the original request, plus one more to show the pattern holds):
+
+```
+POST /users                                    -> timadorusctl create user <name>
+POST /universes                                -> timadorusctl create universe <name> <creatorUserId>...
+POST /universes/{universeId}/campaigns         -> timadorusctl create campaign <name> <gamemasterUserId>...
+DELETE /campaigns/{campaignId}/gamemasters/{userId} -> timadorusctl delete gamemaster <userId>
+PUT /characters/{characterId}/player           -> timadorusctl set player <characterId> <userId>
+```
+
+### 14.2 Id-defaulting: narrow scope, tracked context
+
+`timadorusctl` tracks three things in a local config file (`~/.config/timadorusctl/config.json`,
+`timadorusctl config show`/`set-user`/`set-universe`/`set-campaign`): the authenticated user,
+the current universe, and the current campaign. The defaulting rule is deliberately **narrow**:
+
+- Tracked defaults fill in **only the parent id of a create/add/delete/list command** — the
+  current universe when creating a campaign/entity/object or mutating a universe's Creators;
+  the current campaign when creating a character or mutating a campaign's Gamemasters. Each
+  such command also accepts an explicit `--universe`/`--campaign` flag to override the
+  default for that one call.
+- The id of the aggregate a command **acts on** (the rename/archive/get/set target, e.g.
+  `<campaignId>` in `rename campaign <campaignId> <name>`) is **always an explicit CLI
+  argument**, never defaulted — even though Universe and Campaign have tracked "current"
+  values. This avoids a footgun where a bare `rename campaign <name>` would silently target
+  whatever campaign happened to be current.
+- Cross-aggregate references (creator/gamemaster/player user ids) are **always explicit
+  arguments** too. The tracked "current user" (the authenticated identity) is informational
+  only — `config show` displays it, but no command auto-fills a userId argument from it. There
+  is no tracked "current character" or "current entity/object" (only user/universe/campaign
+  are tracked, per the original request), so those ids are always explicit as well.
+- When a parent id is needed and neither the flag nor the tracked default is set, the CLI
+  interactively prompts for it on stderr (stdout is reserved for JSON API responses — prompts,
+  confirmations, and errors all go to stderr) and **persists the answer as the new current
+  value** so it isn't asked again.
+
+### 14.3 Convention: every new aggregate type or command gets a matching CLI command
+
+**This is a standing rule for future work on this platform, not just a description of what
+exists today.** Whenever a new aggregate type is added (following the Phase 4 "mechanical
+replication" pattern — plan §12) or a new command is added to an existing aggregate, add the
+corresponding `timadorusctl` command(s) in the same change:
+
+- A new parented, no-collection-invariant aggregate (the Entity/Object shape) gets exactly
+  the five commands `object.go`/`entity.go` already show: `create <resource> <name>`
+  (with the appropriate parent flag), `rename`, `archive`, `get`, `list` (scoped to that
+  parent). Copy-adapt one of those two files — this mirrors the domain layer's own copy-adapt
+  convention (plan §4.2).
+- A new aggregate with a collection invariant (the Universe/Campaign "Creators"/"Gamemasters"
+  shape) additionally gets `add <relationship> <userId>` / `delete <relationship> <userId>` /
+  `list <relationship>`, following `universe.go`'s Creators or `campaign.go`'s Gamemasters
+  commands as the template.
+- A new single-mandatory-reference command (the Character "Player" shape) gets a `set
+  <field> <targetId> <userId>` command under the shared `setCmd`, following `character.go`'s
+  `set player`.
+- If a brand-new HTTP verb/semantic is introduced that doesn't fit `create`/`rename`/
+  `archive`/`add`/`delete`/`set`/`get`/`list`, don't silently overload one of these — pick a
+  new verb that names what the operation actually does, add it to `App`'s verb-command set in
+  `root.go`, and record the choice (and why the existing verbs didn't fit) here in §14.1.
+- If the new id-parameter doesn't obviously fit the narrow-scope rule in §14.2 (for example: a
+  future aggregate parented by two different aggregate types, or a command needing a *target*
+  id that arguably should be defaultable), don't guess — the id-defaulting scope was a
+  deliberate, explicit product decision (see git history around this section), so flag the
+  ambiguity and ask before extending the rule.
+
+### 14.4 Not built
+
+- No `timadorusctl` Dockerfile — it's an operator/client tool meant to run on a workstation
+  against a remote deployment, not a server process, so it doesn't fit the Phase 5 "Dockerfile
+  per binary" scope (plan §12, which is specifically about the three *server* binaries).
+- No shell-completion install step beyond cobra's built-in `timadorusctl completion <shell>`.
+- No automated CLI test suite yet (verified manually against the live stack, same as the
+  platform's own end-to-end verification — plan §11's "not automated" note applies here too).
+
+---
+
 ## Verification
 
 - `go build ./...` and `go vet ./...` clean across all 3 binaries. **Confirmed at every phase.**

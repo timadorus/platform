@@ -1,7 +1,8 @@
-.PHONY: build test lint generate migrate-up migrate-down dev-up dev-down
+.PHONY: build build-tools test lint generate migrate-up migrate-down dev-up dev-down
 
 DATABASE_URL ?= postgres://timadorus:timadorus@localhost:5432/timadorus?sslmode=disable
 MIGRATE      := go run -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.19.1
+BINDIR	     ?= $(CURDIR)/bin
 
 # One migration directory per schema owner (plan §1) -> each gets its own
 # schema_migrations tracking table, since they're independent version sequences that just
@@ -17,6 +18,9 @@ SCHEMA_OWNERS := eventstore:internal/eventstore/postgres/migrations \
 
 build:
 	go build ./...
+
+build-tools: $(BINDIR)
+	go build -o $(BINDIR)/timadorusctl ./cmd/timadorusctl
 
 test:
 	go test ./...
@@ -50,3 +54,7 @@ dev-up:
 
 dev-down:
 	docker compose down -v
+
+
+$(BINDIR):
+	mkdir -p $(BINDIR)
