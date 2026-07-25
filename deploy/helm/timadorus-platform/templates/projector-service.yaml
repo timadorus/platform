@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "timadorus-platform.fullname" . }}-projector
+  labels:
+    {{- include "timadorus-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: projector
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "timadorus-platform.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: projector
+  ports:
+    - name: http
+      port: {{ .Values.projector.containerPort }}
+      targetPort: http
