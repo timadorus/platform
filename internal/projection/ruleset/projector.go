@@ -86,9 +86,10 @@ func (p *Projector) handleReferencesChanged(ctx context.Context, tx pgx.Tx, env 
 	if err := json.Unmarshal(env.Payload, &e); err != nil {
 		return fmt.Errorf("ruleset projector: unmarshal %s: %w", env.EventType, err)
 	}
-	// Same nil-vs-NULL normalization as handleCreated: a request that sets references to an
-	// empty list arrives here as e.References == nil, which must not hit reference_urls (NOT
-	// NULL) as SQL NULL.
+	// Defensive: references cannot be nil through the HTTP API (the field is required, so
+	// oapi-codegen generates a plain []string, never nil), but normalize anyway in case this
+	// method is ever called with a programmatically-constructed nil slice — same reasoning as
+	// handleCreated's normalization, which IS reachable via the API (references is optional there).
 	references := e.References
 	if references == nil {
 		references = []string{}

@@ -15,11 +15,11 @@ import (
 const AggregateType = "ruleset"
 
 const (
-	TypeRulesetCreated             = "ruleset.created.v1"
-	TypeRulesetRenamed             = "ruleset.renamed.v1"
-	TypeRulesetDescriptionChanged  = "ruleset.description_changed.v1"
-	TypeRulesetReferencesChanged   = "ruleset.references_changed.v1"
-	TypeRulesetArchived            = "ruleset.archived.v1"
+	TypeRulesetCreated            = "ruleset.created.v1"
+	TypeRulesetRenamed            = "ruleset.renamed.v1"
+	TypeRulesetDescriptionChanged = "ruleset.description_changed.v1"
+	TypeRulesetReferencesChanged  = "ruleset.references_changed.v1"
+	TypeRulesetArchived           = "ruleset.archived.v1"
 )
 
 type RulesetCreated struct {

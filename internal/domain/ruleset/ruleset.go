@@ -26,10 +26,10 @@ type Ruleset struct {
 	archived    bool
 }
 
-func (r *Ruleset) Name() string          { return r.name }
-func (r *Ruleset) Description() string   { return r.description }
-func (r *Ruleset) References() []string  { return r.references }
-func (r *Ruleset) IsArchived() bool      { return r.archived }
+func (r *Ruleset) Name() string         { return r.name }
+func (r *Ruleset) Description() string  { return r.description }
+func (r *Ruleset) References() []string { return r.references }
+func (r *Ruleset) IsArchived() bool     { return r.archived }
 
 func New(name, description string, references []string) (*Ruleset, error) {
 	if name == "" {

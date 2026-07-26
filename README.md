@@ -4,8 +4,8 @@ A DDD-flavored CQRS/Event-Sourcing platform in Go, built on [Watermill](https://
 PostgreSQL + NATS JetStream, with spec-first OpenAPI APIs generated via
 [oapi-codegen](https://github.com/oapi-codegen/oapi-codegen).
 
-It manages six related domain concepts for a tabletop-RPG-style application: **User**,
-**Universe**, **Campaign**, **Character**, **Entity**, and **Object**. See
+It manages seven related domain concepts for a tabletop-RPG-style application: **User**,
+**Universe**, **Campaign**, **Character**, **Entity**, **Object**, and **Ruleset**. See
 [`docs/PLAN.md`](docs/PLAN.md) for the full design and [`docs/adr/`](docs/adr/) for the
 individual architecture decisions behind it.
 
@@ -125,7 +125,7 @@ docker build -f Dockerfile.query-api   -t timadorus/query-api .
 
 ## Project status
 
-Phases 0–5 of the plan in [`docs/PLAN.md`](docs/PLAN.md) are complete: all six aggregate
+Phases 0–5 of the plan in [`docs/PLAN.md`](docs/PLAN.md) are complete: all seven aggregate
 types, the full command → event store → outbox → NATS → projector → read model → query
 pipeline, and hardening (structured logging with correlation IDs, Prometheus metrics,
 health/readiness endpoints, poison-queue/dead-letter handling, JWT hardening, Dockerfiles,

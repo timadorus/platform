@@ -733,12 +733,10 @@ func (s *Server) ArchiveRuleset(ctx context.Context, request gen.ArchiveRulesetR
 	return gen.ArchiveRuleset200Response{}, nil
 }
 
-// derefReferences dereferences the optional References pointer from CreateRulesetRequest into
-// a plain []string, returning nil when the field was omitted. NOTE: the brief this handler was
-// written from assumed oapi-codegen would generate optional arrays as a plain, nil-safe
-// []string; actual inspection of the generated CreateRulesetRequest (api/command/gen/server.gen.go)
-// showed References is *[]string (pointer to slice), same as any other optional field — so this
-// helper does real work, unlike the no-op the brief anticipated.
+// derefReferences nil-safely dereferences an optional array-typed OpenAPI property. In this
+// codebase's oapi-codegen setup, an optional array field (e.g. CreateRulesetRequest.References)
+// generates as *[]string, not a plain []string, so callers need this to get a nil []string when
+// the field was omitted rather than dereferencing a nil pointer.
 func derefReferences(references *[]string) []string {
 	if references == nil {
 		return nil

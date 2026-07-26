@@ -21,8 +21,8 @@ import (
 type Service struct {
 	campaigns *eventsourcing.Repository[*campaign.Campaign]
 	universes *eventsourcing.Repository[*universe.Universe] // existence/archived-state checks only
-	users     *eventsourcing.Repository[*user.User]          // existence/archived-state checks only
-	rulesets  *eventsourcing.Repository[*ruleset.Ruleset]    // existence/archived-state checks only
+	users     *eventsourcing.Repository[*user.User]         // existence/archived-state checks only
+	rulesets  *eventsourcing.Repository[*ruleset.Ruleset]   // existence/archived-state checks only
 }
 
 func NewService(

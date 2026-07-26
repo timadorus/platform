@@ -3,8 +3,8 @@
 ## Context
 
 This is a brand-new, currently-empty repository (`/home/sage/git/timadorus-platform`). The goal is to
-stand up a DDD-flavored CQRS/Event-Sourcing platform in Go that manages six related domain concepts
-(User, Universe, Campaign, Character, Entity, Object) for what looks like a tabletop-RPG-style
+stand up a DDD-flavored CQRS/Event-Sourcing platform in Go that manages seven related domain concepts
+(User, Universe, Campaign, Character, Entity, Object, Ruleset) for what looks like a tabletop-RPG-style
 application: Users create Universes, run Campaigns inside them as Gamemasters, and play Characters
 (each auto-paired with an Entity) inside those Campaigns.
 
@@ -19,7 +19,7 @@ Key constraints driving the design:
 - Deployment is **three separate Go binaries** (confirmed): `command-api`, `projector`, `query-api`.
 - Basic JWT bearer-auth scaffolding is in scope (confirmed); the identity provider itself is not.
 - Aggregate IDs are **server-generated** (confirmed).
-- The six aggregate types have a real ownership hierarchy (gathered from the user, see §2), not just a
+- The seven aggregate types have a real ownership hierarchy (gathered from the user, see §2), not just a
   flat id+name shape — this drives non-trivial invariants (non-empty Gamemaster/Creator lists,
   mandatory Player) and one cross-aggregate creation flow (Character auto-creates an Entity).
 
@@ -565,7 +565,7 @@ CREATE TABLE universe_creators (
 );
 
 CREATE TABLE campaigns_read_model (
-    id UUID PRIMARY KEY, name TEXT NOT NULL, universe_id UUID NOT NULL,
+    id UUID PRIMARY KEY, name TEXT NOT NULL, universe_id UUID NOT NULL, ruleset_id UUID NOT NULL,
     is_archived BOOLEAN NOT NULL DEFAULT false, updated_at TIMESTAMPTZ NOT NULL
 );
 CREATE INDEX ON campaigns_read_model (universe_id);
@@ -594,6 +594,15 @@ CREATE TABLE characters_read_model (
 );
 CREATE INDEX ON characters_read_model (campaign_id);
 CREATE INDEX ON characters_read_model (player_user_id);
+
+CREATE TABLE rulesets_read_model (
+    id             UUID PRIMARY KEY,
+    name           TEXT NOT NULL,
+    description    TEXT NOT NULL DEFAULT '',
+    reference_urls TEXT[] NOT NULL DEFAULT '{}',
+    is_archived    BOOLEAN NOT NULL DEFAULT false,
+    updated_at     TIMESTAMPTZ NOT NULL
+);
 ```
 
 Every list-shaped query-api endpoint (`GET .../campaigns`, `GET .../characters`, etc.) excludes
@@ -712,7 +721,9 @@ GET /characters/{characterId}
 - Every response DTO includes `isArchived`; the four hierarchy list endpoints
   (`.../campaigns`, `.../entities`, `.../objects`, `.../characters`) filter out `is_archived = true`
   rows unconditionally in v1 (see §7's implementation note); single-resource `GET .../{id}` endpoints
-  always return the resource regardless of archived state.
+  always return the resource regardless of archived state. The three list-all endpoints
+  (`/users`, `/universes`, `/rulesets`) apply the same unconditional `is_archived = false` filter
+  in their `ListAll` repository methods.
 
 ---
 
