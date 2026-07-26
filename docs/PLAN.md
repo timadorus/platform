@@ -47,11 +47,17 @@ Key constraints driving the design:
 ```
 User (independent, top-level account)
 
+Ruleset (independent, top-level — referenced by Campaign, never owned by a Universe)
+ └── description: string, mutable via a dedicated command
+ └── references: []string, mutable via a dedicated command (whole-list replace)
+
 Universe
  └── Creators: Set<User>, non-empty, mutable (add/remove)
 
 Campaign
  └── belongs to exactly one Universe (immutable parent ref)
+ └── references exactly one Ruleset (immutable — set at creation, never changeable; create a
+     new Campaign to use a different Ruleset)
  └── Gamemasters: Set<User>, non-empty, mutable (add/remove)
 
 Entity
@@ -285,6 +291,7 @@ to pull data needed downstream):
 type CampaignService struct {
     campaigns eventsourcing.Repository[*campaign.Campaign]
     universes eventsourcing.Repository[*universe.Universe] // existence-check only
+    rulesets  eventsourcing.Repository[*ruleset.Ruleset]     // existence-check only
     users     eventsourcing.Repository[*user.User]          // existence-check only
 }
 
@@ -295,6 +302,13 @@ func (s *CampaignService) CreateCampaign(ctx context.Context, cmd CreateCampaign
     }
     if universe.IsArchived() {
         return uuid.Nil, fmt.Errorf("%w: universe %s", ErrParentArchived, cmd.UniverseID)
+    }
+    rs, err := s.rulesets.Load(ctx, cmd.RulesetID)
+    if err != nil {
+        return uuid.Nil, fmt.Errorf("%w: ruleset %s", ErrParentNotFound, cmd.RulesetID)
+    }
+    if rs.IsArchived() {
+        return uuid.Nil, fmt.Errorf("%w: ruleset %s", ErrParentArchived, cmd.RulesetID)
     }
     for _, id := range cmd.GamemasterUserIDs {
         u, err := s.users.Load(ctx, id)
@@ -393,10 +407,11 @@ sites**. Because both `Save` calls run in one transaction, their outbox rows get
 |---|---|
 | User | `UserCreated{ID, Name}`, `UserRenamed{Name}`, `UserArchived{}` |
 | Universe | `UniverseCreated{ID, Name, CreatorUserIDs}`, `UniverseRenamed{Name}`, `CreatorAdded{UserID}`, `CreatorRemoved{UserID}`, `UniverseArchived{}` |
-| Campaign | `CampaignCreated{ID, Name, UniverseID, GamemasterUserIDs}`, `CampaignRenamed{Name}`, `GamemasterAdded{UserID}`, `GamemasterRemoved{UserID}`, `CampaignArchived{}` |
+| Campaign | `CampaignCreated{ID, Name, UniverseID, RulesetID, GamemasterUserIDs}`, `CampaignRenamed{Name}`, `GamemasterAdded{UserID}`, `GamemasterRemoved{UserID}`, `CampaignArchived{}` |
 | Entity | `EntityCreated{ID, Name, UniverseID}`, `EntityRenamed{Name}`, `EntityArchived{}` |
 | Object | `ObjectCreated{ID, Name, UniverseID}`, `ObjectRenamed{Name}`, `ObjectArchived{}` |
 | Character | `CharacterCreated{ID, Name, CampaignID, EntityID, PlayerUserID}`, `CharacterRenamed{Name}`, `PlayerChanged{NewPlayerUserID}`, `CharacterArchived{}` |
+| Ruleset | `RulesetCreated{ID, Name, Description, References}`, `RulesetRenamed{Name}`, `RulesetDescriptionChanged{Description}`, `RulesetReferencesChanged{References}`, `RulesetArchived{}` |
 
 Convention: don't duplicate an aggregate's *own* id inside its own payload (the envelope already
 carries `aggregate_id`/`aggregate_type`/`version`) — but always include ids that point at a **different**
@@ -625,7 +640,7 @@ POST   /universes/{universeId}/archive
 POST   /universes/{universeId}/creators/{userId}
 DELETE /universes/{universeId}/creators/{userId}     -- 409 if last
 
-POST   /universes/{universeId}/campaigns             { name, gamemasterUserIds }
+POST   /universes/{universeId}/campaigns             { name, rulesetId, gamemasterUserIds }
 PATCH  /campaigns/{campaignId}
 POST   /campaigns/{campaignId}/archive
 POST   /campaigns/{campaignId}/gamemasters/{userId}
@@ -637,6 +652,12 @@ POST   /entities/{entityId}/archive
 POST   /universes/{universeId}/objects                { name }
 PATCH  /objects/{objectId}
 POST   /objects/{objectId}/archive
+
+POST   /rulesets                                      { name, description?, references? }
+PATCH  /rulesets/{rulesetId}
+PUT    /rulesets/{rulesetId}/description               { description }
+PUT    /rulesets/{rulesetId}/references                { references }
+POST   /rulesets/{rulesetId}/archive
 
 POST   /campaigns/{campaignId}/characters             { name, playerUserId }  -- creates Character + Entity atomically, returns both ids
 PATCH  /characters/{characterId}
@@ -666,7 +687,9 @@ PUT    /characters/{characterId}/player               { userId }              --
 - Same spec-first / strict-server pattern against `api/query/openapi.yaml`:
 
 ```
+GET /users
 GET /users/{userId}
+GET /universes
 GET /universes/{universeId}
 GET /universes/{universeId}/creators
 GET /universes/{universeId}/campaigns
@@ -677,6 +700,8 @@ GET /campaigns/{campaignId}/gamemasters
 GET /campaigns/{campaignId}/characters
 GET /entities/{entityId}
 GET /objects/{objectId}
+GET /rulesets
+GET /rulesets/{rulesetId}
 GET /characters/{characterId}
 ```
 
@@ -875,6 +900,15 @@ for the platform, analogous in spirit to `kubectl`. **Status: done**, verified e
 against the live services (user/universe/campaign/entity/character create, rename, archive,
 add/delete gamemaster including the last-gamemaster-invariant 409, the atomic
 Character+Entity creation, and interactive id prompting with persistence).
+
+The Ruleset aggregate has been added to the platform as a top-level, parentless aggregate,
+following the same `create`/`rename`/`archive`/`get` command pattern as Entity and Object.
+Like User and Universe, Ruleset supports a bare `list ruleset` command with no parent-scoping
+flag. As the first aggregate with mutable fields beyond `name`, Ruleset introduces dedicated
+commands `set description` and `set references` to mutate those fields, extending the `set`
+verb (previously used only for Character's `set player`) to cover field-level mutations. The
+new bare `list user` and `list universe` commands have been added in parallel, completing the
+ability to list all top-level aggregates without a parent-scoping requirement.
 
 ### 14.1 Command shape
 
