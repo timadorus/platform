@@ -22,12 +22,13 @@ const (
 	TypeCampaignArchived = "campaign.archived.v1"
 )
 
-// CampaignCreated carries UniverseID (the immutable parent reference) since that isn't
-// derivable from the envelope, which only identifies the Campaign itself (plan §4.5).
+// CampaignCreated carries UniverseID and RulesetID (both immutable parent-like references)
+// since neither is derivable from the envelope (plan §4.5).
 type CampaignCreated struct {
 	ID                uuid.UUID   `json:"id"`
 	Name              string      `json:"name"`
 	UniverseID        uuid.UUID   `json:"universeId"`
+	RulesetID         uuid.UUID   `json:"rulesetId"`
 	GamemasterUserIDs []uuid.UUID `json:"gamemasterUserIds"`
 	OccurredAt        time.Time   `json:"occurredAt"`
 }

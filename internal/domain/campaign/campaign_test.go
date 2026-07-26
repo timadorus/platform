@@ -12,14 +12,14 @@ func TestNew(t *testing.T) {
 	universeID := uuid.New()
 
 	t.Run("requires a name", func(t *testing.T) {
-		_, err := campaign.New(universeID, "", []uuid.UUID{uuid.New()})
+		_, err := campaign.New(universeID, uuid.New(), "", []uuid.UUID{uuid.New()})
 		if err != campaign.ErrNameRequired {
 			t.Fatalf("got %v, want ErrNameRequired", err)
 		}
 	})
 
 	t.Run("requires at least one gamemaster", func(t *testing.T) {
-		_, err := campaign.New(universeID, "Curse of Strahd", nil)
+		_, err := campaign.New(universeID, uuid.New(), "Curse of Strahd", nil)
 		if err != campaign.ErrGamemastersRequired {
 			t.Fatalf("got %v, want ErrGamemastersRequired", err)
 		}
@@ -27,7 +27,7 @@ func TestNew(t *testing.T) {
 
 	t.Run("creates and records the parent universe", func(t *testing.T) {
 		gm := uuid.New()
-		c, err := campaign.New(universeID, "Curse of Strahd", []uuid.UUID{gm})
+		c, err := campaign.New(universeID, uuid.New(), "Curse of Strahd", []uuid.UUID{gm})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -42,7 +42,7 @@ func TestNew(t *testing.T) {
 
 func TestGamemasters(t *testing.T) {
 	gm := uuid.New()
-	c, err := campaign.New(uuid.New(), "Curse of Strahd", []uuid.UUID{gm})
+	c, err := campaign.New(uuid.New(), uuid.New(), "Curse of Strahd", []uuid.UUID{gm})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestGamemasters(t *testing.T) {
 }
 
 func TestArchive(t *testing.T) {
-	c, err := campaign.New(uuid.New(), "Curse of Strahd", []uuid.UUID{uuid.New()})
+	c, err := campaign.New(uuid.New(), uuid.New(), "Curse of Strahd", []uuid.UUID{uuid.New()})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
