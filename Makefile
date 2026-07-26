@@ -1,4 +1,4 @@
-.PHONY: build build-tools test lint generate migrate-up migrate-down dev-up dev-down
+.PHONY: build build-tools test lint generate migrate-up migrate-down test-e2e dev-up dev-down
 
 DATABASE_URL ?= postgres://timadorus:timadorus@localhost:5432/timadorus?sslmode=disable
 BINDIR	     ?= $(CURDIR)/bin
@@ -30,6 +30,9 @@ migrate-up:
 
 migrate-down:
 	DATABASE_URL="$(DATABASE_URL)" MIGRATIONS_BASE="$(CURDIR)" ./scripts/migrate-up.sh down
+
+test-e2e:
+	go test -tags e2e -count=1 ./test/e2e/... -v -timeout 30m
 
 dev-up:
 	docker compose up -d

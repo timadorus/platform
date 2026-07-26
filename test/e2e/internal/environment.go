@@ -146,6 +146,11 @@ func (env *Environment) Teardown() {
 
 	if env.installedNATS {
 		UninstallNATS()
+	} else {
+		// NATS itself is left running (detected as already installed, shared across runs like
+		// cert-manager/Prometheus/CloudNativePG), but its JetStream streams hold this run's own
+		// event data and must not leak into the next run — see PurgeEventStreams' doc comment.
+		PurgeEventStreams()
 	}
 	if env.installedCloudNativePG {
 		UninstallCloudNativePG()
