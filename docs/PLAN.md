@@ -922,16 +922,16 @@ resources are the singular aggregate/relationship name:
 | `archive` | POST `.../archive` | Archive an aggregate (idempotent) |
 | `add` | POST (sub-resource) | Add a user to a collection relationship (creator/gamemaster) |
 | `delete` | DELETE (sub-resource) | Remove a user from a collection relationship |
-| `set` | PUT | Reassign a mandatory single-value reference (player) |
+| `set` | PUT | Mutate a single-value field or reference (player, description, references, etc.) |
 | `get` | GET (single) | Fetch one aggregate/projection by id |
-| `list` | GET (collection) | List a collection scoped to a parent |
+| `list` | GET (collection) | List a collection, optionally scoped to a parent (bare for User/Universe/Ruleset) |
 
 Examples (the two given in the original request, plus one more to show the pattern holds):
 
 ```
 POST /users                                    -> timadorusctl create user <name>
 POST /universes                                -> timadorusctl create universe <name> <creatorUserId>...
-POST /universes/{universeId}/campaigns         -> timadorusctl create campaign <name> <gamemasterUserId>...
+POST /universes/{universeId}/campaigns         -> timadorusctl create campaign <name> <rulesetId> <gamemasterUserId>...
 DELETE /campaigns/{campaignId}/gamemasters/{userId} -> timadorusctl delete gamemaster <userId>
 PUT /characters/{characterId}/player           -> timadorusctl set player <characterId> <userId>
 ```
