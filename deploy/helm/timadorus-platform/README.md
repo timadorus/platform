@@ -64,7 +64,8 @@ helm install my-platform deploy/helm/timadorus-platform \
 | `commandApi.replicas` | `1` | command-api replica count |
 | `commandApi.route.hostname` | `""` (required) | hostname the command-api `HTTPRoute` matches |
 | `queryApi.*` | (mirrors `commandApi.*`) | query-api equivalents |
-| `projector.image.*` / `.replicas` | (mirrors `commandApi.*`) | projector has no `route.hostname` — no public API |
+| `projector.image.*` | (mirrors `commandApi.*`) | projector has no `route.hostname` — no public API |
+| `projector.replicas` | `1` | **must stay `1`** — the projector holds an exclusive NATS JetStream durable-consumer binding per read-model projection, so a second replica would simply fail to bind and crash-loop; this is not a normal scaling knob |
 | `migration.image.*` | `timadorus/migrate` / ... | image used by the pre-install/pre-upgrade migration Job |
 | `postgres.existingSecret` | `""` (required) | name of a pre-existing Secret holding `DATABASE_URL` |
 | `postgres.secretKey` | `DATABASE_URL` | key within that Secret |
@@ -79,3 +80,10 @@ helm install my-platform deploy/helm/timadorus-platform \
 | `gateway.tls.enabled` / `.secretName` | `false` / `""` | optional HTTPS listener on the chart-owned `Gateway` |
 | `gateway.existing.name` | `""` (required when `create: false`) | name of the pre-existing `Gateway` to attach to |
 | `gateway.existing.namespace` / `.sectionName` | `""` | optional — namespace and section name of the pre-existing `Gateway` (omitted if empty) |
+
+Note on the projector Deployment's rollout strategy: because of the exclusive JetStream
+durable-consumer binding described above, the projector Deployment is templated with
+`strategy: {type: Recreate}` rather than the default `RollingUpdate`. A rolling update would
+otherwise deadlock — the old pod won't release its consumer binding until terminated, but a
+`RollingUpdate` starts the new pod first and waits for it to become `Ready`, which it never can
+while the old pod still holds the binding.

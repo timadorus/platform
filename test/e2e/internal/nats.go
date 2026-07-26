@@ -75,8 +75,8 @@ var eventStreamNames = []string{
 // (re-)created durable consumer, gets applied, and sets the checkpoint to 1 — after which the
 // *real* new run's own GlobalSeq==1 event fails internal/projection/router.go's dedup check
 // (env.GlobalSeq <= lastSeq) and is silently skipped as "already applied". The read model then
-// never reflects anything created by the current run. Caught for real running this suite: see
-// task-11-report.md.
+// never reflects anything created by the current run. This was caught by actually running this
+// suite repeatedly and observing the read model silently miss the current run's own data.
 //
 // If NATS isn't installed at all yet (nats-box not found), there's nothing to purge — that's
 // not an error, just a no-op.

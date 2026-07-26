@@ -19,6 +19,11 @@ import (
 	querygen "github.com/timadorus/platform/api/query/gen"
 )
 
+// httpClient is used instead of http.DefaultClient for every call doJSON makes, so a wedged
+// port-forward or hung server fails the individual HTTP call promptly instead of blocking until
+// the outer `go test -timeout` kills the whole suite.
+var httpClient = &http.Client{Timeout: 30 * time.Second}
+
 func doJSON(method, url, token string, body, out any) (*http.Response, error) {
 	var reqBody io.Reader
 	if body != nil {
@@ -38,7 +43,7 @@ func doJSON(method, url, token string, body, out any) (*http.Response, error) {
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

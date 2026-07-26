@@ -42,65 +42,65 @@ func Setup() (*Environment, error) {
 
 	created, err := EnsureCluster()
 	if err != nil {
-		return nil, fmt.Errorf("cluster: %w", err)
+		return env, fmt.Errorf("cluster: %w", err)
 	}
 	env.createdCluster = created
 
 	if !IsCertManagerInstalled() {
 		if err := InstallCertManager(); err != nil {
-			return nil, fmt.Errorf("cert-manager: %w", err)
+			return env, fmt.Errorf("cert-manager: %w", err)
 		}
 		env.installedCertManager = true
 	}
 	if err := WaitForCertManagerWebhook(); err != nil {
-		return nil, fmt.Errorf("cert-manager webhook: %w", err)
+		return env, fmt.Errorf("cert-manager webhook: %w", err)
 	}
 
 	if !IsPrometheusOperatorInstalled() {
 		if err := InstallPrometheusOperator(); err != nil {
-			return nil, fmt.Errorf("prometheus operator: %w", err)
+			return env, fmt.Errorf("prometheus operator: %w", err)
 		}
 		env.installedPrometheusOperator = true
 	}
 
 	if !IsCloudNativePGInstalled() {
 		if err := InstallCloudNativePG(); err != nil {
-			return nil, fmt.Errorf("cloudnative-pg: %w", err)
+			return env, fmt.Errorf("cloudnative-pg: %w", err)
 		}
 		env.installedCloudNativePG = true
 	}
 
 	if !IsNATSInstalled() {
 		if err := InstallNATS(); err != nil {
-			return nil, fmt.Errorf("nats: %w", err)
+			return env, fmt.Errorf("nats: %w", err)
 		}
 		env.installedNATS = true
 	}
 
 	if err := InstallGatewayAPI(); err != nil {
-		return nil, fmt.Errorf("gateway API: %w", err)
+		return env, fmt.Errorf("gateway API: %w", err)
 	}
 
 	// EnsurePostgresCluster creates Namespace itself (postgres.go) before applying the
 	// Cluster CR, so no separate namespace-creation step is needed here.
 	postgresSecret, err := EnsurePostgresCluster()
 	if err != nil {
-		return nil, fmt.Errorf("postgres cluster: %w", err)
+		return env, fmt.Errorf("postgres cluster: %w", err)
 	}
 
 	secret, err := EnsureJWTSecret()
 	if err != nil {
-		return nil, fmt.Errorf("jwt secret: %w", err)
+		return env, fmt.Errorf("jwt secret: %w", err)
 	}
 	token, err := MintToken(secret)
 	if err != nil {
-		return nil, fmt.Errorf("mint token: %w", err)
+		return env, fmt.Errorf("mint token: %w", err)
 	}
 	env.BearerToken = token
 
 	tags, err := BuildTagLoadImages(KindClusterName())
 	if err != nil {
-		return nil, fmt.Errorf("build/load images: %w", err)
+		return env, fmt.Errorf("build/load images: %w", err)
 	}
 
 	if err := InstallPlatform(PlatformInstallInputs{
@@ -111,7 +111,7 @@ func Setup() (*Environment, error) {
 		JWTKeyID:           JWTKeyID,
 		ImageTags:          tags,
 	}); err != nil {
-		return nil, fmt.Errorf("install platform: %w", err)
+		return env, fmt.Errorf("install platform: %w", err)
 	}
 
 	// Service names are "<platformFullname>-<component>", not "<platformRelease>-<component>"
@@ -119,14 +119,14 @@ func Setup() (*Environment, error) {
 	// against the real chart before wiring these up).
 	commandForward, err := StartPortForward(platformFullname+"-command-api", 18081, 8081, "/healthz", time.Minute)
 	if err != nil {
-		return nil, fmt.Errorf("port-forward command-api: %w", err)
+		return env, fmt.Errorf("port-forward command-api: %w", err)
 	}
 	env.commandAPIForward = commandForward
 	env.CommandAPIBaseURL = "http://127.0.0.1:18081"
 
 	queryForward, err := StartPortForward(platformFullname+"-query-api", 18082, 8082, "/healthz", time.Minute)
 	if err != nil {
-		return nil, fmt.Errorf("port-forward query-api: %w", err)
+		return env, fmt.Errorf("port-forward query-api: %w", err)
 	}
 	env.queryAPIForward = queryForward
 	env.QueryAPIBaseURL = "http://127.0.0.1:18082"
@@ -144,6 +144,12 @@ func (env *Environment) Teardown() {
 
 	UninstallPlatform()
 
+	// The uninstalls below run in this order (NATS, then CloudNativePG, then Prometheus
+	// Operator, then cert-manager) deliberately, not merely as "reverse of install order".
+	// In particular, CloudNativePG's operator (in cnpg-system) must still be running when
+	// UninstallPlatform() above deletes the timadorus-e2e namespace, since the operator is
+	// what finalizes/cleans up the namespace's Cluster CR; tearing the CNPG operator down
+	// first would leave that finalization to nobody.
 	if env.installedNATS {
 		UninstallNATS()
 	} else {

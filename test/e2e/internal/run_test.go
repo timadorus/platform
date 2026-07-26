@@ -4,9 +4,6 @@ package e2eutil
 
 import (
 	"testing"
-
-	_ "github.com/onsi/ginkgo/v2"
-	_ "github.com/onsi/gomega"
 )
 
 func TestNonEmptyLines(t *testing.T) {
