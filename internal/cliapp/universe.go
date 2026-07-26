@@ -131,4 +131,17 @@ func registerUniverseCommands(a *App) {
 	}
 	addUniverseFlag(listCreatorCmd)
 	a.listCmd.AddCommand(listCreatorCmd)
+
+	a.listCmd.AddCommand(&cobra.Command{
+		Use:   "universe",
+		Short: "List non-archived Universes",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, _, err := a.client()
+			if err != nil {
+				return err
+			}
+			return client.Query("/universes")
+		},
+	})
 }

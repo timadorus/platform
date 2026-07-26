@@ -17,9 +17,9 @@ func addCampaignFlag(cmd *cobra.Command) {
 // narrow id-defaulting rule (plan §14).
 func registerCampaignCommands(a *App) {
 	createCampaignCmd := &cobra.Command{
-		Use:   "campaign <name> <gamemasterUserId>...",
+		Use:   "campaign <name> <rulesetId> <gamemasterUserId>...",
 		Short: "Create a new Campaign under a Universe",
-		Args:  cobra.MinimumNArgs(2),
+		Args:  cobra.MinimumNArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client, cfg, err := a.client()
 			if err != nil {
@@ -32,7 +32,8 @@ func registerCampaignCommands(a *App) {
 			}
 			return client.Command("POST", "/universes/"+universeID+"/campaigns", map[string]any{
 				"name":              args[0],
-				"gamemasterUserIds": args[1:],
+				"rulesetId":         args[1],
+				"gamemasterUserIds": args[2:],
 			})
 		},
 	}

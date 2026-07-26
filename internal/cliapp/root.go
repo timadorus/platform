@@ -95,6 +95,7 @@ func Execute() error {
 	registerEntityCommands(app)
 	registerObjectCommands(app)
 	registerCharacterCommands(app)
+	registerRulesetCommands(app)
 
 	if err := app.Root.Execute(); err != nil {
 		return fmt.Errorf("timadorusctl: %w", err)
