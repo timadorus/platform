@@ -60,4 +60,17 @@ func registerUserCommands(a *App) {
 			return client.Query("/users/" + args[0])
 		},
 	})
+
+	a.listCmd.AddCommand(&cobra.Command{
+		Use:   "user",
+		Short: "List non-archived Users",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, _, err := a.client()
+			if err != nil {
+				return err
+			}
+			return client.Query("/users")
+		},
+	})
 }

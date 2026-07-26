@@ -18,6 +18,7 @@ type Campaign struct {
 	ID         uuid.UUID
 	Name       string
 	UniverseID uuid.UUID
+	RulesetID  uuid.UUID
 	IsArchived bool
 }
 
@@ -32,8 +33,8 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 func (r *Repository) Get(ctx context.Context, id uuid.UUID) (Campaign, error) {
 	var c Campaign
 	err := r.pool.QueryRow(ctx,
-		`SELECT id, name, universe_id, is_archived FROM campaigns_read_model WHERE id = $1`, id,
-	).Scan(&c.ID, &c.Name, &c.UniverseID, &c.IsArchived)
+		`SELECT id, name, universe_id, ruleset_id, is_archived FROM campaigns_read_model WHERE id = $1`, id,
+	).Scan(&c.ID, &c.Name, &c.UniverseID, &c.RulesetID, &c.IsArchived)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Campaign{}, ErrNotFound
 	}
@@ -73,7 +74,7 @@ func (r *Repository) ListGamemasters(ctx context.Context, id uuid.UUID) ([]uuid.
 // ListByUniverse returns non-archived Campaigns under universeID, ordered by name.
 func (r *Repository) ListByUniverse(ctx context.Context, universeID uuid.UUID) ([]Campaign, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT id, name, universe_id, is_archived FROM campaigns_read_model
+		`SELECT id, name, universe_id, ruleset_id, is_archived FROM campaigns_read_model
 		 WHERE universe_id = $1 AND is_archived = false
 		 ORDER BY name`,
 		universeID,
@@ -86,7 +87,7 @@ func (r *Repository) ListByUniverse(ctx context.Context, universeID uuid.UUID) (
 	var campaigns []Campaign
 	for rows.Next() {
 		var c Campaign
-		if err := rows.Scan(&c.ID, &c.Name, &c.UniverseID, &c.IsArchived); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.UniverseID, &c.RulesetID, &c.IsArchived); err != nil {
 			return nil, fmt.Errorf("query/campaign: scan row: %w", err)
 		}
 		campaigns = append(campaigns, c)

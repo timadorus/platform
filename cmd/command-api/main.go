@@ -26,6 +26,7 @@ import (
 	charactercmd "github.com/timadorus/platform/internal/command/character"
 	entitycmd "github.com/timadorus/platform/internal/command/entity"
 	objectcmd "github.com/timadorus/platform/internal/command/object"
+	rulesetcmd "github.com/timadorus/platform/internal/command/ruleset"
 	universecmd "github.com/timadorus/platform/internal/command/universe"
 	usercmd "github.com/timadorus/platform/internal/command/user"
 	"github.com/timadorus/platform/internal/config"
@@ -37,6 +38,8 @@ import (
 	entityevents "github.com/timadorus/platform/internal/domain/entity/events"
 	"github.com/timadorus/platform/internal/domain/object"
 	objectevents "github.com/timadorus/platform/internal/domain/object/events"
+	"github.com/timadorus/platform/internal/domain/ruleset"
+	rulesetevents "github.com/timadorus/platform/internal/domain/ruleset/events"
 	"github.com/timadorus/platform/internal/domain/universe"
 	universeevents "github.com/timadorus/platform/internal/domain/universe/events"
 	"github.com/timadorus/platform/internal/domain/user"
@@ -76,6 +79,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	entityevents.Register(registry)
 	characterevents.Register(registry)
 	objectevents.Register(registry)
+	rulesetevents.Register(registry)
 
 	store := postgres.NewStore(pool, registry)
 
@@ -89,10 +93,15 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	})
 	userService := usercmd.NewService(userRepo)
 
+	rulesetRepo := eventsourcing.NewRepository(store, ruleset.AggregateType, func() *ruleset.Ruleset {
+		return &ruleset.Ruleset{}
+	})
+	rulesetService := rulesetcmd.NewService(rulesetRepo)
+
 	campaignRepo := eventsourcing.NewRepository(store, campaign.AggregateType, func() *campaign.Campaign {
 		return &campaign.Campaign{}
 	})
-	campaignService := campaigncmd.NewService(campaignRepo, universeRepo, userRepo)
+	campaignService := campaigncmd.NewService(campaignRepo, universeRepo, userRepo, rulesetRepo)
 
 	entityRepo := eventsourcing.NewRepository(store, entity.AggregateType, func() *entity.Entity {
 		return &entity.Entity{}
@@ -109,7 +118,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	})
 	objectService := objectcmd.NewService(objectRepo, universeRepo)
 
-	server := httpcommand.NewServer(universeService, userService, campaignService, entityService, characterService, objectService)
+	server := httpcommand.NewServer(universeService, userService, campaignService, entityService, characterService, objectService, rulesetService)
 	strictHandler := gen.NewStrictHandler(server, nil)
 
 	spec, err := gen.GetSwagger()

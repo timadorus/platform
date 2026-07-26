@@ -70,6 +70,24 @@ var _ = Describe("Timadorus platform aggregates", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(resp.StatusCode).To(Equal(http.StatusCreated))
 
+		rulesetName := "e2e-ruleset"
+		var rulesetResp commandgen.RulesetCreatedResponse
+		resp, err = doJSON(http.MethodPost, env.CommandAPIBaseURL+"/rulesets", env.BearerToken,
+			commandgen.CreateRulesetRequest{Name: rulesetName}, &rulesetResp)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+
+		resp, err = doJSON(http.MethodPut, fmt.Sprintf("%s/rulesets/%s/description", env.CommandAPIBaseURL, rulesetResp.Id), env.BearerToken,
+			commandgen.SetRulesetDescriptionRequest{Description: "an e2e-created ruleset"}, nil)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
+
+		rulesetReferences := []string{"https://example.com/rules"}
+		resp, err = doJSON(http.MethodPut, fmt.Sprintf("%s/rulesets/%s/references", env.CommandAPIBaseURL, rulesetResp.Id), env.BearerToken,
+			commandgen.SetRulesetReferencesRequest{References: rulesetReferences}, nil)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
+
 		universeName := "e2e-universe"
 		var universe commandgen.UniverseCreatedResponse
 		resp, err = doJSON(http.MethodPost, env.CommandAPIBaseURL+"/universes", env.BearerToken,
@@ -80,7 +98,7 @@ var _ = Describe("Timadorus platform aggregates", func() {
 		campaignName := "e2e-campaign"
 		var campaign commandgen.CampaignCreatedResponse
 		resp, err = doJSON(http.MethodPost, fmt.Sprintf("%s/universes/%s/campaigns", env.CommandAPIBaseURL, universe.Id), env.BearerToken,
-			commandgen.CreateCampaignRequest{Name: campaignName, GamemasterUserIds: []uuid.UUID{user.Id}}, &campaign)
+			commandgen.CreateCampaignRequest{Name: campaignName, RulesetId: rulesetResp.Id, GamemasterUserIds: []uuid.UUID{user.Id}}, &campaign)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(resp.StatusCode).To(Equal(http.StatusCreated))
 
@@ -115,6 +133,17 @@ var _ = Describe("Timadorus platform aggregates", func() {
 		}, time.Minute, time.Second).Should(Succeed())
 
 		Eventually(func(g Gomega) {
+			var got querygen.Ruleset
+			resp, err := doJSON(http.MethodGet, fmt.Sprintf("%s/rulesets/%s", env.QueryAPIBaseURL, rulesetResp.Id), env.BearerToken, nil, &got)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			g.Expect(got.Name).To(Equal(rulesetName))
+			g.Expect(got.Description).To(Equal("an e2e-created ruleset"))
+			g.Expect(got.References).To(Equal(rulesetReferences))
+			g.Expect(got.IsArchived).To(BeFalse())
+		}, time.Minute, time.Second).Should(Succeed())
+
+		Eventually(func(g Gomega) {
 			var got querygen.Universe
 			resp, err := doJSON(http.MethodGet, fmt.Sprintf("%s/universes/%s", env.QueryAPIBaseURL, universe.Id), env.BearerToken, nil, &got)
 			g.Expect(err).NotTo(HaveOccurred())
@@ -130,6 +159,7 @@ var _ = Describe("Timadorus platform aggregates", func() {
 			g.Expect(resp.StatusCode).To(Equal(http.StatusOK))
 			g.Expect(got.Name).To(Equal(campaignName))
 			g.Expect(got.UniverseId).To(Equal(universe.Id))
+			g.Expect(got.RulesetId).To(Equal(rulesetResp.Id))
 			g.Expect(got.IsArchived).To(BeFalse())
 		}, time.Minute, time.Second).Should(Succeed())
 
@@ -161,6 +191,33 @@ var _ = Describe("Timadorus platform aggregates", func() {
 			g.Expect(got.EntityId).To(Equal(character.EntityId))
 			g.Expect(got.PlayerUserId).To(Equal(user.Id))
 			g.Expect(got.IsArchived).To(BeFalse())
+		}, time.Minute, time.Second).Should(Succeed())
+
+		Eventually(func(g Gomega) {
+			var got []querygen.User
+			resp, err := doJSON(http.MethodGet, env.QueryAPIBaseURL+"/users", env.BearerToken, nil, &got)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			g.Expect(got).NotTo(BeEmpty())
+			g.Expect(got).To(ContainElement(HaveField("Id", user.Id)))
+		}, time.Minute, time.Second).Should(Succeed())
+
+		Eventually(func(g Gomega) {
+			var got []querygen.Universe
+			resp, err := doJSON(http.MethodGet, env.QueryAPIBaseURL+"/universes", env.BearerToken, nil, &got)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			g.Expect(got).NotTo(BeEmpty())
+			g.Expect(got).To(ContainElement(HaveField("Id", universe.Id)))
+		}, time.Minute, time.Second).Should(Succeed())
+
+		Eventually(func(g Gomega) {
+			var got []querygen.Ruleset
+			resp, err := doJSON(http.MethodGet, env.QueryAPIBaseURL+"/rulesets", env.BearerToken, nil, &got)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			g.Expect(got).NotTo(BeEmpty())
+			g.Expect(got).To(ContainElement(HaveField("Id", rulesetResp.Id)))
 		}, time.Minute, time.Second).Should(Succeed())
 	})
 })

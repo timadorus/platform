@@ -12,6 +12,7 @@ import (
 	"github.com/timadorus/platform/internal/domain/character"
 	"github.com/timadorus/platform/internal/domain/entity"
 	"github.com/timadorus/platform/internal/domain/object"
+	"github.com/timadorus/platform/internal/domain/ruleset"
 	"github.com/timadorus/platform/internal/domain/universe"
 	"github.com/timadorus/platform/internal/domain/user"
 	"github.com/timadorus/platform/internal/eventsourcing"
@@ -61,6 +62,10 @@ func classify(err error) (status int, title string) {
 	case errors.Is(err, object.ErrArchived):
 		return 409, "archived"
 	case errors.Is(err, object.ErrNameRequired):
+		return 422, "validation_failed"
+	case errors.Is(err, ruleset.ErrArchived):
+		return 409, "archived"
+	case errors.Is(err, ruleset.ErrNameRequired):
 		return 422, "validation_failed"
 	case errors.Is(err, apperrors.ErrParentNotFound), errors.Is(err, apperrors.ErrReferenceNotFound):
 		return 404, "reference_not_found"

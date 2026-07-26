@@ -46,10 +46,10 @@ func (p *Projector) handleCreated(ctx context.Context, tx pgx.Tx, env bus.Envelo
 		return fmt.Errorf("campaign projector: unmarshal %s: %w", env.EventType, err)
 	}
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO campaigns_read_model (id, name, universe_id, is_archived, updated_at)
-		 VALUES ($1, $2, $3, false, $4)
+		`INSERT INTO campaigns_read_model (id, name, universe_id, ruleset_id, is_archived, updated_at)
+		 VALUES ($1, $2, $3, $4, false, $5)
 		 ON CONFLICT (id) DO NOTHING`,
-		env.AggregateID, e.Name, e.UniverseID, e.OccurredAt,
+		env.AggregateID, e.Name, e.UniverseID, e.RulesetID, e.OccurredAt,
 	); err != nil {
 		return err
 	}

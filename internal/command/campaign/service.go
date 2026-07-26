@@ -12,6 +12,7 @@ import (
 
 	"github.com/timadorus/platform/internal/command/apperrors"
 	"github.com/timadorus/platform/internal/domain/campaign"
+	"github.com/timadorus/platform/internal/domain/ruleset"
 	"github.com/timadorus/platform/internal/domain/universe"
 	"github.com/timadorus/platform/internal/domain/user"
 	"github.com/timadorus/platform/internal/eventsourcing"
@@ -20,19 +21,22 @@ import (
 type Service struct {
 	campaigns *eventsourcing.Repository[*campaign.Campaign]
 	universes *eventsourcing.Repository[*universe.Universe] // existence/archived-state checks only
-	users     *eventsourcing.Repository[*user.User]          // existence/archived-state checks only
+	users     *eventsourcing.Repository[*user.User]         // existence/archived-state checks only
+	rulesets  *eventsourcing.Repository[*ruleset.Ruleset]   // existence/archived-state checks only
 }
 
 func NewService(
 	campaigns *eventsourcing.Repository[*campaign.Campaign],
 	universes *eventsourcing.Repository[*universe.Universe],
 	users *eventsourcing.Repository[*user.User],
+	rulesets *eventsourcing.Repository[*ruleset.Ruleset],
 ) *Service {
-	return &Service{campaigns: campaigns, universes: universes, users: users}
+	return &Service{campaigns: campaigns, universes: universes, users: users, rulesets: rulesets}
 }
 
 type CreateCmd struct {
 	UniverseID        uuid.UUID
+	RulesetID         uuid.UUID
 	Name              string
 	GamemasterUserIDs []uuid.UUID
 }
@@ -46,6 +50,14 @@ func (s *Service) Create(ctx context.Context, cmd CreateCmd) (uuid.UUID, error) 
 		return uuid.Nil, fmt.Errorf("%w: universe %s", apperrors.ErrParentArchived, cmd.UniverseID)
 	}
 
+	rulesetAgg, err := s.rulesets.Load(ctx, cmd.RulesetID)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("%w: ruleset %s", apperrors.ErrParentNotFound, cmd.RulesetID)
+	}
+	if rulesetAgg.IsArchived() {
+		return uuid.Nil, fmt.Errorf("%w: ruleset %s", apperrors.ErrParentArchived, cmd.RulesetID)
+	}
+
 	for _, id := range cmd.GamemasterUserIDs {
 		userAgg, err := s.users.Load(ctx, id)
 		if err != nil {
@@ -56,7 +68,7 @@ func (s *Service) Create(ctx context.Context, cmd CreateCmd) (uuid.UUID, error) 
 		}
 	}
 
-	c, err := campaign.New(cmd.UniverseID, cmd.Name, cmd.GamemasterUserIDs)
+	c, err := campaign.New(cmd.UniverseID, cmd.RulesetID, cmd.Name, cmd.GamemasterUserIDs)
 	if err != nil {
 		return uuid.Nil, err
 	}

@@ -21,24 +21,28 @@ type Campaign struct {
 
 	name        string
 	universeID  uuid.UUID
+	rulesetID   uuid.UUID
 	gamemasters map[uuid.UUID]struct{}
 	archived    bool
 }
 
 func (c *Campaign) Name() string          { return c.name }
 func (c *Campaign) UniverseID() uuid.UUID { return c.universeID }
+func (c *Campaign) RulesetID() uuid.UUID  { return c.rulesetID }
 func (c *Campaign) IsArchived() bool      { return c.archived }
 func (c *Campaign) HasGamemaster(id uuid.UUID) bool {
 	_, ok := c.gamemasters[id]
 	return ok
 }
 
-// New constructs and creates a new Campaign under universeID. The caller (the application
-// command service) is responsible for having already validated that universeID refers to an
-// existing, non-archived Universe and that every id in gamemasterIDs refers to an existing,
-// non-archived User (plan §4.3) — this constructor only enforces the aggregate's own
-// invariants (non-blank name, non-empty Gamemasters).
-func New(universeID uuid.UUID, name string, gamemasterIDs []uuid.UUID) (*Campaign, error) {
+// New constructs and creates a new Campaign under universeID, referencing rulesetID
+// immutably (plan §2 — a Campaign's Ruleset can never change; a new Campaign must be created
+// to use a different one). The caller (the application command service) is responsible for
+// having already validated that universeID and rulesetID refer to existing, non-archived
+// aggregates and that every id in gamemasterIDs refers to an existing, non-archived User
+// (plan §4.3) — this constructor only enforces the aggregate's own invariants (non-blank
+// name, non-empty Gamemasters).
+func New(universeID, rulesetID uuid.UUID, name string, gamemasterIDs []uuid.UUID) (*Campaign, error) {
 	if name == "" {
 		return nil, ErrNameRequired
 	}
@@ -51,6 +55,7 @@ func New(universeID uuid.UUID, name string, gamemasterIDs []uuid.UUID) (*Campaig
 		ID:                uuid.New(),
 		Name:              name,
 		UniverseID:        universeID,
+		RulesetID:         rulesetID,
 		GamemasterUserIDs: ids,
 		OccurredAt:        time.Now().UTC(),
 	})
@@ -111,6 +116,7 @@ func (c *Campaign) Apply(event eventsourcing.Event) {
 		c.SetID(e.ID)
 		c.name = e.Name
 		c.universeID = e.UniverseID
+		c.rulesetID = e.RulesetID
 		c.gamemasters = toSet(e.GamemasterUserIDs)
 	case *events.CampaignRenamed:
 		c.name = e.Name

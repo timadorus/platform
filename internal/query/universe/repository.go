@@ -72,3 +72,27 @@ func (r *Repository) ListCreators(ctx context.Context, id uuid.UUID) ([]uuid.UUI
 	}
 	return ids, nil
 }
+
+// ListAll returns every non-archived Universe, ordered by name.
+func (r *Repository) ListAll(ctx context.Context) ([]Universe, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT id, name, is_archived FROM universes_read_model WHERE is_archived = false ORDER BY name`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query/universe: list all: %w", err)
+	}
+	defer rows.Close()
+
+	var universes []Universe
+	for rows.Next() {
+		var u Universe
+		if err := rows.Scan(&u.ID, &u.Name, &u.IsArchived); err != nil {
+			return nil, fmt.Errorf("query/universe: scan row: %w", err)
+		}
+		universes = append(universes, u)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("query/universe: iterate rows: %w", err)
+	}
+	return universes, nil
+}

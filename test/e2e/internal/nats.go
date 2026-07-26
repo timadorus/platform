@@ -59,6 +59,7 @@ func UninstallNATS() {
 // registration list.
 var eventStreamNames = []string{
 	"events_universe", "events_user", "events_campaign", "events_entity", "events_character", "events_object",
+	"events_ruleset",
 }
 
 // PurgeEventStreams deletes every timadorus-platform JetStream stream (eventStreamNames) via

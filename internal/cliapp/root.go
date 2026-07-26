@@ -58,7 +58,7 @@ func newApp() *App {
 		},
 		setCmd: &cobra.Command{
 			Use:   "set",
-			Short: "Reassign a mandatory single-value reference (player)",
+			Short: "Reassign a reference (player) or mutate a single-value field (description, references)",
 		},
 		getCmd: &cobra.Command{
 			Use:   "get",
@@ -66,7 +66,7 @@ func newApp() *App {
 		},
 		listCmd: &cobra.Command{
 			Use:   "list",
-			Short: "List a collection scoped to the current (or --flag-given) parent",
+			Short: "List a collection, scoped to a parent or bare for User/Universe/Ruleset",
 		},
 	}
 
@@ -95,6 +95,7 @@ func Execute() error {
 	registerEntityCommands(app)
 	registerObjectCommands(app)
 	registerCharacterCommands(app)
+	registerRulesetCommands(app)
 
 	if err := app.Root.Execute(); err != nil {
 		return fmt.Errorf("timadorusctl: %w", err)

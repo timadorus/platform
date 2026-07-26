@@ -468,6 +468,108 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /rulesets:
+    post:
+      operationId: createRuleset
+      summary: Create a new Ruleset.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRulesetRequest"
+      responses:
+        "201":
+          description: Ruleset created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RulesetCreatedResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /rulesets/{rulesetId}:
+    patch:
+      operationId: renameRuleset
+      summary: Rename a Ruleset.
+      parameters:
+        - $ref: "#/components/parameters/RulesetId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RenameRequest"
+      responses:
+        "204":
+          description: Renamed.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+
+  /rulesets/{rulesetId}/description:
+    put:
+      operationId: setRulesetDescription
+      summary: Replace a Ruleset's description.
+      parameters:
+        - $ref: "#/components/parameters/RulesetId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetRulesetDescriptionRequest"
+      responses:
+        "204":
+          description: Updated.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /rulesets/{rulesetId}/references:
+    put:
+      operationId: setRulesetReferences
+      summary: Replace a Ruleset's references list.
+      parameters:
+        - $ref: "#/components/parameters/RulesetId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetRulesetReferencesRequest"
+      responses:
+        "204":
+          description: Updated.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /rulesets/{rulesetId}/archive:
+    post:
+      operationId: archiveRuleset
+      summary: Archive a Ruleset. Idempotent.
+      parameters:
+        - $ref: "#/components/parameters/RulesetId"
+      responses:
+        "200":
+          description: Archived (or already archived).
+        "404":
+          $ref: "#/components/responses/NotFound"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -518,6 +620,13 @@ components:
       schema:
         type: string
         format: uuid
+    RulesetId:
+      name: rulesetId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
 
   schemas:
     CreateObjectRequest:
@@ -534,6 +643,43 @@ components:
         id:
           type: string
           format: uuid
+
+    CreateRulesetRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        references:
+          type: array
+          items:
+            type: string
+
+    RulesetCreatedResponse:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+          format: uuid
+
+    SetRulesetDescriptionRequest:
+      type: object
+      required: [description]
+      properties:
+        description:
+          type: string
+
+    SetRulesetReferencesRequest:
+      type: object
+      required: [references]
+      properties:
+        references:
+          type: array
+          items:
+            type: string
 
     CreateCharacterRequest:
       type: object
@@ -581,10 +727,13 @@ components:
 
     CreateCampaignRequest:
       type: object
-      required: [name, gamemasterUserIds]
+      required: [name, rulesetId, gamemasterUserIds]
       properties:
         name:
           type: string
+        rulesetId:
+          type: string
+          format: uuid
         gamemasterUserIds:
           type: array
           minItems: 1

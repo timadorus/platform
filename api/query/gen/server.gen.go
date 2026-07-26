@@ -26,6 +26,7 @@ type Campaign struct {
 	Id         openapi_types.UUID `json:"id"`
 	IsArchived bool               `json:"isArchived"`
 	Name       string             `json:"name"`
+	RulesetId  openapi_types.UUID `json:"rulesetId"`
 	UniverseId openapi_types.UUID `json:"universeId"`
 }
 
@@ -62,6 +63,15 @@ type Problem struct {
 	Title  *string `json:"title,omitempty"`
 }
 
+// Ruleset defines model for Ruleset.
+type Ruleset struct {
+	Description string             `json:"description"`
+	Id          openapi_types.UUID `json:"id"`
+	IsArchived  bool               `json:"isArchived"`
+	Name        string             `json:"name"`
+	References  []string           `json:"references"`
+}
+
 // Universe defines model for Universe.
 type Universe struct {
 	Id         openapi_types.UUID `json:"id"`
@@ -87,6 +97,9 @@ type EntityId = openapi_types.UUID
 
 // ObjectId defines model for ObjectId.
 type ObjectId = openapi_types.UUID
+
+// RulesetId defines model for RulesetId.
+type RulesetId = openapi_types.UUID
 
 // UniverseId defines model for UniverseId.
 type UniverseId = openapi_types.UUID
@@ -117,6 +130,15 @@ type ServerInterface interface {
 	// GetObject Get an Object by id.
 	// (GET /objects/{objectId})
 	GetObject(w http.ResponseWriter, r *http.Request, objectId ObjectId)
+	// ListRulesets List non-archived Rulesets.
+	// (GET /rulesets)
+	ListRulesets(w http.ResponseWriter, r *http.Request)
+	// GetRuleset Get a Ruleset by id.
+	// (GET /rulesets/{rulesetId})
+	GetRuleset(w http.ResponseWriter, r *http.Request, rulesetId RulesetId)
+	// ListUniverses List non-archived Universes.
+	// (GET /universes)
+	ListUniverses(w http.ResponseWriter, r *http.Request)
 	// GetUniverse Get a Universe by id.
 	// (GET /universes/{universeId})
 	GetUniverse(w http.ResponseWriter, r *http.Request, universeId UniverseId)
@@ -132,6 +154,9 @@ type ServerInterface interface {
 	// ListObjectsByUniverse List non-archived Objects under a Universe.
 	// (GET /universes/{universeId}/objects)
 	ListObjectsByUniverse(w http.ResponseWriter, r *http.Request, universeId UniverseId)
+	// ListUsers List non-archived Users.
+	// (GET /users)
+	ListUsers(w http.ResponseWriter, r *http.Request)
 	// GetUser Get a User by id.
 	// (GET /users/{userId})
 	GetUser(w http.ResponseWriter, r *http.Request, userId UserId)
@@ -302,6 +327,60 @@ func (siw *ServerInterfaceWrapper) GetObject(w http.ResponseWriter, r *http.Requ
 	handler.ServeHTTP(w, r)
 }
 
+// ListRulesets operation middleware
+func (siw *ServerInterfaceWrapper) ListRulesets(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListRulesets(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetRuleset operation middleware
+func (siw *ServerInterfaceWrapper) GetRuleset(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "rulesetId" -------------
+	var rulesetId RulesetId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "rulesetId", mux.Vars(r)["rulesetId"], &rulesetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "rulesetId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetRuleset(w, r, rulesetId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListUniverses operation middleware
+func (siw *ServerInterfaceWrapper) ListUniverses(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListUniverses(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetUniverse operation middleware
 func (siw *ServerInterfaceWrapper) GetUniverse(w http.ResponseWriter, r *http.Request) {
 
@@ -423,6 +502,20 @@ func (siw *ServerInterfaceWrapper) ListObjectsByUniverse(w http.ResponseWriter, 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListObjectsByUniverse(w, r, universeId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListUsers operation middleware
+func (siw *ServerInterfaceWrapper) ListUsers(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListUsers(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -594,6 +687,14 @@ func HandlerWithOptions(si ServerInterface, options GorillaServerOptions) http.H
 	r.HandleFunc(options.BaseURL+"/characters/{characterId}", wrapper.GetCharacter).Methods(http.MethodGet)
 
 	r.HandleFunc(options.BaseURL+"/objects/{objectId}", wrapper.GetObject).Methods(http.MethodGet)
+
+	r.HandleFunc(options.BaseURL+"/rulesets", wrapper.ListRulesets).Methods(http.MethodGet)
+
+	r.HandleFunc(options.BaseURL+"/rulesets/{rulesetId}", wrapper.GetRuleset).Methods(http.MethodGet)
+
+	r.HandleFunc(options.BaseURL+"/users", wrapper.ListUsers).Methods(http.MethodGet)
+
+	r.HandleFunc(options.BaseURL+"/universes", wrapper.ListUniverses).Methods(http.MethodGet)
 
 	return r
 }
@@ -812,6 +913,86 @@ func (response GetObject404ApplicationProblemPlusJSONResponse) VisitGetObjectRes
 	return err
 }
 
+type ListRulesetsRequestObject struct {
+}
+
+type ListRulesetsResponseObject interface {
+	VisitListRulesetsResponse(w http.ResponseWriter) error
+}
+
+type ListRulesets200JSONResponse []Ruleset
+
+func (response ListRulesets200JSONResponse) VisitListRulesetsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetRulesetRequestObject struct {
+	RulesetId RulesetId `json:"rulesetId"`
+}
+
+type GetRulesetResponseObject interface {
+	VisitGetRulesetResponse(w http.ResponseWriter) error
+}
+
+type GetRuleset200JSONResponse Ruleset
+
+func (response GetRuleset200JSONResponse) VisitGetRulesetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetRuleset404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response GetRuleset404ApplicationProblemPlusJSONResponse) VisitGetRulesetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListUniversesRequestObject struct {
+}
+
+type ListUniversesResponseObject interface {
+	VisitListUniversesResponse(w http.ResponseWriter) error
+}
+
+type ListUniverses200JSONResponse []Universe
+
+func (response ListUniverses200JSONResponse) VisitListUniversesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetUniverseRequestObject struct {
 	UniverseId UniverseId `json:"universeId"`
 }
@@ -954,6 +1135,27 @@ func (response ListObjectsByUniverse200JSONResponse) VisitListObjectsByUniverseR
 	return err
 }
 
+type ListUsersRequestObject struct {
+}
+
+type ListUsersResponseObject interface {
+	VisitListUsersResponse(w http.ResponseWriter) error
+}
+
+type ListUsers200JSONResponse []User
+
+func (response ListUsers200JSONResponse) VisitListUsersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetUserRequestObject struct {
 	UserId UserId `json:"userId"`
 }
@@ -1012,6 +1214,15 @@ type StrictServerInterface interface {
 	// GetObject Get an Object by id.
 	// (GET /objects/{objectId})
 	GetObject(ctx context.Context, request GetObjectRequestObject) (GetObjectResponseObject, error)
+	// ListRulesets List non-archived Rulesets.
+	// (GET /rulesets)
+	ListRulesets(ctx context.Context, request ListRulesetsRequestObject) (ListRulesetsResponseObject, error)
+	// GetRuleset Get a Ruleset by id.
+	// (GET /rulesets/{rulesetId})
+	GetRuleset(ctx context.Context, request GetRulesetRequestObject) (GetRulesetResponseObject, error)
+	// ListUniverses List non-archived Universes.
+	// (GET /universes)
+	ListUniverses(ctx context.Context, request ListUniversesRequestObject) (ListUniversesResponseObject, error)
 	// GetUniverse Get a Universe by id.
 	// (GET /universes/{universeId})
 	GetUniverse(ctx context.Context, request GetUniverseRequestObject) (GetUniverseResponseObject, error)
@@ -1027,6 +1238,9 @@ type StrictServerInterface interface {
 	// ListObjectsByUniverse List non-archived Objects under a Universe.
 	// (GET /universes/{universeId}/objects)
 	ListObjectsByUniverse(ctx context.Context, request ListObjectsByUniverseRequestObject) (ListObjectsByUniverseResponseObject, error)
+	// ListUsers List non-archived Users.
+	// (GET /users)
+	ListUsers(ctx context.Context, request ListUsersRequestObject) (ListUsersResponseObject, error)
 	// GetUser Get a User by id.
 	// (GET /users/{userId})
 	GetUser(ctx context.Context, request GetUserRequestObject) (GetUserResponseObject, error)
@@ -1227,6 +1441,80 @@ func (sh *strictHandler) GetObject(w http.ResponseWriter, r *http.Request, objec
 	}
 }
 
+// ListRulesets operation middleware
+func (sh *strictHandler) ListRulesets(w http.ResponseWriter, r *http.Request) {
+	var request ListRulesetsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListRulesets(ctx, request.(ListRulesetsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListRulesets")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListRulesetsResponseObject); ok {
+		if err := validResponse.VisitListRulesetsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetRuleset operation middleware
+func (sh *strictHandler) GetRuleset(w http.ResponseWriter, r *http.Request, rulesetId RulesetId) {
+	var request GetRulesetRequestObject
+
+	request.RulesetId = rulesetId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetRuleset(ctx, request.(GetRulesetRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetRuleset")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetRulesetResponseObject); ok {
+		if err := validResponse.VisitGetRulesetResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListUniverses operation middleware
+func (sh *strictHandler) ListUniverses(w http.ResponseWriter, r *http.Request) {
+	var request ListUniversesRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListUniverses(ctx, request.(ListUniversesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListUniverses")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListUniversesResponseObject); ok {
+		if err := validResponse.VisitListUniversesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetUniverse operation middleware
 func (sh *strictHandler) GetUniverse(w http.ResponseWriter, r *http.Request, universeId UniverseId) {
 	var request GetUniverseRequestObject
@@ -1357,6 +1645,30 @@ func (sh *strictHandler) ListObjectsByUniverse(w http.ResponseWriter, r *http.Re
 	}
 }
 
+// ListUsers operation middleware
+func (sh *strictHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
+	var request ListUsersRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListUsers(ctx, request.(ListUsersRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListUsers")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListUsersResponseObject); ok {
+		if err := validResponse.VisitListUsersResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetUser operation middleware
 func (sh *strictHandler) GetUser(w http.ResponseWriter, r *http.Request, userId UserId) {
 	var request GetUserRequestObject
@@ -1388,26 +1700,28 @@ func (sh *strictHandler) GetUser(w http.ResponseWriter, r *http.Request, userId 
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"5JhRb9s2EMe/CsENaIu5krcW6KC3NEiKDsPSNhn2kOWBls4WO4lUj1QAwfB3HyiKlJRakl3bRYK+2eCJ",
-	"d/e70/Evrmks80IKEFrRaE0LhiwHDVj/O2d5wfhKvE/MPy5oRAumUzqjguVAIxq3BjOK8KXkCAmNNJYw",
-	"oypOIWfmyaXEnGka0bLkxlJXhXlaaeRiRTebGT1PGbJYAw676lgc5utCaK6rQUfglg/zcrX4DLEe9CLd",
-	"8mFe/hb8HlDBoJ+yNTjQkxopTqkOrsvGPKwKKRTUvfeX1JeyFLXHWAoNQpufrCgyHjPNpQgLlIsM8l8+",
-	"KynMWuvsZ4QljehPYdvdoV1V4Qf7lHWZgIqRF2Y7GhmfZGmcBnXKzRPdN6F+R1AWgJrbOHmyQ3YzytUZ",
-	"xim/h9q8WV5ImQETZt2CXH/9YNmr8HSd2grc0tqk3nnWb4RONHd+E9uStPs2fp1u3BsJk2lD512bZnRi",
-	"lEXGKsC2kb8dZm/udQZGz8MkZjuIfoyWsuPwx8jVTZho/WC+fLo8J29+n78h3clFAFEiWcikCkwL9fAk",
-	"oBnPtmamNNOl6ixxoWEFaNY019k2Hpst0boj5HvXZgT2BF/zfj2VaE2hIC6R6+raHCc21gUwBDwrddr+",
-	"u3SR//HPDW0Onzq2erVNJdW6sIcXF0u5pcmAJS8VT4A8/1ICVi/I2Yf3ZCmR6BTIDc9ZIrFU5Pzjp+vw",
-	"4poUGdOGWkAu7gErYpjW5ytpElaEERsE0fI/EAG5SYEg5IwLLlYk5YAM47QiGROJIlyQjGlAUqRMgSLP",
-	"FUDtm+dFBjkIbbcvMiZeBP8K6vuVttF9NKGbyOmMmva0uc2DX4O5qZIsQLCC04i+CubBK/PeMJ3WbEM3",
-	"nFW4buf0xiytoJ5APkMzFOg70P50n/UE8O12IdGahB2BvLl7IGB+m89HtMt+msUHuEW0mGK49cCweT1/",
-	"PbSfDzD08qru0DLPGVYWBmF+O7KoCG/E0ADW0OtyNUj4T660lxTqbfUocHMNuZrk7oVQOzkZIqu2FaJN",
-	"MXhA1QAgQoqXrBkUpLUlpUgAO9DHca9YbiKb5t08865j/yhwTw7oKcxtRsR8dhCeqIPbvi5QW4JninS4",
-	"uYL4koXrzsfo+GDx/bM3+87n7mlHS9viA7PFGRxruLj9etOlFtEcVLh2cnoUbCOd96XqP/1PirQJboCn",
-	"XT0OTNHs1kNppYcK1+6OYZRkI8z3JemvN05K8sqpqK0k7eqxSNrdeiSd6FfhutX/ozS9mN6XZ+ci56RE",
-	"fYADTN36kV52t90OWNsTb6eDTb2tHgXs3XSE1287yAiX4A4qwpl6EdEp3xhpBKblhIJwW50740dB+WD5",
-	"0KRzdO3gsn2miCM2XgR34o0W4aIxekrN7o6/6Vq47KY73Vnu2ejNUTiK2M79J0X4yl+FTBFukpsG3BgO",
-	"8lW17rX3/OMnoPoGtdvcmJ725FPDGtesHevEU11l27n+qTl0L35u70y+CvDeUSoxoxEN6eZu838AAAD/",
-	"/w==",
+	"5FlLb9w2EP4rBFsgCbqRtk2AFHtLDDtIUdSJH+jB9YErza6YSqRCUgYEYf97QfEhydZjN/uAg96ymRFn",
+	"5puPw5lxhSOe5ZwBUxIvKpwTQTJQIOpfZyTLCV2zT7H+RRle4JyoBM8wIxngBY4ahRkW8K2gAmK8UKKA",
+	"GZZRAhnRX664yIjCC1wUVGuqMtdfSyUoW+PNZobPEiJIpEAMm2pp7GfrnCmqykFD4MT7WblcfoVIDVrh",
+	"TryflasiBQnDZoSX72fnltEHEBIGDRWNwp6W5AgJCrl3/jf6Y5lzJqHm+F9cXfCC1RYjzhQwpf9J8jyl",
+	"EVGUszAXfJlC9stXyZmWNcZ+FrDCC/xT2Nyi0Ehl+Nl8ZUzGICNBc30cXmibaKWNBnXI9ov2javvouA5",
+	"CEWNnzTeIroZpvK9iBL6ALW6FS85T4EwLTdAVk8/FG0mTZopOnyYzmqTrztcq9R+zB7RpkXWVhz3/kBz",
+	"aXC7XjwFKuoUrclIoFUNptE9chLylJQgmivw/cB2KnOrpHUsTMJsSuXpyXgUek3Eagr2/yNWV5sW1aPK",
+	"dHVxht79Pn+H2jUPgRBcoCWPy0BTqANPDIrQtDcyqYgqZEtEmYI1CC1TVKV9eGx6vLWP3NPUdHyvTn9d",
+	"BaxAAIssURRkslfP/gcRgpSjOWwH1Dl+MqPugT41f0eCmfJY9lXv5+mtJjNEhaCqvNaPtfF1CUSAeF+o",
+	"pPl14Tz/4+8bbJ/22rda2oSSKJWb1oCyFe+5iEDi15LGgF5+K0CUr9D7z5/QigukEkA3NCMxF4VEZ1+u",
+	"rsPza5SnRGnUAnT+AKJEGtO6e0E2YIkIMk4gxf8FFqCbBJCAjFBG2RolFAQRUVKilLBYIspQShQIlCdE",
+	"gkQvJUBtm2Z5ChkwZY7PU8JeBf9ovto7jRvvvmjXted4hjU9TWzz4NdgrrPEc2Akp3iB3wTz4I2uLUQl",
+	"Nbahe8BkWDVv2UaL1qYU+Ah14cQfQfneadYZY+7627RGJWyNOZv7R+3hb/P5SGe4W0foHexpCXUynDzQ",
+	"2Lydvx06zzsY+ua1ZmiRZUSUBgxE/HFoWSJqW80BWEM/XclBhP+kUvm2S34onwXcvuaO4u6bxae1+Eki",
+	"mhCDR6hqABDj7DWxhQI1uqhgMYgW6ONwr0mmPZvG237zsaX/LOCeLNBTMDcRIT3UIRrLvWlfJ6hJwQuJ",
+	"Wri5hPiUhVVrpTBeWDx/dsa+tbQ4bmlpKD5QW5zCoYqLO69TXepBg4IMKzdyjAJrx4tdUfULnKNCap0b",
+	"wNNIDwMms6d1oDSthwwrtykaRdIOL7si6ZdUR0Xy0nVRvUga6aGQNKd1kLRrhfFKe+WUTvEguYFmizrp",
+	"/Jp+jLqaPuqw8muVUQY5n3alULOBPCqHPGT9JLLiAxU3e1qHRW68HqfRrdc6BY/80LcFkbxn00x6pNqE",
+	"HlbNkmGUTN6xXdnU2jMflU4Ncv18cvIDEcod18+oDqxNy7hVZyg/lM8C7O0acT8AbdGHuwC3aMOdqu/C",
+	"W+kbQ1oAUVxsd6PPnPKzQHnv/tuGc/Dm20X7QiKH2HgSXMs4moRzq/Qjkd31j9O5cNFNM91p7kh020uO",
+	"Qmwapx8K4Uu/S5xC2AY3DbBVHMRXTk3st9LM6Cd4/OV2C43aoy0e/UbNhBlW5q+t4w+9/I6p2P716bgP",
+	"vByehbXsUA+7bE/ArTVxjUN7QXx3r+OVIB4cSoVI8QKHeHO/+S8AAP//",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,
