@@ -16,6 +16,7 @@ COPY internal/projection/campaign/migrations /migrations/internal/projection/cam
 COPY internal/projection/entity/migrations /migrations/internal/projection/entity/migrations
 COPY internal/projection/character/migrations /migrations/internal/projection/character/migrations
 COPY internal/projection/object/migrations /migrations/internal/projection/object/migrations
+COPY internal/projection/ruleset/migrations /migrations/internal/projection/ruleset/migrations
 COPY scripts/migrate-up.sh /usr/local/bin/migrate-up.sh
 ENV MIGRATIONS_BASE=/migrations
 ENV MIGRATE_BIN=migrate

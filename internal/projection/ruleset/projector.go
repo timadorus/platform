@@ -45,11 +45,20 @@ func (p *Projector) handleCreated(ctx context.Context, tx pgx.Tx, env bus.Envelo
 	if err := json.Unmarshal(env.Payload, &e); err != nil {
 		return fmt.Errorf("ruleset projector: unmarshal %s: %w", env.EventType, err)
 	}
+	// e.References is nil when a Ruleset is created without references (the common case: the
+	// command API's CreateRulesetRequest only requires a name). pgx encodes a nil []string as SQL
+	// NULL, which violates reference_urls' NOT NULL constraint and bypasses its DEFAULT '{}' —
+	// defaults only apply when a column is omitted from the INSERT, not when NULL is supplied
+	// explicitly. Normalize to a non-nil empty slice so it round-trips as '{}' instead.
+	references := e.References
+	if references == nil {
+		references = []string{}
+	}
 	_, err := tx.Exec(ctx,
 		`INSERT INTO rulesets_read_model (id, name, description, reference_urls, is_archived, updated_at)
 		 VALUES ($1, $2, $3, $4, false, $5)
 		 ON CONFLICT (id) DO NOTHING`,
-		env.AggregateID, e.Name, e.Description, e.References, e.OccurredAt,
+		env.AggregateID, e.Name, e.Description, references, e.OccurredAt,
 	)
 	return err
 }
@@ -77,7 +86,14 @@ func (p *Projector) handleReferencesChanged(ctx context.Context, tx pgx.Tx, env 
 	if err := json.Unmarshal(env.Payload, &e); err != nil {
 		return fmt.Errorf("ruleset projector: unmarshal %s: %w", env.EventType, err)
 	}
-	_, err := tx.Exec(ctx, `UPDATE rulesets_read_model SET reference_urls = $2, updated_at = $3 WHERE id = $1`, env.AggregateID, e.References, e.OccurredAt)
+	// Same nil-vs-NULL normalization as handleCreated: a request that sets references to an
+	// empty list arrives here as e.References == nil, which must not hit reference_urls (NOT
+	// NULL) as SQL NULL.
+	references := e.References
+	if references == nil {
+		references = []string{}
+	}
+	_, err := tx.Exec(ctx, `UPDATE rulesets_read_model SET reference_urls = $2, updated_at = $3 WHERE id = $1`, env.AggregateID, references, e.OccurredAt)
 	return err
 }
 
