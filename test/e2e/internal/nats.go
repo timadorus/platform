@@ -11,10 +11,10 @@ const (
 )
 
 // NATSExternalURL is the URL the timadorus-platform chart's nats.externalURL value should be
-// set to once the standalone NATS release below is installed (Service naming convention
-// "<release-name>-nats", the same one already verified for the platform chart's own bundled
-// NATS dependency).
-const NATSExternalURL = "nats://" + natsReleaseName + "-nats." + natsNamespace + ".svc.cluster.local:4222"
+// set to once the standalone NATS release below is installed. Helm's fullname helper collapses
+// "<release-name>-<chart-name>" to just "<release-name>" when they are identical, so the NATS
+// Service is named "nats", not "nats-nats".
+const NATSExternalURL = "nats://" + natsReleaseName + "." + natsNamespace + ".svc.cluster.local:4222"
 
 // IsNATSInstalled reports whether the standalone "nats" Helm release already exists in its
 // namespace.
