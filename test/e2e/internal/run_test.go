@@ -2,7 +2,12 @@
 
 package e2eutil
 
-import "testing"
+import (
+	"testing"
+
+	_ "github.com/onsi/ginkgo/v2"
+	_ "github.com/onsi/gomega"
+)
 
 func TestNonEmptyLines(t *testing.T) {
 	got := NonEmptyLines("a\n\nb\nc\n")
