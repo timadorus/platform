@@ -36,6 +36,7 @@ type CharacterCreatedResponse struct {
 type CreateCampaignRequest struct {
 	GamemasterUserIds []openapi_types.UUID `json:"gamemasterUserIds"`
 	Name              string               `json:"name"`
+	RulesetId         openapi_types.UUID   `json:"rulesetId"`
 }
 
 // CreateCharacterRequest defines model for CreateCharacterRequest.
@@ -52,6 +53,13 @@ type CreateEntityRequest struct {
 // CreateObjectRequest defines model for CreateObjectRequest.
 type CreateObjectRequest struct {
 	Name string `json:"name"`
+}
+
+// CreateRulesetRequest defines model for CreateRulesetRequest.
+type CreateRulesetRequest struct {
+	Description *string   `json:"description,omitempty"`
+	Name        string    `json:"name"`
+	References  *[]string `json:"references,omitempty"`
 }
 
 // CreateUniverseRequest defines model for CreateUniverseRequest.
@@ -87,9 +95,24 @@ type RenameRequest struct {
 	Name string `json:"name"`
 }
 
+// RulesetCreatedResponse defines model for RulesetCreatedResponse.
+type RulesetCreatedResponse struct {
+	Id openapi_types.UUID `json:"id"`
+}
+
 // SetPlayerRequest defines model for SetPlayerRequest.
 type SetPlayerRequest struct {
 	UserId openapi_types.UUID `json:"userId"`
+}
+
+// SetRulesetDescriptionRequest defines model for SetRulesetDescriptionRequest.
+type SetRulesetDescriptionRequest struct {
+	Description string `json:"description"`
+}
+
+// SetRulesetReferencesRequest defines model for SetRulesetReferencesRequest.
+type SetRulesetReferencesRequest struct {
+	References []string `json:"references"`
 }
 
 // UniverseCreatedResponse defines model for UniverseCreatedResponse.
@@ -113,6 +136,9 @@ type EntityId = openapi_types.UUID
 
 // ObjectId defines model for ObjectId.
 type ObjectId = openapi_types.UUID
+
+// RulesetId defines model for RulesetId.
+type RulesetId = openapi_types.UUID
 
 // UniverseId defines model for UniverseId.
 type UniverseId = openapi_types.UUID
@@ -149,6 +175,18 @@ type RenameEntityJSONRequestBody = RenameRequest
 
 // RenameObjectJSONRequestBody defines body for RenameObject for application/json ContentType.
 type RenameObjectJSONRequestBody = RenameRequest
+
+// CreateRulesetJSONRequestBody defines body for CreateRuleset for application/json ContentType.
+type CreateRulesetJSONRequestBody = CreateRulesetRequest
+
+// RenameRulesetJSONRequestBody defines body for RenameRuleset for application/json ContentType.
+type RenameRulesetJSONRequestBody = RenameRequest
+
+// SetRulesetDescriptionJSONRequestBody defines body for SetRulesetDescription for application/json ContentType.
+type SetRulesetDescriptionJSONRequestBody = SetRulesetDescriptionRequest
+
+// SetRulesetReferencesJSONRequestBody defines body for SetRulesetReferences for application/json ContentType.
+type SetRulesetReferencesJSONRequestBody = SetRulesetReferencesRequest
 
 // CreateUniverseJSONRequestBody defines body for CreateUniverse for application/json ContentType.
 type CreateUniverseJSONRequestBody = CreateUniverseRequest
@@ -209,6 +247,21 @@ type ServerInterface interface {
 	// ArchiveObject Archive an Object. Idempotent.
 	// (POST /objects/{objectId}/archive)
 	ArchiveObject(w http.ResponseWriter, r *http.Request, objectId ObjectId)
+	// CreateRuleset Create a new Ruleset.
+	// (POST /rulesets)
+	CreateRuleset(w http.ResponseWriter, r *http.Request)
+	// RenameRuleset Rename a Ruleset.
+	// (PATCH /rulesets/{rulesetId})
+	RenameRuleset(w http.ResponseWriter, r *http.Request, rulesetId RulesetId)
+	// ArchiveRuleset Archive a Ruleset. Idempotent.
+	// (POST /rulesets/{rulesetId}/archive)
+	ArchiveRuleset(w http.ResponseWriter, r *http.Request, rulesetId RulesetId)
+	// SetRulesetDescription Replace a Ruleset's description.
+	// (PUT /rulesets/{rulesetId}/description)
+	SetRulesetDescription(w http.ResponseWriter, r *http.Request, rulesetId RulesetId)
+	// SetRulesetReferences Replace a Ruleset's references list.
+	// (PUT /rulesets/{rulesetId}/references)
+	SetRulesetReferences(w http.ResponseWriter, r *http.Request, rulesetId RulesetId)
 	// CreateUniverse Create a new Universe.
 	// (POST /universes)
 	CreateUniverse(w http.ResponseWriter, r *http.Request)
@@ -574,6 +627,124 @@ func (siw *ServerInterfaceWrapper) ArchiveObject(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ArchiveObject(w, r, objectId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateRuleset operation middleware
+func (siw *ServerInterfaceWrapper) CreateRuleset(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateRuleset(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RenameRuleset operation middleware
+func (siw *ServerInterfaceWrapper) RenameRuleset(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "rulesetId" -------------
+	var rulesetId RulesetId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "rulesetId", mux.Vars(r)["rulesetId"], &rulesetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "rulesetId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RenameRuleset(w, r, rulesetId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ArchiveRuleset operation middleware
+func (siw *ServerInterfaceWrapper) ArchiveRuleset(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "rulesetId" -------------
+	var rulesetId RulesetId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "rulesetId", mux.Vars(r)["rulesetId"], &rulesetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "rulesetId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ArchiveRuleset(w, r, rulesetId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetRulesetDescription operation middleware
+func (siw *ServerInterfaceWrapper) SetRulesetDescription(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "rulesetId" -------------
+	var rulesetId RulesetId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "rulesetId", mux.Vars(r)["rulesetId"], &rulesetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "rulesetId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetRulesetDescription(w, r, rulesetId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetRulesetReferences operation middleware
+func (siw *ServerInterfaceWrapper) SetRulesetReferences(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "rulesetId" -------------
+	var rulesetId RulesetId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "rulesetId", mux.Vars(r)["rulesetId"], &rulesetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "rulesetId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetRulesetReferences(w, r, rulesetId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1021,6 +1192,16 @@ func HandlerWithOptions(si ServerInterface, options GorillaServerOptions) http.H
 	r.HandleFunc(options.BaseURL+"/objects/{objectId}", wrapper.RenameObject).Methods(http.MethodPatch)
 
 	r.HandleFunc(options.BaseURL+"/objects/{objectId}/archive", wrapper.ArchiveObject).Methods(http.MethodPost)
+
+	r.HandleFunc(options.BaseURL+"/rulesets", wrapper.CreateRuleset).Methods(http.MethodPost)
+
+	r.HandleFunc(options.BaseURL+"/rulesets/{rulesetId}", wrapper.RenameRuleset).Methods(http.MethodPatch)
+
+	r.HandleFunc(options.BaseURL+"/rulesets/{rulesetId}/description", wrapper.SetRulesetDescription).Methods(http.MethodPut)
+
+	r.HandleFunc(options.BaseURL+"/rulesets/{rulesetId}/references", wrapper.SetRulesetReferences).Methods(http.MethodPut)
+
+	r.HandleFunc(options.BaseURL+"/rulesets/{rulesetId}/archive", wrapper.ArchiveRuleset).Methods(http.MethodPost)
 
 	return r
 }
@@ -1747,6 +1928,303 @@ func (response ArchiveObject404ApplicationProblemPlusJSONResponse) VisitArchiveO
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateRulesetRequestObject struct {
+	Body *CreateRulesetJSONRequestBody
+}
+
+type CreateRulesetResponseObject interface {
+	VisitCreateRulesetResponse(w http.ResponseWriter) error
+}
+
+type CreateRuleset201JSONResponse RulesetCreatedResponse
+
+func (response CreateRuleset201JSONResponse) VisitCreateRulesetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateRuleset400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response CreateRuleset400ApplicationProblemPlusJSONResponse) VisitCreateRulesetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateRuleset422ApplicationProblemPlusJSONResponse struct {
+	UnprocessableEntityApplicationProblemPlusJSONResponse
+}
+
+func (response CreateRuleset422ApplicationProblemPlusJSONResponse) VisitCreateRulesetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RenameRulesetRequestObject struct {
+	RulesetId RulesetId `json:"rulesetId"`
+	Body      *RenameRulesetJSONRequestBody
+}
+
+type RenameRulesetResponseObject interface {
+	VisitRenameRulesetResponse(w http.ResponseWriter) error
+}
+
+type RenameRuleset204Response struct {
+}
+
+func (response RenameRuleset204Response) VisitRenameRulesetResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RenameRuleset400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response RenameRuleset400ApplicationProblemPlusJSONResponse) VisitRenameRulesetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RenameRuleset404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response RenameRuleset404ApplicationProblemPlusJSONResponse) VisitRenameRulesetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RenameRuleset409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response RenameRuleset409ApplicationProblemPlusJSONResponse) VisitRenameRulesetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RenameRuleset422ApplicationProblemPlusJSONResponse struct {
+	UnprocessableEntityApplicationProblemPlusJSONResponse
+}
+
+func (response RenameRuleset422ApplicationProblemPlusJSONResponse) VisitRenameRulesetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ArchiveRulesetRequestObject struct {
+	RulesetId RulesetId `json:"rulesetId"`
+}
+
+type ArchiveRulesetResponseObject interface {
+	VisitArchiveRulesetResponse(w http.ResponseWriter) error
+}
+
+type ArchiveRuleset200Response struct {
+}
+
+func (response ArchiveRuleset200Response) VisitArchiveRulesetResponse(w http.ResponseWriter) error {
+	w.WriteHeader(200)
+	return nil
+}
+
+type ArchiveRuleset404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response ArchiveRuleset404ApplicationProblemPlusJSONResponse) VisitArchiveRulesetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetRulesetDescriptionRequestObject struct {
+	RulesetId RulesetId `json:"rulesetId"`
+	Body      *SetRulesetDescriptionJSONRequestBody
+}
+
+type SetRulesetDescriptionResponseObject interface {
+	VisitSetRulesetDescriptionResponse(w http.ResponseWriter) error
+}
+
+type SetRulesetDescription204Response struct {
+}
+
+func (response SetRulesetDescription204Response) VisitSetRulesetDescriptionResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type SetRulesetDescription400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response SetRulesetDescription400ApplicationProblemPlusJSONResponse) VisitSetRulesetDescriptionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetRulesetDescription404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response SetRulesetDescription404ApplicationProblemPlusJSONResponse) VisitSetRulesetDescriptionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetRulesetDescription409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response SetRulesetDescription409ApplicationProblemPlusJSONResponse) VisitSetRulesetDescriptionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetRulesetReferencesRequestObject struct {
+	RulesetId RulesetId `json:"rulesetId"`
+	Body      *SetRulesetReferencesJSONRequestBody
+}
+
+type SetRulesetReferencesResponseObject interface {
+	VisitSetRulesetReferencesResponse(w http.ResponseWriter) error
+}
+
+type SetRulesetReferences204Response struct {
+}
+
+func (response SetRulesetReferences204Response) VisitSetRulesetReferencesResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type SetRulesetReferences400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response SetRulesetReferences400ApplicationProblemPlusJSONResponse) VisitSetRulesetReferencesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetRulesetReferences404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response SetRulesetReferences404ApplicationProblemPlusJSONResponse) VisitSetRulesetReferencesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetRulesetReferences409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response SetRulesetReferences409ApplicationProblemPlusJSONResponse) VisitSetRulesetReferencesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -2482,6 +2960,21 @@ type StrictServerInterface interface {
 	// ArchiveObject Archive an Object. Idempotent.
 	// (POST /objects/{objectId}/archive)
 	ArchiveObject(ctx context.Context, request ArchiveObjectRequestObject) (ArchiveObjectResponseObject, error)
+	// CreateRuleset Create a new Ruleset.
+	// (POST /rulesets)
+	CreateRuleset(ctx context.Context, request CreateRulesetRequestObject) (CreateRulesetResponseObject, error)
+	// RenameRuleset Rename a Ruleset.
+	// (PATCH /rulesets/{rulesetId})
+	RenameRuleset(ctx context.Context, request RenameRulesetRequestObject) (RenameRulesetResponseObject, error)
+	// ArchiveRuleset Archive a Ruleset. Idempotent.
+	// (POST /rulesets/{rulesetId}/archive)
+	ArchiveRuleset(ctx context.Context, request ArchiveRulesetRequestObject) (ArchiveRulesetResponseObject, error)
+	// SetRulesetDescription Replace a Ruleset's description.
+	// (PUT /rulesets/{rulesetId}/description)
+	SetRulesetDescription(ctx context.Context, request SetRulesetDescriptionRequestObject) (SetRulesetDescriptionResponseObject, error)
+	// SetRulesetReferences Replace a Ruleset's references list.
+	// (PUT /rulesets/{rulesetId}/references)
+	SetRulesetReferences(ctx context.Context, request SetRulesetReferencesRequestObject) (SetRulesetReferencesResponseObject, error)
 	// CreateUniverse Create a new Universe.
 	// (POST /universes)
 	CreateUniverse(ctx context.Context, request CreateUniverseRequestObject) (CreateUniverseResponseObject, error)
@@ -2912,6 +3405,162 @@ func (sh *strictHandler) ArchiveObject(w http.ResponseWriter, r *http.Request, o
 	}
 }
 
+// CreateRuleset operation middleware
+func (sh *strictHandler) CreateRuleset(w http.ResponseWriter, r *http.Request) {
+	var request CreateRulesetRequestObject
+
+	var body CreateRulesetJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateRuleset(ctx, request.(CreateRulesetRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateRuleset")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateRulesetResponseObject); ok {
+		if err := validResponse.VisitCreateRulesetResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RenameRuleset operation middleware
+func (sh *strictHandler) RenameRuleset(w http.ResponseWriter, r *http.Request, rulesetId RulesetId) {
+	var request RenameRulesetRequestObject
+
+	request.RulesetId = rulesetId
+
+	var body RenameRulesetJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RenameRuleset(ctx, request.(RenameRulesetRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RenameRuleset")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RenameRulesetResponseObject); ok {
+		if err := validResponse.VisitRenameRulesetResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ArchiveRuleset operation middleware
+func (sh *strictHandler) ArchiveRuleset(w http.ResponseWriter, r *http.Request, rulesetId RulesetId) {
+	var request ArchiveRulesetRequestObject
+
+	request.RulesetId = rulesetId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ArchiveRuleset(ctx, request.(ArchiveRulesetRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ArchiveRuleset")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ArchiveRulesetResponseObject); ok {
+		if err := validResponse.VisitArchiveRulesetResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetRulesetDescription operation middleware
+func (sh *strictHandler) SetRulesetDescription(w http.ResponseWriter, r *http.Request, rulesetId RulesetId) {
+	var request SetRulesetDescriptionRequestObject
+
+	request.RulesetId = rulesetId
+
+	var body SetRulesetDescriptionJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetRulesetDescription(ctx, request.(SetRulesetDescriptionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetRulesetDescription")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetRulesetDescriptionResponseObject); ok {
+		if err := validResponse.VisitSetRulesetDescriptionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetRulesetReferences operation middleware
+func (sh *strictHandler) SetRulesetReferences(w http.ResponseWriter, r *http.Request, rulesetId RulesetId) {
+	var request SetRulesetReferencesRequestObject
+
+	request.RulesetId = rulesetId
+
+	var body SetRulesetReferencesJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetRulesetReferences(ctx, request.(SetRulesetReferencesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetRulesetReferences")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetRulesetReferencesResponseObject); ok {
+		if err := validResponse.VisitSetRulesetReferencesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // CreateUniverse operation middleware
 func (sh *strictHandler) CreateUniverse(w http.ResponseWriter, r *http.Request) {
 	var request CreateUniverseRequestObject
@@ -3250,37 +3899,41 @@ func (sh *strictHandler) ArchiveUser(w http.ResponseWriter, r *http.Request, use
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"7FvdbuO6EX6VAVvgJKgrZfcEOK3vcnJ2ixRou012cS5294KRxjZPJVJLUkkNw0Afou/Q9+ij9EkKkqJ+",
+	"bMnyT6IKTe5siOQMZ775OByNViQSaSY4cq3IdEUyKmmKGqX9d03TjLI5v4nNP8bJlGRUL8iEcJoimZKo",
+	"GjAhEr/lTGJMplrmOCEqWmBKzcyZkCnVZErynJmRepmZ2UpLxudkvZ6Q6wWVNNIou0XVRpwm6x3XTC87",
+	"BaF/fJqUv9z/gpHulCL849Ok3OYJKuwWI8vnp8n5xNkDSoWdgvJqwImS1A4Q5Opk/6/NZJUJrtBi/Eca",
+	"3+K3HJU2/yLBNXL7k2ZZwiKqmeBhJsV9gulvflGCm2eVuF9LnJEp+VVYxVHonqrwg5vlhMaoIskysxyZ",
+	"kj/RxCiKMUgnPCAmCgSfJSwaVJMb/kAlo1zDAxOJFQJnGMwDSKjSEEmkWsjzCVAZLdgDxkDnc4lzqnEC",
+	"QoLINEuZ0iyCSPAolxJ5tDS/7Vbsvv4s9HuR83jIfV15LY2SEmdo9MIYMiqR69AgCbjQMDOKWS0/8UyK",
+	"CJWi9wk6khhS4Z9EShmHB5qw2LlhRlmSSyzcgWmml2AC4TywkVKsWSfqa+MtjG8LgFtGlyJDqZlDO4v3",
+	"i8Iqvj6bOV/LMY63SJ2ye4VGTXLvkT6pGPhgVZuHRLlOq/pWa2+4GgU0dZ/T1BhZo3TE5KyoMVV7bSVl",
+	"/MYNflM+pVLSpXnoSG21PUvWWf0wC9g1Jw3e397CDnt4A3YapFPpLKFLL+JovRuLdKvpovNQHdtEdstw",
+	"B/jzyiiO704hDYZosXk3gjzhNfG6Na4JycOU9zlBp/bF2TFY4LRDakOLHftRh8N+X4s5wA5Jzw6+Q0r0",
+	"Z9smbsnt+2v44XcXP0D9zASUUki4F/EyMIG/gXtNWdKKWKWpzutgZlzjHKVFM9NJh5e2tL1F46zn8ncR",
+	"2EOa/w71B8uenXvKj+TmvJuO71AXW/2pcvmRdLYhtT54t+jbkuw6JT8JH9YWaVPI8+GQTjecNZw8E34Y",
+	"5ZLp5Z1JPt3y90glyqtcL6p/772wP/78kRSpqlnJPa2kL7TOXDLM+ExsU8fPkmn8rWIxwlkk0pTy+Byu",
+	"PtzATEjQC4SPLKWxkLmC67/e3oXv7iBLqDZ7DeDdA8olpLmmmvE5GJO4xLrYqAIKTiHQ4m/IA3A0HTru",
+	"DMtkCBLKY2AcEmr+ZQuqUMGZQoRYRCqksQQzwijE0izBFLl2orKE8vPgCyclO5Gaym5HZkNkQgx43K4v",
+	"gjfBhXGvyJDTjJEp+T64CL43PEn1wlo99LUXFa6qMszaFXF0ZH1R7thEfcF4PuO1a1XFns/t95ZqSFgr",
+	"Bq2/OrCg0j+KeNct6bDbUZOT101Mmov+5uX97cVly3FjV3F3usuLiy6h5UJhrQRgp1z2TylvtHbC7/sn",
+	"lFd7M+Ht2/4JbbdRG4B5mlK5LPcJFLxn3LWwAxhhcX+3ABGOI5v4uHIDng4gDUddbDvqylcUzoQEmkik",
+	"8bIsM5wHRzijYZ9i+bqB4CbGNBMGqbuNVV4kVbe9Nm5MYwyojkvdXpH15um06KoUtFRBKs49s5yrFWTU",
+	"qFlw87mrSL2A8HbGAgocH6EyS85jlDVMT4BqkbKIJsnS2cacdVt2gzNzEsG//3UZXJ4H8HGB4JUBxqMk",
+	"j1HBvdALYLECxXiE9jgrZj9S5Q1vTzgWMZ0sy0MvShhyDQuqgAsQeoESHukStIAEqeRWHxabc3BX1FWV",
+	"ChWuXNa5drSRoMa2Ey0VFWH9oZx9UihOekcX5YkWkms9jYyOcTAE9jaOByMYKFR2gZkUaYMPb9FkOsap",
+	"M9ALpoAp61Bb+60mWu07To04HrcDruJ444jJJCrk+nx4n1zFcdMhWvQcT+U5FK5qxc090rzjj6VaDfU1",
+	"0RtXoudd04OO/XO9J0TJeLK90kr7x1PoCs/WYHmLve5Ql8u6Ksso42qrBnR8aFGl2Jy/iOhyW60j5zsF",
+	"zo42U5JojkUu4AvJuUL9hcB//vHP+nigySNdKpsA4d9pZHIjwdEv4rBnX0cxVOHKv5jqp/FC40OxVrY4",
+	"vBL4mAicF+l0NyD2Zu6nAcZYOLs0zDZju9qjCle+Y6Y/aFz57mDblB07r0EzrqBxjunEw94x8zS4GE/M",
+	"FHbZjpni7X9v7ap4f0Kes/i08Yp74NJTx3u4lsJTMfLk8tIzFH8K1TacG67KJo9+Sqw8fRj2q/7CV1Ic",
+	"1VWwHxN70+JTYWM0F0Bvm25ibNhp46101/1v+z33CKNp5/v4Y4PrUxaPueK+ESBZQqMaCr5TUNvNLhw0",
+	"ewR6YFD1HIwaBdutES8VBJV3IWHKE4JvW+9NlXxzx7PmSpsddQMnS10NLC3Zkh86xnTJ67bp4nBVfaTQ",
+	"nzHVHH5YeNc+lXjNmUaVM+0FjL3TpqcDyGgSp9JA25lTh7HKF7m9bRLHdpUMEE7tnwIM3STR8QlHW49E",
+	"MfSFtkL43ftOiP3CumgDP6SxoHEeCnkSdP/vugoKo/iWgoo6drYUFLN29xOM2O7jaybwfrCdBIcTuH8H",
+	"0cffR75vGIy9m18EDczd7V93tDB30U31Inm72PthrF1U+/vQeWRlfzB0Nr8lGxid7V8CtaDTDXyZ6Cz2",
+	"3oVOtUcnsDlInrc8oP5nLbxt35m0lQUUylGWBFTZhWFd2UgCd5cB1BGtPo2U4vX6P5brfxcI9r/ynwyG",
+	"8Vz11XZ/XO3zLrux+oddn7+aDSiUD37buUzIlIRk/XX93wAAAP//",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

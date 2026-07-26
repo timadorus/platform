@@ -9,6 +9,7 @@ import (
 	charactercmd "github.com/timadorus/platform/internal/command/character"
 	entitycmd "github.com/timadorus/platform/internal/command/entity"
 	objectcmd "github.com/timadorus/platform/internal/command/object"
+	rulesetcmd "github.com/timadorus/platform/internal/command/ruleset"
 	universecmd "github.com/timadorus/platform/internal/command/universe"
 	usercmd "github.com/timadorus/platform/internal/command/user"
 )
@@ -22,6 +23,7 @@ type Server struct {
 	entity    *entitycmd.Service
 	character *charactercmd.Service
 	object    *objectcmd.Service
+	ruleset   *rulesetcmd.Service
 }
 
 func NewServer(
@@ -31,6 +33,7 @@ func NewServer(
 	entityService *entitycmd.Service,
 	characterService *charactercmd.Service,
 	objectService *objectcmd.Service,
+	rulesetService *rulesetcmd.Service,
 ) *Server {
 	return &Server{
 		universe:  universeService,
@@ -39,6 +42,7 @@ func NewServer(
 		entity:    entityService,
 		character: characterService,
 		object:    objectService,
+		ruleset:   rulesetService,
 	}
 }
 
@@ -224,6 +228,7 @@ func (s *Server) CreateCampaign(ctx context.Context, request gen.CreateCampaignR
 
 	id, err := s.campaign.Create(ctx, campaigncmd.CreateCmd{
 		UniverseID:        request.UniverseId,
+		RulesetID:         request.Body.RulesetId,
 		Name:              request.Body.Name,
 		GamemasterUserIDs: request.Body.GamemasterUserIds,
 	})
@@ -594,4 +599,149 @@ func (s *Server) ArchiveObject(ctx context.Context, request gen.ArchiveObjectReq
 		}, nil
 	}
 	return gen.ArchiveObject200Response{}, nil
+}
+
+func (s *Server) CreateRuleset(ctx context.Context, request gen.CreateRulesetRequestObject) (gen.CreateRulesetResponseObject, error) {
+	if request.Body == nil {
+		return gen.CreateRuleset400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse: gen.BadRequestApplicationProblemPlusJSONResponse(problem(400, "bad_request", errMissingBody)),
+		}, nil
+	}
+
+	description := ""
+	if request.Body.Description != nil {
+		description = *request.Body.Description
+	}
+
+	id, err := s.ruleset.Create(ctx, request.Body.Name, description, derefReferences(request.Body.References))
+	if err != nil {
+		status, title := classify(err)
+		p := problem(status, title, err)
+		switch status {
+		case 422:
+			return gen.CreateRuleset422ApplicationProblemPlusJSONResponse{
+				UnprocessableEntityApplicationProblemPlusJSONResponse: gen.UnprocessableEntityApplicationProblemPlusJSONResponse(p),
+			}, nil
+		default:
+			return gen.CreateRuleset400ApplicationProblemPlusJSONResponse{
+				BadRequestApplicationProblemPlusJSONResponse: gen.BadRequestApplicationProblemPlusJSONResponse(p),
+			}, nil
+		}
+	}
+
+	return gen.CreateRuleset201JSONResponse{Id: id}, nil
+}
+
+func (s *Server) RenameRuleset(ctx context.Context, request gen.RenameRulesetRequestObject) (gen.RenameRulesetResponseObject, error) {
+	if request.Body == nil {
+		return gen.RenameRuleset400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse: gen.BadRequestApplicationProblemPlusJSONResponse(problem(400, "bad_request", errMissingBody)),
+		}, nil
+	}
+
+	if err := s.ruleset.Rename(ctx, request.RulesetId, request.Body.Name); err != nil {
+		status, title := classify(err)
+		p := problem(status, title, err)
+		switch status {
+		case 404:
+			return gen.RenameRuleset404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse: gen.NotFoundApplicationProblemPlusJSONResponse(p),
+			}, nil
+		case 409:
+			return gen.RenameRuleset409ApplicationProblemPlusJSONResponse{
+				ConflictApplicationProblemPlusJSONResponse: gen.ConflictApplicationProblemPlusJSONResponse(p),
+			}, nil
+		case 422:
+			return gen.RenameRuleset422ApplicationProblemPlusJSONResponse{
+				UnprocessableEntityApplicationProblemPlusJSONResponse: gen.UnprocessableEntityApplicationProblemPlusJSONResponse(p),
+			}, nil
+		default:
+			return gen.RenameRuleset400ApplicationProblemPlusJSONResponse{
+				BadRequestApplicationProblemPlusJSONResponse: gen.BadRequestApplicationProblemPlusJSONResponse(p),
+			}, nil
+		}
+	}
+
+	return gen.RenameRuleset204Response{}, nil
+}
+
+func (s *Server) SetRulesetDescription(ctx context.Context, request gen.SetRulesetDescriptionRequestObject) (gen.SetRulesetDescriptionResponseObject, error) {
+	if request.Body == nil {
+		return gen.SetRulesetDescription400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse: gen.BadRequestApplicationProblemPlusJSONResponse(problem(400, "bad_request", errMissingBody)),
+		}, nil
+	}
+
+	if err := s.ruleset.SetDescription(ctx, request.RulesetId, request.Body.Description); err != nil {
+		status, title := classify(err)
+		p := problem(status, title, err)
+		switch status {
+		case 404:
+			return gen.SetRulesetDescription404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse: gen.NotFoundApplicationProblemPlusJSONResponse(p),
+			}, nil
+		case 409:
+			return gen.SetRulesetDescription409ApplicationProblemPlusJSONResponse{
+				ConflictApplicationProblemPlusJSONResponse: gen.ConflictApplicationProblemPlusJSONResponse(p),
+			}, nil
+		default:
+			return gen.SetRulesetDescription400ApplicationProblemPlusJSONResponse{
+				BadRequestApplicationProblemPlusJSONResponse: gen.BadRequestApplicationProblemPlusJSONResponse(p),
+			}, nil
+		}
+	}
+
+	return gen.SetRulesetDescription204Response{}, nil
+}
+
+func (s *Server) SetRulesetReferences(ctx context.Context, request gen.SetRulesetReferencesRequestObject) (gen.SetRulesetReferencesResponseObject, error) {
+	if request.Body == nil {
+		return gen.SetRulesetReferences400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse: gen.BadRequestApplicationProblemPlusJSONResponse(problem(400, "bad_request", errMissingBody)),
+		}, nil
+	}
+
+	if err := s.ruleset.SetReferences(ctx, request.RulesetId, request.Body.References); err != nil {
+		status, title := classify(err)
+		p := problem(status, title, err)
+		switch status {
+		case 404:
+			return gen.SetRulesetReferences404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse: gen.NotFoundApplicationProblemPlusJSONResponse(p),
+			}, nil
+		case 409:
+			return gen.SetRulesetReferences409ApplicationProblemPlusJSONResponse{
+				ConflictApplicationProblemPlusJSONResponse: gen.ConflictApplicationProblemPlusJSONResponse(p),
+			}, nil
+		default:
+			return gen.SetRulesetReferences400ApplicationProblemPlusJSONResponse{
+				BadRequestApplicationProblemPlusJSONResponse: gen.BadRequestApplicationProblemPlusJSONResponse(p),
+			}, nil
+		}
+	}
+
+	return gen.SetRulesetReferences204Response{}, nil
+}
+
+func (s *Server) ArchiveRuleset(ctx context.Context, request gen.ArchiveRulesetRequestObject) (gen.ArchiveRulesetResponseObject, error) {
+	if err := s.ruleset.Archive(ctx, request.RulesetId); err != nil {
+		status, title := classify(err)
+		return gen.ArchiveRuleset404ApplicationProblemPlusJSONResponse{
+			NotFoundApplicationProblemPlusJSONResponse: gen.NotFoundApplicationProblemPlusJSONResponse(problem(status, title, err)),
+		}, nil
+	}
+	return gen.ArchiveRuleset200Response{}, nil
+}
+
+// derefReferences dereferences the optional References pointer from CreateRulesetRequest into
+// a plain []string, returning nil when the field was omitted. NOTE: the brief this handler was
+// written from assumed oapi-codegen would generate optional arrays as a plain, nil-safe
+// []string; actual inspection of the generated CreateRulesetRequest (api/command/gen/server.gen.go)
+// showed References is *[]string (pointer to slice), same as any other optional field — so this
+// helper does real work, unlike the no-op the brief anticipated.
+func derefReferences(references *[]string) []string {
+	if references == nil {
+		return nil
+	}
+	return *references
 }
