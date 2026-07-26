@@ -20,6 +20,7 @@ schema_owners=(
   "projection_entity:internal/projection/entity/migrations"
   "projection_character:internal/projection/character/migrations"
   "projection_object:internal/projection/object/migrations"
+  "projection_ruleset:internal/projection/ruleset/migrations"
 )
 
 case "$DATABASE_URL" in
