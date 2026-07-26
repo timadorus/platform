@@ -211,6 +211,64 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /rulesets:
+    get:
+      operationId: listRulesets
+      summary: List non-archived Rulesets.
+      responses:
+        "200":
+          description: Rulesets.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Ruleset"
+
+  /rulesets/{rulesetId}:
+    get:
+      operationId: getRuleset
+      summary: Get a Ruleset by id.
+      parameters:
+        - $ref: "#/components/parameters/RulesetId"
+      responses:
+        "200":
+          description: The Ruleset.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ruleset"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /users:
+    get:
+      operationId: listUsers
+      summary: List non-archived Users.
+      responses:
+        "200":
+          description: Users.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+
+  /universes:
+    get:
+      operationId: listUniverses
+      summary: List non-archived Universes.
+      responses:
+        "200":
+          description: Universes.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Universe"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -256,6 +314,13 @@ components:
         format: uuid
     ObjectId:
       name: objectId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    RulesetId:
+      name: rulesetId
       in: path
       required: true
       schema:
@@ -316,7 +381,7 @@ components:
 
     Campaign:
       type: object
-      required: [id, name, universeId, isArchived]
+      required: [id, name, universeId, rulesetId, isArchived]
       properties:
         id:
           type: string
@@ -326,6 +391,27 @@ components:
         universeId:
           type: string
           format: uuid
+        rulesetId:
+          type: string
+          format: uuid
+        isArchived:
+          type: boolean
+
+    Ruleset:
+      type: object
+      required: [id, name, description, references, isArchived]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        references:
+          type: array
+          items:
+            type: string
         isArchived:
           type: boolean
 

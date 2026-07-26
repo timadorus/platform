@@ -11,6 +11,7 @@ import (
 	characterquery "github.com/timadorus/platform/internal/query/character"
 	entityquery "github.com/timadorus/platform/internal/query/entity"
 	objectquery "github.com/timadorus/platform/internal/query/object"
+	rulesetquery "github.com/timadorus/platform/internal/query/ruleset"
 	universequery "github.com/timadorus/platform/internal/query/universe"
 	userquery "github.com/timadorus/platform/internal/query/user"
 )
@@ -22,6 +23,7 @@ type Server struct {
 	entity    *entityquery.Repository
 	character *characterquery.Repository
 	object    *objectquery.Repository
+	ruleset   *rulesetquery.Repository
 }
 
 func NewServer(
@@ -31,6 +33,7 @@ func NewServer(
 	entityRepo *entityquery.Repository,
 	characterRepo *characterquery.Repository,
 	objectRepo *objectquery.Repository,
+	rulesetRepo *rulesetquery.Repository,
 ) *Server {
 	return &Server{
 		universe:  universeRepo,
@@ -39,6 +42,7 @@ func NewServer(
 		entity:    entityRepo,
 		character: characterRepo,
 		object:    objectRepo,
+		ruleset:   rulesetRepo,
 	}
 }
 
@@ -93,7 +97,7 @@ func (s *Server) GetCampaign(ctx context.Context, request gen.GetCampaignRequest
 		}
 		return nil, err
 	}
-	return gen.GetCampaign200JSONResponse{Id: c.ID, Name: c.Name, UniverseId: c.UniverseID, IsArchived: c.IsArchived}, nil
+	return gen.GetCampaign200JSONResponse{Id: c.ID, Name: c.Name, UniverseId: c.UniverseID, RulesetId: c.RulesetID, IsArchived: c.IsArchived}, nil
 }
 
 func (s *Server) ListCampaignGamemasters(ctx context.Context, request gen.ListCampaignGamemastersRequestObject) (gen.ListCampaignGamemastersResponseObject, error) {
@@ -162,7 +166,7 @@ func (s *Server) ListCampaignsByUniverse(ctx context.Context, request gen.ListCa
 	}
 	out := make([]gen.Campaign, len(campaigns))
 	for i, c := range campaigns {
-		out[i] = gen.Campaign{Id: c.ID, Name: c.Name, UniverseId: c.UniverseID, IsArchived: c.IsArchived}
+		out[i] = gen.Campaign{Id: c.ID, Name: c.Name, UniverseId: c.UniverseID, RulesetId: c.RulesetID, IsArchived: c.IsArchived}
 	}
 	return gen.ListCampaignsByUniverse200JSONResponse(out), nil
 }
@@ -208,6 +212,61 @@ func (s *Server) ListCharactersByCampaign(ctx context.Context, request gen.ListC
 		}
 	}
 	return gen.ListCharactersByCampaign200JSONResponse(out), nil
+}
+
+func (s *Server) GetRuleset(ctx context.Context, request gen.GetRulesetRequestObject) (gen.GetRulesetResponseObject, error) {
+	r, err := s.ruleset.Get(ctx, request.RulesetId)
+	if err != nil {
+		if errors.Is(err, rulesetquery.ErrNotFound) {
+			return gen.GetRuleset404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse: gen.NotFoundApplicationProblemPlusJSONResponse(notFound(err)),
+			}, nil
+		}
+		return nil, err
+	}
+	return gen.GetRuleset200JSONResponse{
+		Id:          r.ID,
+		Name:        r.Name,
+		Description: r.Description,
+		References:  r.References,
+		IsArchived:  r.IsArchived,
+	}, nil
+}
+
+func (s *Server) ListRulesets(ctx context.Context, request gen.ListRulesetsRequestObject) (gen.ListRulesetsResponseObject, error) {
+	rulesets, err := s.ruleset.ListAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]gen.Ruleset, len(rulesets))
+	for i, r := range rulesets {
+		out[i] = gen.Ruleset{Id: r.ID, Name: r.Name, Description: r.Description, References: r.References, IsArchived: r.IsArchived}
+	}
+	return gen.ListRulesets200JSONResponse(out), nil
+}
+
+func (s *Server) ListUsers(ctx context.Context, request gen.ListUsersRequestObject) (gen.ListUsersResponseObject, error) {
+	users, err := s.user.ListAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]gen.User, len(users))
+	for i, u := range users {
+		out[i] = gen.User{Id: u.ID, Name: u.Name, IsArchived: u.IsArchived}
+	}
+	return gen.ListUsers200JSONResponse(out), nil
+}
+
+func (s *Server) ListUniverses(ctx context.Context, request gen.ListUniversesRequestObject) (gen.ListUniversesResponseObject, error) {
+	universes, err := s.universe.ListAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]gen.Universe, len(universes))
+	for i, u := range universes {
+		out[i] = gen.Universe{Id: u.ID, Name: u.Name, IsArchived: u.IsArchived}
+	}
+	return gen.ListUniverses200JSONResponse(out), nil
 }
 
 func notFound(err error) gen.Problem {
