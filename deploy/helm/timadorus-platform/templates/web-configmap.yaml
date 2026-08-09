@@ -8,12 +8,12 @@ metadata:
 data:
   config.json: |
     {
-      "commandApiBaseUrl": {{ .Values.web.config.commandApiBaseUrl | quote }},
-      "queryApiBaseUrl": {{ .Values.web.config.queryApiBaseUrl | quote }},
+      "commandApiBaseUrl": {{ required "web.config.commandApiBaseUrl is required" .Values.web.config.commandApiBaseUrl | quote }},
+      "queryApiBaseUrl": {{ required "web.config.queryApiBaseUrl is required" .Values.web.config.queryApiBaseUrl | quote }},
       "oidc": {
-        "authority": {{ .Values.web.config.oidc.authority | quote }},
-        "clientId": {{ .Values.web.config.oidc.clientId | quote }},
-        "redirectUri": {{ .Values.web.config.oidc.redirectUri | quote }},
-        "postLogoutRedirectUri": {{ .Values.web.config.oidc.postLogoutRedirectUri | quote }}
+        "authority": {{ required "web.config.oidc.authority is required" .Values.web.config.oidc.authority | quote }},
+        "clientId": {{ required "web.config.oidc.clientId is required" .Values.web.config.oidc.clientId | quote }},
+        "redirectUri": {{ required "web.config.oidc.redirectUri is required" .Values.web.config.oidc.redirectUri | quote }},
+        "postLogoutRedirectUri": {{ required "web.config.oidc.postLogoutRedirectUri is required" .Values.web.config.oidc.postLogoutRedirectUri | quote }}
       }
     }

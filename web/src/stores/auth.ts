@@ -48,6 +48,9 @@ export const useAuthStore = defineStore('auth', {
       userManager.events.addSilentRenewError((err) => {
         console.error('silent renew failed', err)
       })
+      userManager.events.addAccessTokenExpired(() => {
+        this.oidcUser = null
+      })
     },
     // restore checks for an already-signed-in session (e.g. a page reload) without
     // triggering a redirect. Called once at boot, before the router guard runs.

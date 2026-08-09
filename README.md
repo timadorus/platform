@@ -37,6 +37,7 @@ Every mutating and read endpoint requires a JWT bearer token. Aggregates are nev
 - Go 1.26+
 - Docker (for local Postgres/NATS via `docker-compose`, and for the testcontainers-backed
   integration tests)
+- Node.js 22+ and npm (for the `web/` SPA)
 
 ## Quickstart
 

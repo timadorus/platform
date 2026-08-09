@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, inject, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useEntities, type EntitySummary } from '@/composables/useEntities'
 import BaseButton from '@/components/common/BaseButton.vue'
@@ -14,6 +14,7 @@ const router = useRouter()
 const entityId = computed(() => route.params.entityId as string)
 
 const { get, rename, archive } = useEntities()
+const bumpSidebarRefresh = inject<() => void>('bumpSidebarRefresh')
 const entity = ref<EntitySummary | null>(null)
 const name = ref('')
 const error = ref<string | null>(null)
@@ -32,6 +33,7 @@ async function submitRename() {
   try {
     await rename(entity.value.id, name.value.trim())
     entity.value.name = name.value.trim()
+    bumpSidebarRefresh?.()
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Failed to rename.'
   }
@@ -43,6 +45,7 @@ async function confirmArchive() {
   error.value = null
   try {
     await archive(entity.value.id)
+    bumpSidebarRefresh?.()
     router.push({ name: 'campaign-overview', params: { universeId: route.params.universeId, campaignId: route.params.campaignId } })
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Failed to archive.'

@@ -5,6 +5,7 @@ import BaseButton from '@/components/common/BaseButton.vue'
 import ErrorBanner from '@/components/common/ErrorBanner.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import CreateUserModal from '@/components/modals/CreateUserModal.vue'
+import AppHeader from '@/components/layout/AppHeader.vue'
 
 const { users, list, rename, archive } = useUsers()
 const error = ref<string | null>(null)
@@ -52,6 +53,7 @@ function onCreated() {
 </script>
 
 <template>
+  <AppHeader :universe-name="null" :campaign-name="null" />
   <div class="mx-auto max-w-xl p-6">
     <div class="mb-4 flex items-center justify-between">
       <h1 class="text-lg font-semibold text-slate-900">Users</h1>

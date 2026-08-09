@@ -6,6 +6,7 @@ import { useSelectionStore } from '@/stores/selection'
 import AggregatePickerGrid from '@/components/pickers/AggregatePickerGrid.vue'
 import CreateUniverseModal from '@/components/modals/CreateUniverseModal.vue'
 import ErrorBanner from '@/components/common/ErrorBanner.vue'
+import AppHeader from '@/components/layout/AppHeader.vue'
 
 const router = useRouter()
 const selection = useSelectionStore()
@@ -43,6 +44,7 @@ function onCreated(id: string) {
 </script>
 
 <template>
+  <AppHeader :universe-name="null" :campaign-name="null" />
   <div v-if="checkingStoredSelection" class="p-6 text-sm text-slate-500">Loading…</div>
   <div v-else class="mx-auto max-w-2xl p-6">
     <h1 class="mb-4 text-lg font-semibold text-slate-900">Choose a Universe</h1>

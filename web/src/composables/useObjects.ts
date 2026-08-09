@@ -14,9 +14,9 @@ export function useObjects() {
   const loading = ref(false)
   const error = ref<string | null>(null)
 
-  // search calls the Task 1 `?name=` parameter — always capped at 20 results server-side. An
-  // empty name still calls the endpoint (returns the unfiltered, uncapped list) rather than
-  // special-casing an empty query client-side.
+  // search calls the Task 1 `?name=` parameter — capped at 20 results server-side only when a
+  // non-empty name filter is supplied. An empty name still calls the endpoint (returns the
+  // full unfiltered, uncapped list) rather than special-casing an empty query client-side.
   async function search(universeId: string, name: string) {
     loading.value = true
     error.value = null

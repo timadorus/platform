@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, inject, onMounted, ref, watch, type Ref } from 'vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import { useRoute, useRouter } from 'vue-router'
 import { useCharacters } from '@/composables/useCharacters'
@@ -33,6 +33,11 @@ async function refresh() {
   gamemasterIds.value = await listGamemasters(props.campaignId)
 }
 onMounted(refresh)
+
+const sidebarRefreshSignal = inject<Ref<number>>('sidebarRefreshSignal')
+if (sidebarRefreshSignal) {
+  watch(sidebarRefreshSignal, refresh)
+}
 
 // playerLabel implements the NPC display rule: a Character whose Player is one of the
 // Campaign's Gamemasters is shown as "(NPC)" instead of a player name (design spec §7).

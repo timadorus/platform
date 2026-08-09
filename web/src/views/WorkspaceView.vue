@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, provide, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUniverses, type UniverseSummary } from '@/composables/useUniverses'
 import { useCampaigns, type CampaignSummary } from '@/composables/useCampaigns'
@@ -25,6 +25,12 @@ const universe = ref<UniverseSummary | null>(null)
 const campaign = ref<CampaignSummary | null>(null)
 const showManageUniverse = ref(false)
 const showManageCampaign = ref(false)
+
+const sidebarRefreshSignal = ref(0)
+provide('sidebarRefreshSignal', sidebarRefreshSignal)
+provide('bumpSidebarRefresh', () => {
+  sidebarRefreshSignal.value++
+})
 
 async function load() {
   universe.value = await getUniverse(universeId.value)

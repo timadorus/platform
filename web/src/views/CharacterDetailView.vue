@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, inject, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useCharacters, type CharacterSummary } from '@/composables/useCharacters'
 import { useUsers } from '@/composables/useUsers'
@@ -17,6 +17,7 @@ const characterId = computed(() => route.params.characterId as string)
 
 const { get, rename, archive, setPlayer } = useCharacters()
 const { users, list: listUsers } = useUsers()
+const bumpSidebarRefresh = inject<() => void>('bumpSidebarRefresh')
 
 const character = ref<CharacterSummary | null>(null)
 const name = ref('')
@@ -42,6 +43,7 @@ async function submitRename() {
   try {
     await rename(character.value.id, name.value.trim())
     character.value.name = name.value.trim()
+    bumpSidebarRefresh?.()
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Failed to rename.'
   }
@@ -53,6 +55,7 @@ async function confirmArchive() {
   error.value = null
   try {
     await archive(character.value.id)
+    bumpSidebarRefresh?.()
     router.push({ name: 'campaign-overview', params: { universeId: route.params.universeId, campaignId: route.params.campaignId } })
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Failed to archive.'
@@ -66,6 +69,7 @@ async function onReassignPlayer(userId: string) {
   try {
     await setPlayer(character.value.id, userId)
     character.value.playerUserId = userId
+    bumpSidebarRefresh?.()
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Failed to reassign Player.'
   }

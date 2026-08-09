@@ -13,6 +13,8 @@ spec:
       app.kubernetes.io/component: web
   template:
     metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/web-configmap.yaml") . | sha256sum }}
       labels:
         {{- include "timadorus-platform.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: web
