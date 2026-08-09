@@ -7,11 +7,14 @@ PostgreSQL + NATS JetStream, with spec-first OpenAPI APIs generated via
 It manages seven related domain concepts for a tabletop-RPG-style application: **User**,
 **Universe**, **Campaign**, **Character**, **Entity**, **Object**, and **Ruleset**. See
 [`docs/PLAN.md`](docs/PLAN.md) for the full design and [`docs/adr/`](docs/adr/) for the
-individual architecture decisions behind it.
+individual architecture decisions behind it. A Vue 3 + Tailwind web console for the Game
+Master role lives in [`web/`](web/) — see `docs/PLAN.md` §15 and
+[`docs/superpowers/specs/2026-08-09-gm-web-spa-design.md`](docs/superpowers/specs/2026-08-09-gm-web-spa-design.md).
 
 ## Architecture at a glance
 
-Three independently deployable binaries, one Postgres database, one NATS JetStream bus:
+Three independently deployable Go binaries, one Postgres database, one NATS JetStream bus,
+plus a static SPA that talks to `command-api`/`query-api` directly from the browser:
 
 ```
 command-api  --write-->  Postgres (event store + outbox)  --relay-->  NATS JetStream
@@ -57,6 +60,13 @@ go run ./cmd/projector
 DATABASE_URL="postgres://timadorus:timadorus@localhost:5432/timadorus?sslmode=disable" \
 NATS_URL="nats://localhost:4222" \
 go run ./cmd/query-api
+
+# 4. Run the web SPA (separate terminal) — defaults in web/public/config.json already point
+#    at the two APIs above; replace the OIDC placeholder values with a real dev IdP's before
+#    testing login
+cd web
+npm install
+npm run dev
 ```
 
 With no `JWT_JWKS_URL`/`JWT_HMAC_SECRET` configured, both APIs fall back to a well-known,
@@ -121,6 +131,7 @@ One Dockerfile per binary at the repo root (multi-stage, distroless runtime imag
 docker build -f Dockerfile.command-api -t timadorus/command-api .
 docker build -f Dockerfile.projector   -t timadorus/projector .
 docker build -f Dockerfile.query-api   -t timadorus/query-api .
+docker build -f Dockerfile.web         -t timadorus/web .
 ```
 
 ## Project status
@@ -132,3 +143,8 @@ health/readiness endpoints, poison-queue/dead-letter handling, JWT hardening, Do
 CI). See `docs/PLAN.md` §12 for the phase-by-phase build history and §13 for known
 open questions / deliberately deferred scope (authorization policy beyond JWT validation,
 archive cascading, event upcasting, snapshotting, and others).
+
+A Game Master web console (`web/`, see `docs/PLAN.md` §15) is built on top of this platform —
+Vue 3 + Tailwind, OIDC PKCE login, full create/manage UI for every aggregate type except
+Ruleset (which stays CLI-only), deployed as a fourth container alongside the three Go
+binaries.
