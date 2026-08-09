@@ -1,2 +1,3 @@
 bin/
 deploy/helm/timadorus-platform/charts/
+.superpowers/
