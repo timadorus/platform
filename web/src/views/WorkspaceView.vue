@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useUniverses, type UniverseSummary } from '@/composables/useUniverses'
 import { useCampaigns, type CampaignSummary } from '@/composables/useCampaigns'
@@ -8,8 +8,12 @@ import AppSidebar from '@/components/layout/AppSidebar.vue'
 import BaseModal from '@/components/common/BaseModal.vue'
 
 const route = useRoute()
-const universeId = route.params.universeId as string
-const campaignId = route.params.campaignId as string
+// computed, not a plain const: vue-router reuses this component instance across param-only
+// route changes on the same route record (e.g. navigating from one Campaign to another
+// without leaving the workspace), so a plain `const` captured once at setup would silently
+// go stale — computed() stays in sync, and the watch below re-triggers load() on change.
+const universeId = computed(() => route.params.universeId as string)
+const campaignId = computed(() => route.params.campaignId as string)
 
 const { get: getUniverse } = useUniverses()
 const { get: getCampaign } = useCampaigns()
@@ -20,12 +24,12 @@ const showManageUniverse = ref(false)
 const showManageCampaign = ref(false)
 
 async function load() {
-  universe.value = await getUniverse(universeId)
-  campaign.value = await getCampaign(campaignId)
+  universe.value = await getUniverse(universeId.value)
+  campaign.value = await getCampaign(campaignId.value)
 }
 
 onMounted(load)
-watch(() => [route.params.universeId, route.params.campaignId], load)
+watch([universeId, campaignId], load)
 </script>
 
 <template>
