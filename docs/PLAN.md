@@ -892,7 +892,7 @@ Implementation notes:
 3. **Event versioning/upcasting**: a `.v1` suffix convention is adopted in event-type strings and the registry is keyed by full type string (future-proofing), but no upcasting framework is built — deliberate scope cut.
 4. **Snapshotting** is out of scope for v1 given small streams; revisit if measured stream length grows.
 5. **Authorization (RBAC) beyond JWT validation**: claims (`sub`, `roles`) are exposed to handlers, but no per-aggregate authorization policy is implemented (e.g. "only a Gamemaster of this Campaign may add a Character," or "only a Creator may archive a Universe") — real gap to close before production use, needs product/security input. Given the domain now has real ownership (Creators, Gamemasters, Player), this is more load-bearing than in a flat model and worth prioritizing early in a follow-up.
-6. **Deployment target**: Docker Compose assumed for local dev; Kubernetes manifests not built in v1.
+6. **Deployment target**: resolved — a Helm chart in `deploy/helm/timadorus-platform/` now defines Kubernetes Deployments, Services, and HTTPRoutes for all four containers (command-api, query-api, projector, web).
 7. **Query API pagination/filtering**: only "list all under a parent" + "get by id" are planned; list endpoints unconditionally exclude archived rows in v1 (the `?includeArchived=true` opt-in described in earlier drafts of this plan was not implemented); further pagination/filtering criteria undefined.
 8. **TLS termination**: the requirement says HTTPS; either terminate at a reverse proxy/ingress (typical) or configure certs in the Go binaries directly — actual deployment topology (not yet specified) determines which.
 9. **NATS subject/stream design**: single JetStream stream, one subject per aggregate type
@@ -1010,6 +1010,29 @@ corresponding `timadorusctl` command(s) in the same change:
 - No shell-completion install step beyond cobra's built-in `timadorusctl completion <shell>`.
 - No automated CLI test suite yet (verified manually against the live stack, same as the
   platform's own end-to-end verification — plan §11's "not automated" note applies here too).
+
+---
+
+## 15. Web SPA: Game Master Console
+
+A Vue 3 + Tailwind single-page application (`web/`) for the Game Master role — create/manage
+Universes, Campaigns, Characters, Entities, Objects, and Users; persistent per-user
+Universe/Campaign selection; progressive-disclosure screens depending on what's selected; OIDC
+Authorization Code + PKCE login against a generically-discovered identity provider (mirroring
+this platform's own provider-agnostic JWT validation, `internal/auth`). Deployed as a fourth
+container (`Dockerfile.web`, served by nginx) alongside the three Go binaries, wired into
+`deploy/helm/timadorus-platform` the same way, with its command-api/query-api base URLs and
+OIDC settings supplied at install time via a ConfigMap-mounted runtime `config.json` rather
+than baked into the JS bundle.
+
+Ruleset is deliberately excluded from this UI — it stays CLI-only (§14), reachable from the
+SPA only as a read-only picker inside Campaign's create modal, matching the immutable-once-set
+`rulesetId` relationship described in §2.
+
+Full design: `docs/superpowers/specs/2026-08-09-gm-web-spa-design.md`. Full implementation
+plan (17 tasks, including a small backend prerequisite adding name-search to the Entity/Object
+list-by-universe query endpoints): `docs/superpowers/plans/2026-08-09-gm-web-spa.md` — see
+that plan's task list for current build status.
 
 ---
 

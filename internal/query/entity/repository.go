@@ -68,3 +68,33 @@ func (r *Repository) ListByUniverse(ctx context.Context, universeID uuid.UUID) (
 	}
 	return entities, nil
 }
+
+// SearchByUniverse returns up to 20 non-archived Entities under universeID whose name
+// contains the given substring (case-insensitive), ordered by name. Used by the quick-search
+// box in the web SPA's Entities panel — unlike ListByUniverse, this always caps results.
+func (r *Repository) SearchByUniverse(ctx context.Context, universeID uuid.UUID, name string) ([]Entity, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT id, name, universe_id, is_archived FROM entities_read_model
+		 WHERE universe_id = $1 AND is_archived = false AND name ILIKE '%' || $2 || '%'
+		 ORDER BY name
+		 LIMIT 20`,
+		universeID, name,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query/entity: search by universe %s: %w", universeID, err)
+	}
+	defer rows.Close()
+
+	var entities []Entity
+	for rows.Next() {
+		var e Entity
+		if err := rows.Scan(&e.ID, &e.Name, &e.UniverseID, &e.IsArchived); err != nil {
+			return nil, fmt.Errorf("query/entity: scan row: %w", err)
+		}
+		entities = append(entities, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("query/entity: iterate rows: %w", err)
+	}
+	return entities, nil
+}

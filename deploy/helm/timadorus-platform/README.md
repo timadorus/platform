@@ -32,6 +32,13 @@ helm install my-platform deploy/helm/timadorus-platform \
   --set postgres.existingSecret=my-postgres-secret \
   --set commandApi.route.hostname=command-api.example.com \
   --set queryApi.route.hostname=query-api.example.com \
+  --set web.route.hostname=app.example.com \
+  --set web.config.commandApiBaseUrl=https://command-api.example.com \
+  --set web.config.queryApiBaseUrl=https://query-api.example.com \
+  --set web.config.oidc.authority=https://my-idp.example.com/realms/timadorus \
+  --set web.config.oidc.clientId=timadorus-web \
+  --set web.config.oidc.redirectUri=https://app.example.com/login \
+  --set web.config.oidc.postLogoutRedirectUri=https://app.example.com/ \
   --set gateway.gatewayClassName=my-gateway-class \
   --set jwt.jwksURL=https://my-idp.example.com/.well-known/jwks.json
 ```
@@ -64,6 +71,10 @@ helm install my-platform deploy/helm/timadorus-platform \
 | `commandApi.replicas` | `1` | command-api replica count |
 | `commandApi.route.hostname` | `""` (required) | hostname the command-api `HTTPRoute` matches |
 | `queryApi.*` | (mirrors `commandApi.*`) | query-api equivalents |
+| `web.image.*` / `.replicas` | (mirrors `commandApi.*`) | web SPA deployment |
+| `web.route.hostname` | `""` (required) | hostname the web `HTTPRoute` matches |
+| `web.config.commandApiBaseUrl` / `.queryApiBaseUrl` | `""` (required) | API base URLs the browser calls directly — must be reachable from the GM's browser, not just in-cluster |
+| `web.config.oidc.*` | `""` (required) | OIDC issuer/client/redirect settings baked into the served `config.json` (design spec §9) — never into the JS bundle itself |
 | `projector.image.*` | (mirrors `commandApi.*`) | projector has no `route.hostname` — no public API |
 | `projector.replicas` | `1` | **must stay `1`** — the projector holds an exclusive NATS JetStream durable-consumer binding per read-model projection, so a second replica would simply fail to bind and crash-loop; this is not a normal scaling knob |
 | `migration.image.*` | `timadorus/migrate` / ... | image used by the pre-install/pre-upgrade migration Job |

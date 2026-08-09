@@ -34,6 +34,34 @@ queryApi:
   route:
     hostname: ""
 
+web:
+  image:
+    repository: timadorus/web
+    tag: ""
+    pullPolicy: IfNotPresent
+  replicas: 1
+  containerPort: 8080
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+  route:
+    hostname: ""
+  # Runtime config.json served to the browser at boot (design spec §9) — command/query API
+  # base URLs and OIDC settings the SPA needs, resolved at install time, never baked into the
+  # JS bundle.
+  config:
+    commandApiBaseUrl: ""
+    queryApiBaseUrl: ""
+    oidc:
+      authority: ""
+      clientId: ""
+      redirectUri: ""
+      postLogoutRedirectUri: ""
+
 projector:
   image:
     repository: timadorus/projector
