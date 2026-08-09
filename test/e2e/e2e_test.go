@@ -109,6 +109,13 @@ var _ = Describe("Timadorus platform aggregates", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(resp.StatusCode).To(Equal(http.StatusCreated))
 
+		entityName2 := "e2e-entity-second"
+		var entity2 commandgen.EntityCreatedResponse
+		resp, err = doJSON(http.MethodPost, fmt.Sprintf("%s/universes/%s/entities", env.CommandAPIBaseURL, universe.Id), env.BearerToken,
+			commandgen.CreateEntityRequest{Name: entityName2}, &entity2)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+
 		objectName := "e2e-object"
 		var object commandgen.ObjectCreatedResponse
 		resp, err = doJSON(http.MethodPost, fmt.Sprintf("%s/universes/%s/objects", env.CommandAPIBaseURL, universe.Id), env.BearerToken,
@@ -170,6 +177,25 @@ var _ = Describe("Timadorus platform aggregates", func() {
 			g.Expect(resp.StatusCode).To(Equal(http.StatusOK))
 			g.Expect(got.Name).To(Equal(entityName))
 			g.Expect(got.UniverseId).To(Equal(universe.Id))
+		}, time.Minute, time.Second).Should(Succeed())
+
+		Eventually(func(g Gomega) {
+			var got []querygen.Entity
+			resp, err := doJSON(http.MethodGet, fmt.Sprintf("%s/universes/%s/entities?name=e2e-entity", env.QueryAPIBaseURL, universe.Id), env.BearerToken, nil, &got)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			g.Expect(got).To(HaveLen(2))
+			g.Expect(got).To(ContainElement(HaveField("Id", entity.Id)))
+			g.Expect(got).To(ContainElement(HaveField("Id", entity2.Id)))
+		}, time.Minute, time.Second).Should(Succeed())
+
+		Eventually(func(g Gomega) {
+			var got []querygen.Entity
+			resp, err := doJSON(http.MethodGet, fmt.Sprintf("%s/universes/%s/entities?name=second", env.QueryAPIBaseURL, universe.Id), env.BearerToken, nil, &got)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			g.Expect(got).To(HaveLen(1))
+			g.Expect(got[0].Id).To(Equal(entity2.Id))
 		}, time.Minute, time.Second).Should(Succeed())
 
 		Eventually(func(g Gomega) {

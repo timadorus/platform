@@ -83,9 +83,17 @@ paths:
   /universes/{universeId}/entities:
     get:
       operationId: listEntitiesByUniverse
-      summary: List non-archived Entities under a Universe.
+      summary: List non-archived Entities under a Universe, optionally filtered by name.
       parameters:
         - $ref: "#/components/parameters/UniverseId"
+        - name: name
+          in: query
+          required: false
+          schema:
+            type: string
+          description: >-
+            Case-insensitive substring match on name. When present, results are capped at 20
+            and ordered by name; when absent, behavior is unchanged (full non-archived list).
       responses:
         "200":
           description: Entities.
@@ -99,9 +107,17 @@ paths:
   /universes/{universeId}/objects:
     get:
       operationId: listObjectsByUniverse
-      summary: List non-archived Objects under a Universe.
+      summary: List non-archived Objects under a Universe, optionally filtered by name.
       parameters:
         - $ref: "#/components/parameters/UniverseId"
+        - name: name
+          in: query
+          required: false
+          schema:
+            type: string
+          description: >-
+            Case-insensitive substring match on name. When present, results are capped at 20
+            and ordered by name; when absent, behavior is unchanged (full non-archived list).
       responses:
         "200":
           description: Objects.

@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -110,6 +111,18 @@ type UserId = openapi_types.UUID
 // NotFound RFC 7807 problem+json error body.
 type NotFound = Problem
 
+// ListEntitiesByUniverseParams defines parameters for ListEntitiesByUniverse.
+type ListEntitiesByUniverseParams struct {
+	// Name Case-insensitive substring match on name. When present, results are capped at 20 and ordered by name; when absent, behavior is unchanged (full non-archived list).
+	Name *string `form:"name,omitempty" json:"name,omitempty"`
+}
+
+// ListObjectsByUniverseParams defines parameters for ListObjectsByUniverse.
+type ListObjectsByUniverseParams struct {
+	// Name Case-insensitive substring match on name. When present, results are capped at 20 and ordered by name; when absent, behavior is unchanged (full non-archived list).
+	Name *string `form:"name,omitempty" json:"name,omitempty"`
+}
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 	// GetCampaign Get a Campaign by id.
@@ -148,12 +161,12 @@ type ServerInterface interface {
 	// ListUniverseCreators List a Universe's Creators.
 	// (GET /universes/{universeId}/creators)
 	ListUniverseCreators(w http.ResponseWriter, r *http.Request, universeId UniverseId)
-	// ListEntitiesByUniverse List non-archived Entities under a Universe.
+	// ListEntitiesByUniverse List non-archived Entities under a Universe, optionally filtered by name.
 	// (GET /universes/{universeId}/entities)
-	ListEntitiesByUniverse(w http.ResponseWriter, r *http.Request, universeId UniverseId)
-	// ListObjectsByUniverse List non-archived Objects under a Universe.
+	ListEntitiesByUniverse(w http.ResponseWriter, r *http.Request, universeId UniverseId, params ListEntitiesByUniverseParams)
+	// ListObjectsByUniverse List non-archived Objects under a Universe, optionally filtered by name.
 	// (GET /universes/{universeId}/objects)
-	ListObjectsByUniverse(w http.ResponseWriter, r *http.Request, universeId UniverseId)
+	ListObjectsByUniverse(w http.ResponseWriter, r *http.Request, universeId UniverseId, params ListObjectsByUniverseParams)
 	// ListUsers List non-archived Users.
 	// (GET /users)
 	ListUsers(w http.ResponseWriter, r *http.Request)
@@ -474,8 +487,24 @@ func (siw *ServerInterfaceWrapper) ListEntitiesByUniverse(w http.ResponseWriter,
 		return
 	}
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListEntitiesByUniverseParams
+
+	// ------------- Optional query parameter "name" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "name", r.URL.Query(), &params.Name, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "name"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListEntitiesByUniverse(w, r, universeId)
+		siw.Handler.ListEntitiesByUniverse(w, r, universeId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -500,8 +529,24 @@ func (siw *ServerInterfaceWrapper) ListObjectsByUniverse(w http.ResponseWriter, 
 		return
 	}
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListObjectsByUniverseParams
+
+	// ------------- Optional query parameter "name" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "name", r.URL.Query(), &params.Name, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "name"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListObjectsByUniverse(w, r, universeId)
+		siw.Handler.ListObjectsByUniverse(w, r, universeId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1093,6 +1138,7 @@ func (response ListUniverseCreators404ApplicationProblemPlusJSONResponse) VisitL
 
 type ListEntitiesByUniverseRequestObject struct {
 	UniverseId UniverseId `json:"universeId"`
+	Params     ListEntitiesByUniverseParams
 }
 
 type ListEntitiesByUniverseResponseObject interface {
@@ -1115,6 +1161,7 @@ func (response ListEntitiesByUniverse200JSONResponse) VisitListEntitiesByUnivers
 
 type ListObjectsByUniverseRequestObject struct {
 	UniverseId UniverseId `json:"universeId"`
+	Params     ListObjectsByUniverseParams
 }
 
 type ListObjectsByUniverseResponseObject interface {
@@ -1232,10 +1279,10 @@ type StrictServerInterface interface {
 	// ListUniverseCreators List a Universe's Creators.
 	// (GET /universes/{universeId}/creators)
 	ListUniverseCreators(ctx context.Context, request ListUniverseCreatorsRequestObject) (ListUniverseCreatorsResponseObject, error)
-	// ListEntitiesByUniverse List non-archived Entities under a Universe.
+	// ListEntitiesByUniverse List non-archived Entities under a Universe, optionally filtered by name.
 	// (GET /universes/{universeId}/entities)
 	ListEntitiesByUniverse(ctx context.Context, request ListEntitiesByUniverseRequestObject) (ListEntitiesByUniverseResponseObject, error)
-	// ListObjectsByUniverse List non-archived Objects under a Universe.
+	// ListObjectsByUniverse List non-archived Objects under a Universe, optionally filtered by name.
 	// (GET /universes/{universeId}/objects)
 	ListObjectsByUniverse(ctx context.Context, request ListObjectsByUniverseRequestObject) (ListObjectsByUniverseResponseObject, error)
 	// ListUsers List non-archived Users.
@@ -1594,10 +1641,11 @@ func (sh *strictHandler) ListUniverseCreators(w http.ResponseWriter, r *http.Req
 }
 
 // ListEntitiesByUniverse operation middleware
-func (sh *strictHandler) ListEntitiesByUniverse(w http.ResponseWriter, r *http.Request, universeId UniverseId) {
+func (sh *strictHandler) ListEntitiesByUniverse(w http.ResponseWriter, r *http.Request, universeId UniverseId, params ListEntitiesByUniverseParams) {
 	var request ListEntitiesByUniverseRequestObject
 
 	request.UniverseId = universeId
+	request.Params = params
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.ListEntitiesByUniverse(ctx, request.(ListEntitiesByUniverseRequestObject))
@@ -1620,10 +1668,11 @@ func (sh *strictHandler) ListEntitiesByUniverse(w http.ResponseWriter, r *http.R
 }
 
 // ListObjectsByUniverse operation middleware
-func (sh *strictHandler) ListObjectsByUniverse(w http.ResponseWriter, r *http.Request, universeId UniverseId) {
+func (sh *strictHandler) ListObjectsByUniverse(w http.ResponseWriter, r *http.Request, universeId UniverseId, params ListObjectsByUniverseParams) {
 	var request ListObjectsByUniverseRequestObject
 
 	request.UniverseId = universeId
+	request.Params = params
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.ListObjectsByUniverse(ctx, request.(ListObjectsByUniverseRequestObject))
@@ -1700,28 +1749,31 @@ func (sh *strictHandler) GetUser(w http.ResponseWriter, r *http.Request, userId 
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
+	"AAD//w==",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

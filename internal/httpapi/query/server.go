@@ -172,7 +172,13 @@ func (s *Server) ListCampaignsByUniverse(ctx context.Context, request gen.ListCa
 }
 
 func (s *Server) ListEntitiesByUniverse(ctx context.Context, request gen.ListEntitiesByUniverseRequestObject) (gen.ListEntitiesByUniverseResponseObject, error) {
-	entities, err := s.entity.ListByUniverse(ctx, request.UniverseId)
+	var entities []entityquery.Entity
+	var err error
+	if request.Params.Name != nil && *request.Params.Name != "" {
+		entities, err = s.entity.SearchByUniverse(ctx, request.UniverseId, *request.Params.Name)
+	} else {
+		entities, err = s.entity.ListByUniverse(ctx, request.UniverseId)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -184,7 +190,13 @@ func (s *Server) ListEntitiesByUniverse(ctx context.Context, request gen.ListEnt
 }
 
 func (s *Server) ListObjectsByUniverse(ctx context.Context, request gen.ListObjectsByUniverseRequestObject) (gen.ListObjectsByUniverseResponseObject, error) {
-	objects, err := s.object.ListByUniverse(ctx, request.UniverseId)
+	var objects []objectquery.Object
+	var err error
+	if request.Params.Name != nil && *request.Params.Name != "" {
+		objects, err = s.object.SearchByUniverse(ctx, request.UniverseId, *request.Params.Name)
+	} else {
+		objects, err = s.object.ListByUniverse(ctx, request.UniverseId)
+	}
 	if err != nil {
 		return nil, err
 	}
