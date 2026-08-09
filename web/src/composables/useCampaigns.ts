@@ -53,5 +53,44 @@ export function useCampaigns() {
     return data.id
   }
 
-  return { campaigns, loading, error, listByUniverse, get, create }
+  async function rename(id: string, name: string): Promise<void> {
+    const { error: apiError } = await getCommandClient().PATCH('/campaigns/{campaignId}', {
+      params: { path: { campaignId: id } },
+      body: { name },
+    })
+    if (apiError) throw new Error(problemMessage(apiError) ?? 'Failed to rename Campaign.')
+  }
+
+  async function archive(id: string): Promise<void> {
+    const { error: apiError } = await getCommandClient().POST('/campaigns/{campaignId}/archive', {
+      params: { path: { campaignId: id } },
+    })
+    if (apiError) throw new Error(problemMessage(apiError) ?? 'Failed to archive Campaign.')
+  }
+
+  async function listGamemasters(id: string): Promise<string[]> {
+    const { data, error: apiError } = await getQueryClient().GET('/campaigns/{campaignId}/gamemasters', {
+      params: { path: { campaignId: id } },
+    })
+    if (apiError) return []
+    return (data ?? []) as string[]
+  }
+
+  async function addGamemaster(campaignId: string, userId: string): Promise<void> {
+    const { error: apiError } = await getCommandClient().POST('/campaigns/{campaignId}/gamemasters/{userId}', {
+      params: { path: { campaignId, userId } },
+    })
+    if (apiError) throw new Error(problemMessage(apiError) ?? 'Failed to add Gamemaster.')
+  }
+
+  async function removeGamemaster(campaignId: string, userId: string): Promise<void> {
+    const { error: apiError } = await getCommandClient().DELETE('/campaigns/{campaignId}/gamemasters/{userId}', {
+      params: { path: { campaignId, userId } },
+    })
+    // Removing the last Gamemaster returns 409 (backend invariant) — surfaced via the same
+    // error path as any other failure, never swallowed.
+    if (apiError) throw new Error(problemMessage(apiError) ?? 'Failed to remove Gamemaster.')
+  }
+
+  return { campaigns, loading, error, listByUniverse, get, create, rename, archive, listGamemasters, addGamemaster, removeGamemaster }
 }

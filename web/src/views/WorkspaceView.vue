@@ -1,17 +1,17 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useUniverses, type UniverseSummary } from '@/composables/useUniverses'
 import { useCampaigns, type CampaignSummary } from '@/composables/useCampaigns'
 import AppHeader from '@/components/layout/AppHeader.vue'
 import AppSidebar from '@/components/layout/AppSidebar.vue'
-import BaseModal from '@/components/common/BaseModal.vue'
+import ManageUniverseModal from '@/components/modals/ManageUniverseModal.vue'
+import ManageCampaignModal from '@/components/modals/ManageCampaignModal.vue'
 
 const route = useRoute()
-// computed, not a plain const: vue-router reuses this component instance across param-only
-// route changes on the same route record (e.g. navigating from one Campaign to another
-// without leaving the workspace), so a plain `const` captured once at setup would silently
-// go stale — computed() stays in sync, and the watch below re-triggers load() on change.
+const router = useRouter()
+// computed, not a plain const — see Task 8's identical comment: vue-router reuses this
+// component instance across param-only route changes on the same route record.
 const universeId = computed(() => route.params.universeId as string)
 const campaignId = computed(() => route.params.campaignId as string)
 
@@ -30,6 +30,23 @@ async function load() {
 
 onMounted(load)
 watch([universeId, campaignId], load)
+
+function onUniverseRenamed(newName: string) {
+  if (universe.value) universe.value.name = newName
+  showManageUniverse.value = false
+}
+function onUniverseArchived() {
+  showManageUniverse.value = false
+  router.push({ name: 'universe-picker' })
+}
+function onCampaignRenamed(newName: string) {
+  if (campaign.value) campaign.value.name = newName
+  showManageCampaign.value = false
+}
+function onCampaignArchived() {
+  showManageCampaign.value = false
+  router.push({ name: 'campaign-picker', params: { universeId: universeId.value } })
+}
 </script>
 
 <template>
@@ -57,11 +74,21 @@ watch([universeId, campaignId], load)
       </main>
     </div>
 
-    <BaseModal v-if="showManageUniverse" title="Manage Universe" @close="showManageUniverse = false">
-      <p class="text-sm text-slate-500">Universe management — implemented in Task 9.</p>
-    </BaseModal>
-    <BaseModal v-if="showManageCampaign" title="Manage Campaign" @close="showManageCampaign = false">
-      <p class="text-sm text-slate-500">Campaign management — implemented in Task 9.</p>
-    </BaseModal>
+    <ManageUniverseModal
+      v-if="showManageUniverse && universe"
+      :universe-id="universeId"
+      :universe-name="universe.name"
+      @close="showManageUniverse = false"
+      @renamed="onUniverseRenamed"
+      @archived="onUniverseArchived"
+    />
+    <ManageCampaignModal
+      v-if="showManageCampaign && campaign"
+      :campaign-id="campaignId"
+      :campaign-name="campaign.name"
+      @close="showManageCampaign = false"
+      @renamed="onCampaignRenamed"
+      @archived="onCampaignArchived"
+    />
   </div>
 </template>
