@@ -9,6 +9,7 @@ import ManageUniverseModal from '@/components/modals/ManageUniverseModal.vue'
 import ManageCampaignModal from '@/components/modals/ManageCampaignModal.vue'
 import CharactersPanel from '@/components/layout/CharactersPanel.vue'
 import EntitiesPanel from '@/components/layout/EntitiesPanel.vue'
+import ObjectsPanel from '@/components/layout/ObjectsPanel.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -68,7 +69,7 @@ function onCampaignArchived() {
           <EntitiesPanel :universe-id="universeId" />
         </template>
         <template #objects>
-          <p class="text-xs text-slate-400">Objects panel — implemented in Task 13.</p>
+          <ObjectsPanel :universe-id="universeId" />
         </template>
       </AppSidebar>
       <main class="flex-1 overflow-y-auto">
