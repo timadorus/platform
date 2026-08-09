@@ -10,8 +10,9 @@ import (
 // Dockerfile.<name> naming convention at the repo root (command-api, query-api, and
 // projector are the platform's public binaries; migrate is required too — the chart's
 // migration Job can't run without its own image, even though it wasn't among the three named
-// services).
-var imageComponents = []string{"command-api", "query-api", "projector", "migrate"}
+// services; web is the nginx-served Vue SPA the chart now also deploys, built from
+// Dockerfile.web).
+var imageComponents = []string{"command-api", "query-api", "projector", "migrate", "web"}
 
 // ImageTags maps component name (e.g. "command-api") to the SHA256 digest tag it was built
 // and loaded under.

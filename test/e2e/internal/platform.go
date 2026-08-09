@@ -10,6 +10,7 @@ const (
 	platformRelease    = "timadorus-e2e"
 	commandAPIHostname = "command-api.e2e.test"
 	queryAPIHostname   = "query-api.e2e.test"
+	webHostname        = "web.e2e.test"
 
 	// platformFullname mirrors the timadorus-platform chart's own
 	// "timadorus-platform.fullname" template (templates/_helpers.tpl): it collapses to just
@@ -72,6 +73,17 @@ func InstallPlatform(in PlatformInstallInputs) error {
 		"--set", "gateway.gatewayClassName=" + in.GatewayClassName,
 		"--set", "commandApi.route.hostname=" + commandAPIHostname,
 		"--set", "queryApi.route.hostname=" + queryAPIHostname,
+		"--set", "web.route.hostname=" + webHostname,
+		// This Go e2e suite only exercises the command-api/query-api HTTP endpoints via
+		// port-forward — it never loads the web SPA in a browser — so these web.config.*
+		// values just need to be non-empty to satisfy Helm's `required` checks and let the
+		// web Deployment's pod become Ready for `--wait`.
+		"--set", "web.config.commandApiBaseUrl=http://placeholder.e2e.test",
+		"--set", "web.config.queryApiBaseUrl=http://placeholder.e2e.test",
+		"--set", "web.config.oidc.authority=http://placeholder.e2e.test",
+		"--set", "web.config.oidc.clientId=e2e-placeholder",
+		"--set", "web.config.oidc.redirectUri=http://placeholder.e2e.test/login",
+		"--set", "web.config.oidc.postLogoutRedirectUri=http://placeholder.e2e.test/",
 		"--wait", "--timeout", "5m",
 	}
 
