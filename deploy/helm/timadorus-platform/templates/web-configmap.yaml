@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "timadorus-platform.fullname" . }}-web-config
+  labels:
+    {{- include "timadorus-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+data:
+  config.json: |
+    {
+      "commandApiBaseUrl": {{ .Values.web.config.commandApiBaseUrl | quote }},
+      "queryApiBaseUrl": {{ .Values.web.config.queryApiBaseUrl | quote }},
+      "oidc": {
+        "authority": {{ .Values.web.config.oidc.authority | quote }},
+        "clientId": {{ .Values.web.config.oidc.clientId | quote }},
+        "redirectUri": {{ .Values.web.config.oidc.redirectUri | quote }},
+        "postLogoutRedirectUri": {{ .Values.web.config.oidc.postLogoutRedirectUri | quote }}
+      }
+    }
