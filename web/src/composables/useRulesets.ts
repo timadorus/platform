@@ -24,5 +24,13 @@ export function useRulesets() {
     rulesets.value = (data ?? []) as RulesetSummary[]
   }
 
-  return { rulesets, loading, error, list }
+  async function get(id: string): Promise<RulesetSummary | null> {
+    const { data, error: apiError } = await getQueryClient().GET('/rulesets/{rulesetId}', {
+      params: { path: { rulesetId: id } },
+    })
+    if (apiError) return null
+    return data as RulesetSummary
+  }
+
+  return { rulesets, loading, error, list, get }
 }
