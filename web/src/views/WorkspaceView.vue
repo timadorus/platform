@@ -7,6 +7,7 @@ import AppHeader from '@/components/layout/AppHeader.vue'
 import AppSidebar from '@/components/layout/AppSidebar.vue'
 import ManageUniverseModal from '@/components/modals/ManageUniverseModal.vue'
 import ManageCampaignModal from '@/components/modals/ManageCampaignModal.vue'
+import CharactersPanel from '@/components/layout/CharactersPanel.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -60,7 +61,7 @@ function onCampaignArchived() {
     <div class="flex flex-1 overflow-hidden">
       <AppSidebar>
         <template #characters>
-          <p class="text-xs text-slate-400">Characters panel — implemented in Task 10.</p>
+          <CharactersPanel :campaign-id="campaignId" />
         </template>
         <template #entities>
           <p class="text-xs text-slate-400">Entities panel — implemented in Task 12.</p>

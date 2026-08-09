@@ -11,6 +11,7 @@
     "generate": "node scripts/generate-api-clients.mjs"
   },
   "dependencies": {
+    "@tanstack/vue-virtual": "^3.10.0",
     "oidc-client-ts": "^3.1.0",
     "openapi-fetch": "^0.13.0",
     "pinia": "^2.2.0",
