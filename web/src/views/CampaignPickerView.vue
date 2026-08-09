@@ -1,4 +1,66 @@
-<script setup lang="ts"></script>
+<script setup lang="ts">
+import { onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useCampaigns } from '@/composables/useCampaigns'
+import { useUniverses, type UniverseSummary } from '@/composables/useUniverses'
+import { useSelectionStore } from '@/stores/selection'
+import AggregatePickerGrid from '@/components/pickers/AggregatePickerGrid.vue'
+import CreateCampaignModal from '@/components/modals/CreateCampaignModal.vue'
+import ErrorBanner from '@/components/common/ErrorBanner.vue'
+
+const route = useRoute()
+const router = useRouter()
+const selection = useSelectionStore()
+const universeId = route.params.universeId as string
+
+const { campaigns, error, listByUniverse, get: getCampaign } = useCampaigns()
+const { get: getUniverse } = useUniverses()
+
+const universe = ref<UniverseSummary | null>(null)
+const showCreate = ref(false)
+const checkingStoredSelection = ref(true)
+
+function goTo(campaignId: string) {
+  selection.setCampaign(campaignId)
+  router.push({ name: 'workspace', params: { universeId, campaignId } })
+}
+
+onMounted(async () => {
+  universe.value = await getUniverse(universeId)
+  selection.load()
+  if (selection.selectedUniverseId === universeId && selection.selectedCampaignId) {
+    const existing = await getCampaign(selection.selectedCampaignId)
+    if (existing && !existing.isArchived && existing.universeId === universeId) {
+      // Deliberately do NOT set checkingStoredSelection = false here — same reasoning as
+      // UniversePickerView.vue (Task 6): this component is about to unmount as router.push
+      // navigates away, and flipping it first would flash the still-empty picker grid.
+      goTo(existing.id)
+      return
+    }
+    selection.clearCampaign()
+  }
+  checkingStoredSelection.value = false
+  await listByUniverse(universeId)
+})
+
+function onCreated(id: string) {
+  showCreate.value = false
+  goTo(id)
+}
+</script>
+
 <template>
-  <div class="p-6 text-sm text-slate-500">Campaign picker — implemented in Task 7.</div>
+  <div v-if="checkingStoredSelection" class="p-6 text-sm text-slate-500">Loading…</div>
+  <div v-else class="mx-auto max-w-2xl p-6">
+    <p class="mb-1 text-xs uppercase tracking-wide text-slate-400">🌍 {{ universe?.name }}</p>
+    <h1 class="mb-4 text-lg font-semibold text-slate-900">Choose a Campaign</h1>
+    <ErrorBanner :message="error" @dismiss="error = null" />
+    <AggregatePickerGrid
+      :items="campaigns.map((c) => ({ id: c.id, name: c.name }))"
+      create-label="Create Campaign"
+      @select="goTo"
+      @create="showCreate = true"
+    />
+    <CreateCampaignModal v-if="showCreate" :universe-id="universeId" @close="showCreate = false" @created="onCreated" />
+  </div>
 </template>
