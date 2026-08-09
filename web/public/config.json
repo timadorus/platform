@@ -1,0 +1,10 @@
+{
+  "commandApiBaseUrl": "http://localhost:8081",
+  "queryApiBaseUrl": "http://localhost:8082",
+  "oidc": {
+    "authority": "http://localhost:8080/realms/timadorus",
+    "clientId": "timadorus-web",
+    "redirectUri": "http://localhost:5173/login",
+    "postLogoutRedirectUri": "http://localhost:5173/"
+  }
+}
