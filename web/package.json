@@ -1,0 +1,30 @@
+{
+  "name": "timadorus-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "vue-tsc --noEmit",
+    "generate": "node scripts/generate-api-clients.mjs"
+  },
+  "dependencies": {
+    "oidc-client-ts": "^3.1.0",
+    "openapi-fetch": "^0.13.0",
+    "pinia": "^2.2.0",
+    "vue": "^3.5.0",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@types/node": "^26.2.0",
+    "@vitejs/plugin-vue": "^5.1.0",
+    "openapi-typescript": "^7.4.0",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.6.0",
+    "vite": "^5.4.0",
+    "vue-tsc": "^2.1.0"
+  }
+}
