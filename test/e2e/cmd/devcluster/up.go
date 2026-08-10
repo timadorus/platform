@@ -37,6 +37,9 @@ func runUp() error {
 	}
 	if createdCluster {
 		state.CreatedCluster = true
+		if err := saveState(state); err != nil {
+			return fmt.Errorf("save state: %w", err)
+		}
 	}
 
 	if !e2eutil.IsCertManagerInstalled() {
@@ -44,6 +47,9 @@ func runUp() error {
 			return fmt.Errorf("cert-manager: %w", err)
 		}
 		state.InstalledCertManager = true
+		if err := saveState(state); err != nil {
+			return fmt.Errorf("save state: %w", err)
+		}
 	}
 	if err := e2eutil.WaitForCertManagerWebhook(); err != nil {
 		return fmt.Errorf("cert-manager webhook: %w", err)
@@ -54,6 +60,9 @@ func runUp() error {
 			return fmt.Errorf("prometheus operator: %w", err)
 		}
 		state.InstalledPrometheusOperator = true
+		if err := saveState(state); err != nil {
+			return fmt.Errorf("save state: %w", err)
+		}
 	}
 
 	if !e2eutil.IsCloudNativePGInstalled() {
@@ -61,6 +70,9 @@ func runUp() error {
 			return fmt.Errorf("cloudnative-pg: %w", err)
 		}
 		state.InstalledCloudNativePG = true
+		if err := saveState(state); err != nil {
+			return fmt.Errorf("save state: %w", err)
+		}
 	}
 
 	if !e2eutil.IsNATSInstalled() {
@@ -68,6 +80,9 @@ func runUp() error {
 			return fmt.Errorf("nats: %w", err)
 		}
 		state.InstalledNATS = true
+		if err := saveState(state); err != nil {
+			return fmt.Errorf("save state: %w", err)
+		}
 	}
 
 	if err := e2eutil.InstallGatewayAPI(); err != nil {
