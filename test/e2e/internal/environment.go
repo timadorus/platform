@@ -22,7 +22,9 @@ type Environment struct {
 	queryAPIForward   *PortForward
 }
 
-func preflightCheck() error {
+// PreflightCheck confirms kubectl/helm/kind/docker are all on PATH. Exported so
+// test/e2e/cmd/devcluster can reuse it instead of duplicating the same four-tool check.
+func PreflightCheck() error {
 	for _, tool := range []string{"kubectl", "helm", "kind", "docker"} {
 		if _, err := exec.LookPath(tool); err != nil {
 			return fmt.Errorf("e2eutil: required tool %q not found on PATH: %w", tool, err)
@@ -34,7 +36,7 @@ func preflightCheck() error {
 // Setup runs every step described in the design spec's BeforeSuite sequence and returns the
 // resulting Environment, or an error from whichever step failed.
 func Setup() (*Environment, error) {
-	if err := preflightCheck(); err != nil {
+	if err := PreflightCheck(); err != nil {
 		return nil, err
 	}
 
@@ -114,17 +116,17 @@ func Setup() (*Environment, error) {
 		return env, fmt.Errorf("install platform: %w", err)
 	}
 
-	// Service names are "<platformFullname>-<component>", not "<platformRelease>-<component>"
-	// — see platform.go's platformFullname doc comment for why (verified via `helm template`
+	// Service names are "<PlatformFullname()>-<component>", not "<PlatformRelease>-<component>"
+	// — see platform.go's PlatformFullname() doc comment for why (verified via `helm template`
 	// against the real chart before wiring these up).
-	commandForward, err := StartPortForward(platformFullname+"-command-api", 18081, 8081, "/healthz", time.Minute)
+	commandForward, err := StartPortForward(PlatformFullname()+"-command-api", 18081, 8081, "/healthz", time.Minute)
 	if err != nil {
 		return env, fmt.Errorf("port-forward command-api: %w", err)
 	}
 	env.commandAPIForward = commandForward
 	env.CommandAPIBaseURL = "http://127.0.0.1:18081"
 
-	queryForward, err := StartPortForward(platformFullname+"-query-api", 18082, 8082, "/healthz", time.Minute)
+	queryForward, err := StartPortForward(PlatformFullname()+"-query-api", 18082, 8082, "/healthz", time.Minute)
 	if err != nil {
 		return env, fmt.Errorf("port-forward query-api: %w", err)
 	}

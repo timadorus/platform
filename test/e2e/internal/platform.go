@@ -7,21 +7,27 @@ import (
 
 const (
 	chartPath          = "deploy/helm/timadorus-platform"
-	platformRelease    = "timadorus-e2e"
 	commandAPIHostname = "command-api.e2e.test"
 	queryAPIHostname   = "query-api.e2e.test"
 	webHostname        = "web.e2e.test"
-
-	// platformFullname mirrors the timadorus-platform chart's own
-	// "timadorus-platform.fullname" template (templates/_helpers.tpl): it collapses to just
-	// the release name only when the release name already *contains* the chart name. Here
-	// platformRelease is "timadorus-e2e", which does not contain the chart name
-	// "timadorus-platform", so Helm falls back to "<release>-<chart>" instead — confirmed via
-	// `helm template` against the real chart, the same way Task 6 caught the analogous NATS
-	// Service-name bug. Every Service/Deployment/Job the chart renders is named
-	// "<platformFullname>-<component>", not "<platformRelease>-<component>".
-	platformFullname = platformRelease + "-timadorus-platform"
 )
+
+// PlatformRelease is the Helm release name for the timadorus-platform chart. A package
+// variable, not a constant, for the same reason as Namespace (consts.go) —
+// test/e2e/cmd/devcluster overrides it to "timadorus-dev". Defaults to "timadorus-e2e".
+var PlatformRelease = "timadorus-e2e"
+
+// PlatformFullname mirrors the timadorus-platform chart's own "timadorus-platform.fullname"
+// template (templates/_helpers.tpl): it collapses to just the release name only when the
+// release name already *contains* the chart name. Neither "timadorus-e2e" nor "timadorus-dev"
+// contain the chart name "timadorus-platform", so Helm falls back to "<release>-<chart>"
+// instead — confirmed via `helm template` against the real chart, the same way Task 6 caught
+// the analogous NATS Service-name bug. Every Service/Deployment/Job the chart renders is named
+// "<PlatformFullname()>-<component>", not "<PlatformRelease>-<component>". A function, not a
+// const, because it depends on the now-variable PlatformRelease.
+func PlatformFullname() string {
+	return PlatformRelease + "-timadorus-platform"
+}
 
 // PlatformInstallInputs bundles everything InstallPlatform needs from the other installers,
 // so this file has no direct dependency on postgres.go/nats.go/jwtsecret.go/gatewayapi.go
@@ -61,7 +67,7 @@ func InstallPlatform(in PlatformInstallInputs) error {
 	}
 
 	args := []string{
-		"upgrade", "--install", platformRelease, chartPath,
+		"upgrade", "--install", PlatformRelease, chartPath,
 		"--namespace", Namespace, "--create-namespace",
 		"--set", "postgres.existingSecret=" + in.PostgresSecretName,
 		"--set", "postgres.secretKey=uri",
@@ -97,7 +103,7 @@ func InstallPlatform(in PlatformInstallInputs) error {
 	}
 
 	if _, err := Run(exec.Command("helm", args...)); err != nil {
-		return fmt.Errorf("e2eutil: helm install %s: %w", platformRelease, err)
+		return fmt.Errorf("e2eutil: helm install %s: %w", PlatformRelease, err)
 	}
 	return nil
 }
@@ -105,6 +111,6 @@ func InstallPlatform(in PlatformInstallInputs) error {
 // UninstallPlatform removes the timadorus-platform release and Namespace (which also takes
 // the CNPG Cluster and JWT secret with it, since they share Namespace).
 func UninstallPlatform() {
-	_, _ = Run(exec.Command("helm", "uninstall", platformRelease, "--namespace", Namespace))
+	_, _ = Run(exec.Command("helm", "uninstall", PlatformRelease, "--namespace", Namespace))
 	_, _ = Run(exec.Command("kubectl", "delete", "namespace", Namespace, "--ignore-not-found"))
 }
