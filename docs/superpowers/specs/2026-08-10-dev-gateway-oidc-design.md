@@ -55,29 +55,47 @@ same pattern, second independent `Cluster` CR, own namespace, own lifecycle). De
 installed/left-alone via `test/e2e/internal/zitadel.go` (new file, same shape as `nats.go`:
 `IsZitadelInstalled() bool`, `InstallZitadel() (bootstrap, error)`, `UninstallZitadel()`).
 
-**Bootstrap automation:** at install time, `dev-up` provisions a working Organization, a
-public/PKCE OIDC Application (for the browser/SPA login flow), and a test User — no manual
-console steps. Since the browser flow (§4/§6) means `command-api`/`query-api` must switch to
-verifying real Zitadel-issued tokens, the printed "get a token for curl" convenience (§6) also
-needs a real Zitadel-issued token for that same test user — bootstrap therefore also sets up
-whatever Zitadel-side mechanism lets `devcluster` mint one non-interactively (a machine
-user/service account with a suitable grant, or enabling a password-style grant for the test
-user — Zitadel's exact supported options for a public/PKCE app are confirmed against its
-current docs and verified live during implementation, not guessed here). The exact bootstrap
-mechanism itself (Zitadel's declarative `FirstInstance` Helm-chart config block vs. a small
-post-install bootstrap step against Zitadel's management API using its bootstrapped admin
-credentials) is likewise confirmed and verified live during implementation. Either way,
-`InstallZitadel()` returns everything the rest of `dev-up` needs: the OIDC `authority` URL, the
-PKCE `clientId`, the test user's login/password, and however `devcluster` itself mints a fresh
-token for that user on demand — so all of it can be printed (§6) and wired into the platform
-chart's `web.config.oidc.*` and `jwt.*` values (§4).
+**Bootstrap automation** (confirmed against Zitadel's actual chart/API — not guessed):
 
-Zitadel needs to know its own externally-visible URL (`ExternalDomain`/`ExternalPort`/
-`ExternalSecure=false`, in Zitadel's terms) to issue correct absolute URLs in its OIDC discovery
-document — this must match the shared `localhost` origin and port from §3/§6 exactly, since
-Zitadel is routed through the same Gateway rather than given its own separate port-forward (see
-§3). Getting this right is an implementation/verification detail, not a design decision — the
-`authority` the SPA is configured with and the URL Zitadel itself advertises must agree.
+1. **`FirstInstance`** (`zitadel/zitadel` chart's `configmapConfig.FirstInstance` block —
+   declarative, applied by Zitadel itself at first startup, no scripting needed) creates the
+   Org, a human user (`Org.Human`: username/email/password — this *is* the test user printed
+   for browser login, no separate user needed) and a machine user (`Org.Machine`, with a
+   `Pat` — a Personal Access Token) that has IAM-admin rights over this Zitadel instance's own
+   Management API.
+2. A small post-install bootstrap step (new Go code in `zitadel.go`, authenticating to
+   Zitadel's Management API with that PAT) creates what `FirstInstance` cannot express
+   declaratively: a Project, a public/PKCE OIDC Application inside it (for the browser/SPA
+   login flow — redirect/post-logout URIs from §4), and a second, confidential OIDC
+   Application inside the same project for **machine-to-machine access** (`client_credentials`
+   grant). Zitadel does not support the Resource Owner Password Credentials (password) grant
+   at all — confirmed via its own grant-types documentation — so a human user's password can't
+   be exchanged for a token directly; `client_credentials` against this second application is
+   the real, supported, non-interactive way to mint a token for scripted/curl access, and
+   produces a genuine Zitadel-issued, JWKS-verifiable access token, same as the browser gets.
+
+`InstallZitadel()` returns everything `dev-up` needs: the OIDC `authority`/JWKS URL/issuer, the
+PKCE app's `clientId` (for the SPA), the machine app's `clientId`/`clientSecret` (for
+`client_credentials`), and the human test user's username/password — all printed (§6) and wired
+into the platform chart's `web.config.oidc.*` and `jwt.*` values (§4).
+
+**Not routed through the shared Gateway.** OIDC providers embed *absolute* self-referential URLs
+in their own discovery document/token/authorize endpoints — Zitadel's `ExternalDomain` config
+expects to own a whole origin, not a path prefix under someone else's. Reverse-proxying it under
+`/auth` on the shared host (considered, rejected) would make Zitadel advertise URLs like
+`http://localhost:8080/oauth/v2/token` with no `/auth` prefix (Zitadel has no idea a proxy is
+stripping one), which wouldn't match any route on the shared Gateway. Real IdPs (Zitadel
+included) already handle CORS correctly for browser-based cross-origin OIDC calls — that's
+standard, expected behavior for any IdP whose clients live on other origins — so putting
+Zitadel on its own origin doesn't reintroduce the CORS problem this spec exists to solve; that
+problem is specific to `command-api`/`query-api`, which implement no CORS headers at all today
+(confirmed: no `cors`/`CORS` references anywhere in `internal/`).
+
+So Zitadel gets its **own** `kubectl port-forward` (own port, e.g. `8084`), not a shared-host
+path. `ExternalDomain: localhost`, `ExternalPort: 8084`, `ExternalSecure: false` (Zitadel's
+config terms) — `dev-up` prints two `kubectl port-forward` commands total (§6): one to
+Traefik's `Service` (web-ui + both APIs, still genuinely single-origin, still zero CORS code
+needed in the Go APIs) and one directly to Zitadel's own `Service`.
 
 ## 3. Path-Based Routing (Chart Changes — Additive, Opt-In)
 
@@ -90,11 +108,13 @@ every component becomes reachable under one shared origin:
 | `/` | web-ui |
 | `/api/command/*` | command-api (prefix stripped before forwarding) |
 | `/api/query/*` | query-api (prefix stripped before forwarding) |
-| `/auth/*` | Zitadel (prefix stripped before forwarding) |
 
-Since all four live under one origin, the web SPA's calls to both APIs, and its OIDC redirects/
-token-exchange calls to Zitadel, are all same-origin — no `Access-Control-Allow-*` headers are
-ever needed anywhere in this codebase.
+Since all three live under one origin, the web SPA's calls to both APIs are same-origin — no
+`Access-Control-Allow-*` headers are ever needed in either Go API. Zitadel itself is **not**
+part of this shared origin (§2) — it's a real IdP on its own origin, which is fine, since
+IdP-to-SPA OIDC calls are cross-origin by design everywhere and Zitadel already handles that
+correctly; the CORS problem this section solves is specifically `command-api`/`query-api`'s
+complete lack of CORS headers, not OIDC.
 
 **Chart implementation, additive per component:**
 - `command-api`/`query-api`: a **new**, separate `HTTPRoute` object per component
@@ -109,22 +129,12 @@ ever needed anywhere in this codebase.
 - `web`: no new object needed — its existing rule (path `/`, no rewrite) is identical
   regardless of hostname, so `web-httproute.yaml`'s existing `hostnames` list just gets
   `pathRouting.hostname` appended when set, alongside the existing `web.route.hostname`.
-- **Zitadel** is not part of the `timadorus-platform` chart (it's separately-Helm-installed
-  infra, §2) — its `/auth` route is a plain Gateway API `HTTPRoute` object `devcluster`
-  applies directly (via `kubectl apply`, matching how `InstallGatewayAPI()` already applies
-  the placeholder `GatewayClass` manifest inline), not a chart template, since it only exists
-  for the dev flow and has no chart-parameterized counterpart to stay consistent with. It
-  lives in Zitadel's own `zitadel` namespace (co-located with the Service it targets, so its
-  `backendRef` needs no cross-namespace `ReferenceGrant`), with `parentRefs` pointing at the
-  platform chart's Gateway object (`<fullname>`, in the `timadorus-dev` namespace).
 
-  **Cross-namespace attachment:** the platform chart's `Gateway` (`templates/gateway.yaml`)
-  currently hardcodes `allowedRoutes.namespaces.from: Same` on its listener, which would
-  reject an `HTTPRoute` living in a different namespace (`zitadel`) from attaching at all.
-  That gains one more conditional: when `gateway.pathRouting.hostname` is set, the listener's
-  `allowedRoutes.namespaces.from` becomes `All` instead of `Same` — dev-only, gated by the
-  same value as everything else in this spec, so `test-e2e`/production's rendered `Gateway`
-  (where the value is unset) is unaffected.
+Since Zitadel lives on its own separate origin (§2), the platform chart's `Gateway`
+(`templates/gateway.yaml`) needs no change at all — `allowedRoutes.namespaces.from: Same`
+stays exactly as it is, since every `HTTPRoute` attaching to it (existing per-hostname ones,
+plus the two new path-routing ones) still lives in the same namespace as the Gateway, exactly
+like today.
 
 This keeps `test-e2e`/production's rendered manifests **provably identical** to today (new
 templates render nothing when the new value is unset; the one touched existing template only
@@ -203,38 +213,39 @@ superseded by Zitadel):
    cert-manager, Prometheus operator, CloudNativePG, NATS, Gateway API CRDs+placeholder class)*
 2. *(existing: `EnsurePostgresCluster()`)*
 3. **New:** `IsTraefikInstalled()` / `InstallTraefik()` → accumulate `InstalledTraefik`.
-4. **New:** `IsZitadelInstalled()` / `InstallZitadel()` → accumulate `InstalledZitadel`; returns
-   the bootstrapped `authority`/`clientId`/JWKS-URL/issuer/audience, the test user's
-   login/password, and however `devcluster` mints that user a fresh token on demand (§2).
-5. **New:** apply the Zitadel `/auth` `HTTPRoute` (§3, plain manifest apply, always run
-   unconditionally alongside `InstallGatewayAPI()`'s existing placeholder-class apply — cheap,
-   idempotent, not worth state-tracking on its own since it's deleted unconditionally in `down`
-   alongside the rest of the dev release's routing).
-6. *(existing: build/tag/load images)*
-7. `InstallPlatform(...)` — now passing `GatewayClassName` = Traefik's real class (not
+4. **New:** `IsZitadelInstalled()` / `InstallZitadel()` → accumulate `InstalledZitadel`; runs
+   Zitadel's `FirstInstance` bootstrap plus the post-install Project/Applications bootstrap
+   (§2), returning the OIDC `authority`/JWKS-URL/issuer/audience, the PKCE app's `clientId`,
+   the machine app's `clientId`/`clientSecret`, and the human test user's login/password.
+5. *(existing steps: build/tag/load images)*
+6. `InstallPlatform(...)` — now passing `GatewayClassName` = Traefik's real class (not
    `e2eutil.GatewayClassName`), `PathRoutingHostname: "localhost"`, `JWTMode: "jwks"` plus
    Zitadel's JWKS URL/issuer/audience (replacing the old `hmac`/`JWTSecretName`/`JWTKeyID`
    inputs `devcluster` used to pass), and the four `OIDC*` fields from Zitadel's bootstrap
    output.
-8. *(existing: persist state incrementally as each flag flips, per the prior fix)*
-9. Print the updated status block (§6).
+7. *(existing: persist state incrementally as each flag flips, per the prior fix)*
+8. Print the updated status block (§6).
 
 ## 6. Status Output — Updated
 
 ```
 Dev cluster ready. Namespace: timadorus-dev
 
-Open the web UI (one port-forward covers the app, both APIs, and login):
+Open the web UI (one port-forward covers the app and both APIs):
   kubectl port-forward --namespace traefik svc/<traefik-service-name> 8080:80
 
   http://localhost:8080/
 
-Test user login:
+Log in (another terminal — Zitadel needs its own port-forward, see below) with:
   username: <bootstrapped test user>
   password: <bootstrapped test user password>
 
-Direct API access — fetch a real token for the same test user, then curl:
-  TOKEN=$(<printed command that fetches a fresh Zitadel access token for the test user>)
+Zitadel (needed for the login redirect above to resolve):
+  kubectl port-forward --namespace zitadel svc/<zitadel-service-name> 8084:8080
+
+Direct API access — fetch a real token via client_credentials, then curl:
+  TOKEN=$(curl -s -d grant_type=client_credentials -d client_id=<machine app id> \
+    -d client_secret=<machine app secret> http://localhost:8084/oauth/v2/token | jq -r .access_token)
   curl http://localhost:8080/api/query/universes -H "Authorization: Bearer $TOKEN"
 
 Per-service access without the shared Gateway (also still available):
@@ -242,18 +253,20 @@ Per-service access without the shared Gateway (also still available):
   kubectl port-forward --namespace timadorus-dev svc/timadorus-dev-timadorus-platform-query-api 8082:8082
 ```
 
-The `kubectl port-forward` to Traefik's `Service` (port 8080→80) is the single command needed
-for the actual browser experience: opening `http://localhost:8080/` in a browser now results in
-a real OIDC redirect to Zitadel (same origin, `/auth/*`), a real login with the printed
-test-user credentials, and a working session — not an immediate dead-end. The old
-locally-minted, no-network-call HMAC bearer token this section used to print
+Two `kubectl port-forward` commands are needed for the full browser experience: Traefik's
+`Service` (web-ui + both APIs, still genuinely single-origin — the SPA's own calls to
+`command-api`/`query-api` need zero CORS handling) and Zitadel's own `Service` on its own port
+(§2 — an IdP can't be cleanly reverse-proxied under a shared host's sub-path). Opening
+`http://localhost:8080/` with both forwards running results in a real OIDC redirect to Zitadel,
+a real login with the printed test-user credentials, and a working session — not an immediate
+dead-end. The old locally-minted, no-network-call HMAC bearer token this section used to print
 (`docs/superpowers/specs/2026-08-09-devcluster-tool-design.md` §5) is gone — replaced by a
-printed, copy-paste command that fetches a real Zitadel-issued token for the same test user
-(§2/§4), since `command-api`/`query-api` now verify real Zitadel tokens (`jwt.mode=jwks`) for
-the dev release, not the old HMAC secret. Slightly heavier (one real network call instead of a
-local computation) but authenticates identically to the browser flow. The per-service
-port-forwards stay available for direct access to a single component without going through the
-shared Gateway.
+printed, copy-paste `client_credentials` token fetch against Zitadel's own machine application
+(§2), since `command-api`/`query-api` now verify real Zitadel tokens (`jwt.mode=jwks`) for the
+dev release, not the old HMAC secret; Zitadel doesn't support the password grant at all, so a
+machine-to-machine token is the real, supported non-interactive path (§2), not a limitation of
+this tool. The per-service port-forwards stay available for direct access to a single
+component without going through the shared Gateway.
 
 ## 7. `devcluster down` — Updated Sequence
 
@@ -262,9 +275,9 @@ Extends the existing gated-teardown sequence
 `UninstallZitadel()` (which also removes Zitadel's dedicated CNPG `Cluster` and namespace) join
 the existing `InstalledNATS`/`InstalledCloudNativePG`/`InstalledPrometheusOperator`/
 `InstalledCertManager`-gated calls, each only running if this run (or an earlier accumulated
-one) actually installed it. The Zitadel `/auth` route, like the placeholder `GatewayClass`, is
-deleted unconditionally alongside `RemoveGatewayClass()` — it's part of the dev release's own
-routing, not shared infra.
+one) actually installed it. No routing manifest cleanup is needed beyond what already existed
+(`RemoveGatewayClass()`) — since Zitadel lives on its own origin (§2), it never touched the
+platform chart's `Gateway`/`HTTPRoute` objects in the first place.
 
 ## 8. State Tracking — New Fields
 
@@ -294,11 +307,10 @@ test/e2e/cmd/devcluster/up.go                               # + Traefik/Zitadel 
 test/e2e/cmd/devcluster/down.go                              # + Traefik/Zitadel gated teardown
 test/e2e/cmd/devcluster/state.go                             # DevState: + InstalledTraefik/InstalledZitadel
 deploy/helm/timadorus-platform/values.yaml                   # + gateway.pathRouting.hostname
-deploy/helm/timadorus-platform/templates/gateway.yaml        # allowedRoutes.namespaces.from: Same -> All when set
 deploy/helm/timadorus-platform/templates/web-httproute.yaml  # conditionally append shared hostname
 deploy/helm/timadorus-platform/templates/command-api-httproute-path.yaml  # new, conditional
 deploy/helm/timadorus-platform/templates/query-api-httproute-path.yaml    # new, conditional
-README.md                                                     # Quickstart: mention the browser flow + one port-forward
+README.md                                                     # Quickstart: mention the browser flow + the two port-forwards
 docs/PLAN.md                                                  # §16 gets a short addendum
 ```
 
@@ -332,11 +344,12 @@ docs/PLAN.md                                                  # §16 gets a shor
   the printed "fetch a token" command produces a token those APIs genuinely accept (a real
   `200`, not a `401`) — proving the JWT-mode switch in §4 actually took effect end to end, not
   just that the chart rendered.
-- Manual, real browser test: run the printed `kubectl port-forward` to Traefik, open
-  `http://localhost:8080/` in an actual browser, confirm it redirects to Zitadel at
-  `http://localhost:8080/auth/...` (same origin, no CORS errors in devtools), log in with the
-  printed test-user credentials, confirm redirect back to the app and a working session (e.g.
-  the universe picker loads via a real `/api/query/...` call — same-origin, no CORS preflight
-  failures visible in devtools network tab).
+- Manual, real browser test: run both printed `kubectl port-forward` commands (Traefik and
+  Zitadel), open `http://localhost:8080/` in an actual browser, confirm it redirects to
+  Zitadel at `http://localhost:8084/...`, log in with the printed test-user credentials,
+  confirm redirect back to the app and a working session (e.g. the universe picker loads via a
+  real `/api/query/...` call to the shared Gateway origin — same-origin as the app itself, no
+  CORS preflight failures visible in devtools network tab, even though Zitadel itself is a
+  separate origin).
 - `make dev-down` removes Traefik and Zitadel (confirm their namespaces are gone) when this run
   installed them, and leaves them running when a prior run already had.
