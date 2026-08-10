@@ -2,13 +2,29 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
+	"path/filepath"
+
+	e2eutil "github.com/timadorus/platform/test/e2e/internal"
 )
 
 // statePath is the repo-root-relative path devcluster persists what it installed to, so
 // `down` (a separate process from `up`) knows what to reverse. Gitignored — this is local,
-// machine-specific state, never meant to be committed.
+// machine-specific state, never meant to be committed. Resolved to an absolute path via
+// resolvedStatePath() before every read/write, so this tool behaves correctly regardless of
+// the caller's working directory — matching e2eutil.Run()'s own repo-root pinning for every
+// kubectl/helm/kind/docker invocation this tool makes.
 const statePath = ".dev-cluster-state.json"
+
+// resolvedStatePath returns statePath joined onto the repository root (e2eutil.ProjectDir()).
+func resolvedStatePath() (string, error) {
+	dir, err := e2eutil.ProjectDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve state path: %w", err)
+	}
+	return filepath.Join(dir, statePath), nil
+}
 
 // DevState records which shared, cluster-wide components devcluster itself installed (as
 // opposed to found already present) across one or more `up` runs. Fields accumulate via OR
@@ -28,7 +44,11 @@ type DevState struct {
 // sees if `up` was never run: every field false, so `down` reverses nothing beyond the
 // always-unconditional platform/GatewayClass cleanup it does regardless (see down.go).
 func loadState() (DevState, error) {
-	data, err := os.ReadFile(statePath)
+	path, err := resolvedStatePath()
+	if err != nil {
+		return DevState{}, err
+	}
+	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return DevState{}, nil
 	}
@@ -44,16 +64,24 @@ func loadState() (DevState, error) {
 
 // saveState writes s to the state file as indented JSON.
 func saveState(s DevState) error {
+	path, err := resolvedStatePath()
+	if err != nil {
+		return err
+	}
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(statePath, data, 0o644)
+	return os.WriteFile(path, data, 0o644)
 }
 
 // deleteState removes the state file. Safe to call even if it doesn't exist.
 func deleteState() error {
-	err := os.Remove(statePath)
+	path, err := resolvedStatePath()
+	if err != nil {
+		return err
+	}
+	err = os.Remove(path)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}

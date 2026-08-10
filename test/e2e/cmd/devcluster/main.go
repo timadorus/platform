@@ -1,17 +1,26 @@
-// Command devcluster stands up (or tears down) the full timadorus-platform stack — all
-// four Go binaries plus the web SPA — on a local kind Kubernetes cluster, replacing the old
-// docker-compose-based dev-up/dev-down. It reuses the exact same install/uninstall machinery
-// `make test-e2e` already relies on (test/e2e/internal, package e2eutil), targeting a
-// dedicated "timadorus-dev" namespace/Helm release so it never collides with a concurrent
-// `make test-e2e` run against "timadorus-e2e".
+// Command devcluster stands up (or tears down) the full timadorus-platform stack — the three
+// Go binaries (command-api, query-api, projector) plus the web SPA — on a local kind
+// Kubernetes cluster, replacing the old docker-compose-based dev-up/dev-down. It reuses the
+// exact same install/uninstall machinery `make test-e2e` already relies on
+// (test/e2e/internal, package e2eutil), targeting a dedicated "timadorus-dev" namespace/Helm
+// release, isolated from a concurrent `make test-e2e` run ("timadorus-e2e") at the
+// namespace/Helm-release level — see the GatewayClass/NATS caveat below for what stays
+// shared cluster-wide regardless.
 //
-// One known limitation, not solved here: NATS JetStream itself (when shared/pre-existing
-// rather than freshly installed by this tool) has no per-environment namespacing at the
-// stream level — event streams are global, not scoped to "timadorus-dev" vs "timadorus-e2e".
-// Running `make dev-up` and `make test-e2e` at the exact same moment against a machine where
-// NATS was already shared-installed by a prior run can cross-contaminate each session's
-// projections. Fixing this would mean namespacing NATS subjects per environment — out of
-// scope for this tool.
+// Two known limitations, not solved here:
+//
+//  1. The Gateway API GatewayClass (see e2eutil.GatewayClassName) is a single cluster-wide
+//     resource shared by both flows, and both this tool's `down` and e2eutil's own
+//     Teardown() remove it unconditionally. Whichever flow tears down second deletes it out
+//     from under a still-running session of the other flow.
+//
+//  2. NATS JetStream itself (when shared/pre-existing rather than freshly installed by this
+//     tool) has no per-environment namespacing at the stream level — event streams are
+//     global, not scoped to "timadorus-dev" vs "timadorus-e2e". Running `make dev-up` and
+//     `make test-e2e` at the exact same moment against a machine where NATS was already
+//     shared-installed by a prior run can cross-contaminate each session's projections while
+//     both are actively publishing. Fixing this would mean namespacing NATS subjects per
+//     environment — out of scope for this tool.
 package main
 
 import (

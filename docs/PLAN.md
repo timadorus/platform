@@ -166,7 +166,7 @@ timadorus-platform/
 │   ├── config/config.go               # per-binary env-based config
 │   └── observability/logging.go, metrics.go
 │
-└── test/e2e/vertical_slice_test.go    # docker-compose (pg+nats), all 3 binaries, full create->query round trip
+└── test/e2e/e2e_test.go                # Ginkgo suite on a real kind cluster, all 3 binaries + web, full create->query round trip
 ```
 
 **Read/write import-graph enforcement:** each aggregate's domain events live in their own `events/`

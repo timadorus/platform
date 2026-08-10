@@ -119,10 +119,6 @@ func runUp() error {
 		return fmt.Errorf("install platform: %w", err)
 	}
 
-	if err := saveState(state); err != nil {
-		return fmt.Errorf("save state: %w", err)
-	}
-
 	printStatus(token)
 	return nil
 }

@@ -6,10 +6,17 @@ import (
 )
 
 const (
-	chartPath          = "deploy/helm/timadorus-platform"
-	commandAPIHostname = "command-api.e2e.test"
-	queryAPIHostname   = "query-api.e2e.test"
-	webHostname        = "web.e2e.test"
+	chartPath = "deploy/helm/timadorus-platform"
+
+	// commandAPIHostname/queryAPIHostname/webHostname are the HTTPRoute hostnames
+	// InstallPlatform sets regardless of caller — shared by both the e2e suite and
+	// test/e2e/cmd/devcluster, same as GatewayClassName (gatewayapi.go). Named generically
+	// ("platform.test", the IANA-reserved test TLD), not "*.e2e.test", since neither flow
+	// resolves them via real DNS or routes through the Gateway — both reach services via
+	// kubectl port-forward directly (see portforward.go / devcluster's printStatus).
+	commandAPIHostname = "command-api.platform.test"
+	queryAPIHostname   = "query-api.platform.test"
+	webHostname        = "web.platform.test"
 )
 
 // PlatformRelease is the Helm release name for the timadorus-platform chart. A package

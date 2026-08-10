@@ -12,8 +12,11 @@ const (
 	// GatewayClassName is the placeholder GatewayClass name the timadorus-platform chart's
 	// gateway.gatewayClassName value references. No real Gateway API controller reconciles
 	// it — the chart's Gateway/HTTPRoute objects just need to exist and be schema-valid;
-	// test traffic reaches the services via port-forward instead (see portforward.go).
-	GatewayClassName = "e2e-gatewayclass"
+	// test traffic reaches the services via port-forward instead (see portforward.go). A
+	// single cluster-wide resource shared by both the e2e suite (Namespace "timadorus-e2e")
+	// and test/e2e/cmd/devcluster (Namespace "timadorus-dev") — named generically, not
+	// "e2e-*", since it's just as much devcluster's as it is e2e's.
+	GatewayClassName = "timadorus-gatewayclass"
 )
 
 // IsGatewayAPIInstalled reports whether the Gateway API CRDs are already present. Purely
@@ -38,7 +41,7 @@ kind: GatewayClass
 metadata:
   name: %s
 spec:
-  controllerName: example.com/e2e-no-op-controller
+  controllerName: example.com/timadorus-no-op-controller
 `, GatewayClassName)
 
 	cmd := exec.Command("kubectl", "apply", "-f", "-")
