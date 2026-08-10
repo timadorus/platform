@@ -35,8 +35,9 @@ Every mutating and read endpoint requires a JWT bearer token. Aggregates are nev
 ## Prerequisites
 
 - Go 1.26+
-- Docker (for local Postgres/NATS via `docker-compose`, and for the testcontainers-backed
-  integration tests)
+- Docker (to run the `kind` cluster used by `make dev-up`, for local Postgres/NATS via
+  `docker-compose`, and for the testcontainers-backed integration tests)
+- `kind`, `kubectl`, and `helm` (for `make dev-up`/`make dev-down`, the primary local dev flow)
 - Node.js 22+ and npm (for the `web/` SPA)
 
 ## Quickstart
