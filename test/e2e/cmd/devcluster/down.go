@@ -24,6 +24,11 @@ func runDown() error {
 
 	if state.InstalledNATS {
 		e2eutil.UninstallNATS()
+	} else {
+		// NATS is left running (shared, not dev-owned), but its JetStream streams hold this
+		// run's own event data and must not leak into the next run — see PurgeEventStreams'
+		// doc comment, and mirrors e2eutil.Teardown()'s identical else-branch.
+		e2eutil.PurgeEventStreams()
 	}
 	if state.InstalledCloudNativePG {
 		e2eutil.UninstallCloudNativePG()

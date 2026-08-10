@@ -1043,8 +1043,11 @@ SPA — onto a local `kind` cluster via the real Helm chart
 (`deploy/helm/timadorus-platform`), replacing an earlier docker-compose-only version of these
 targets. The implementation (`test/e2e/cmd/devcluster`) reuses `test/e2e/internal`'s
 install/uninstall machinery verbatim — the same code `make test-e2e` runs against — targeting
-a dedicated `timadorus-dev` namespace/Helm release so a dev session and a concurrent
-`make test-e2e` run never collide. A small gitignored state file
+a dedicated `timadorus-dev` namespace/Helm release, isolated at the Kubernetes namespace and
+Helm release level from a concurrent `make test-e2e` run. The GatewayClass and NATS JetStream
+streams are shared cluster-wide, though, so running `make dev-down` or letting `make test-e2e`
+finish while the other flow is still live can disrupt it (deletes the shared GatewayClass;
+purges shared NATS streams). A small gitignored state file
 (`.dev-cluster-state.json`) tracks which shared, cluster-wide components (cert-manager, the
 Prometheus Operator, CloudNativePG, NATS) `dev-up` itself installed, so `dev-down` only
 reverses what it owns rather than tearing down infrastructure something else on the cluster

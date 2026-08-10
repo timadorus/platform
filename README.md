@@ -46,12 +46,18 @@ Every mutating and read endpoint requires a JWT bearer token. Aggregates are nev
 make dev-up
 ```
 
-`dev-up` stands up the **entire platform** — all three Go binaries plus the web SPA — on a
-local `kind` Kubernetes cluster (creating one if none exists), installing whatever's missing
-(cert-manager, the Prometheus Operator, CloudNativePG, NATS JetStream, the Gateway API) and
-deploying the platform itself freshly built from your current code, via the real Helm chart
-(`deploy/helm/timadorus-platform`) — the same one used in production and by `make test-e2e`
-(against a separate, non-colliding namespace). When it's ready, it prints something like:
+`dev-up` stands up the **entire platform** — all three Go binaries plus the web SPA pod — on a
+Kubernetes cluster: it targets whatever your current kubeconfig context already reaches, falling
+back to an existing `kind` cluster of its own name, and only creating a new `kind` cluster if
+neither is available. It installs whatever's missing (cert-manager, the Prometheus Operator,
+CloudNativePG, NATS JetStream, the Gateway API) and deploys the platform itself freshly built
+from your current code, via the real Helm chart (`deploy/helm/timadorus-platform`) — the same
+one used in production and by `make test-e2e`, into its own `timadorus-dev` namespace/Helm
+release (isolated from `test-e2e`'s namespace, though the GatewayClass and NATS JetStream
+streams are shared cluster-wide — see below). The web pod deploys but isn't configured with
+real API/OIDC endpoints in this flow, so it's not meant for interactive browser use; the
+port-forward + curl workflow below against command-api/query-api is the intended dev interface.
+When it's ready, it prints something like:
 
 ```
 Dev cluster ready. Namespace: timadorus-dev
@@ -78,7 +84,10 @@ make dev-down
 
 `dev-down` only removes what `dev-up` itself installed — if cert-manager/the Prometheus
 Operator/CloudNativePG/NATS were already on your cluster for some other reason, they're left
-running.
+running. The GatewayClass and NATS JetStream streams are shared cluster-wide, though (not
+namespaced per session), so running `dev-down` — or letting `make test-e2e` finish — while the
+other flow is still live can disrupt it: it deletes the shared GatewayClass and purges shared
+NATS streams, including the still-live session's own event data.
 
 ### Faster local iteration without Kubernetes
 
