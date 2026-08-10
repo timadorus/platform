@@ -42,37 +42,66 @@ Every mutating and read endpoint requires a JWT bearer token. Aggregates are nev
 ## Quickstart
 
 ```sh
-# 1. Start Postgres + NATS JetStream
 make dev-up
+```
 
-# 2. Apply migrations (one schema-owner tracking table per event-store/projection — see
-#    docs/PLAN.md §7)
+`dev-up` stands up the **entire platform** — all three Go binaries plus the web SPA — on a
+local `kind` Kubernetes cluster (creating one if none exists), installing whatever's missing
+(cert-manager, the Prometheus Operator, CloudNativePG, NATS JetStream, the Gateway API) and
+deploying the platform itself freshly built from your current code, via the real Helm chart
+(`deploy/helm/timadorus-platform`) — the same one used in production and by `make test-e2e`
+(against a separate, non-colliding namespace). When it's ready, it prints something like:
+
+```
+Dev cluster ready. Namespace: timadorus-dev
+
+Port-forward the APIs in another terminal:
+  kubectl port-forward --namespace timadorus-dev svc/timadorus-dev-timadorus-platform-command-api 8081:8081
+  kubectl port-forward --namespace timadorus-dev svc/timadorus-dev-timadorus-platform-query-api 8082:8082
+
+Bearer token for local calls (1 hour expiry):
+  eyJhbGciOi...
+```
+
+Run those two `port-forward` commands (each in its own terminal, or backgrounded), then:
+
+```sh
+curl -H "Authorization: Bearer <token>" http://localhost:8082/universes
+```
+
+When you're done:
+
+```sh
+make dev-down
+```
+
+`dev-down` only removes what `dev-up` itself installed — if cert-manager/the Prometheus
+Operator/CloudNativePG/NATS were already on your cluster for some other reason, they're left
+running.
+
+### Faster local iteration without Kubernetes
+
+Rebuilding a Docker image and running a Helm upgrade on every code change is slower than a
+plain `go run`. For tight iteration loops, `docker-compose.yml` (Postgres + NATS JetStream
+only, no Kubernetes) is still available directly — not through a `make` target, since
+`dev-up`/`dev-down` now mean the Kubernetes flow above:
+
+```sh
+docker compose up -d
 make migrate-up
 
-# 3. Run all three binaries (separate terminals), pointing at the local infra
 DATABASE_URL="postgres://timadorus:timadorus@localhost:5432/timadorus?sslmode=disable" \
 NATS_URL="nats://localhost:4222" \
 go run ./cmd/command-api
 
-DATABASE_URL="postgres://timadorus:timadorus@localhost:5432/timadorus?sslmode=disable" \
-NATS_URL="nats://localhost:4222" \
-go run ./cmd/projector
+# ...same pattern for ./cmd/projector and ./cmd/query-api in their own terminals
 
-DATABASE_URL="postgres://timadorus:timadorus@localhost:5432/timadorus?sslmode=disable" \
-NATS_URL="nats://localhost:4222" \
-go run ./cmd/query-api
-
-# 4. Run the web SPA (separate terminal) — defaults in web/public/config.json already point
-#    at the two APIs above; replace the OIDC placeholder values with a real dev IdP's before
-#    testing login
-cd web
-npm install
-npm run dev
+cd web && npm install && npm run dev   # web SPA, separate terminal
 ```
 
 With no `JWT_JWKS_URL`/`JWT_HMAC_SECRET` configured, both APIs fall back to a well-known,
 loudly-logged **insecure dev HMAC secret** so they work out of the box locally — never set
-this up in a real deployment (see `internal/auth`).
+this up in a real deployment (see `internal/auth`). Stop with `docker compose down -v`.
 
 ## Configuration
 

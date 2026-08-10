@@ -35,10 +35,10 @@ test-e2e:
 	go test -tags e2e -count=1 ./test/e2e/... -v -timeout 30m
 
 dev-up:
-	docker compose up -d
+	go run ./test/e2e/cmd/devcluster up
 
 dev-down:
-	docker compose down -v
+	go run ./test/e2e/cmd/devcluster down
 
 
 $(BINDIR):

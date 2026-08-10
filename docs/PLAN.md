@@ -1036,6 +1036,29 @@ that plan's task list for current build status.
 
 ---
 
+## 16. Local Development on Kubernetes (`make dev-up`/`make dev-down`)
+
+`make dev-up`/`make dev-down` deploy the entire platform — all three Go binaries plus the web
+SPA — onto a local `kind` cluster via the real Helm chart
+(`deploy/helm/timadorus-platform`), replacing an earlier docker-compose-only version of these
+targets. The implementation (`test/e2e/cmd/devcluster`) reuses `test/e2e/internal`'s
+install/uninstall machinery verbatim — the same code `make test-e2e` runs against — targeting
+a dedicated `timadorus-dev` namespace/Helm release so a dev session and a concurrent
+`make test-e2e` run never collide. A small gitignored state file
+(`.dev-cluster-state.json`) tracks which shared, cluster-wide components (cert-manager, the
+Prometheus Operator, CloudNativePG, NATS) `dev-up` itself installed, so `dev-down` only
+reverses what it owns rather than tearing down infrastructure something else on the cluster
+still depends on.
+
+Full design: `docs/superpowers/specs/2026-08-09-devcluster-tool-design.md`.
+
+**Known limitation:** NATS JetStream event streams are global, not namespaced per environment
+— running `dev-up` and `test-e2e` at the exact same moment against a machine where NATS was
+already shared-installed can cross-contaminate each session's projections. Not solved here;
+avoid running both simultaneously on a machine with pre-existing shared NATS.
+
+---
+
 ## Verification
 
 - `go build ./...` and `go vet ./...` clean across all 3 binaries. **Confirmed at every phase.**
