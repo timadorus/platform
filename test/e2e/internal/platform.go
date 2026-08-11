@@ -43,9 +43,28 @@ type PlatformInstallInputs struct {
 	PostgresSecretName string
 	NATSExternalURL    string
 	GatewayClassName   string
-	JWTSecretName      string
-	JWTKeyID           string
 	ImageTags          ImageTags
+
+	// JWT verification mode for the deployed command-api/query-api. "hmac" (the default,
+	// existing behavior) uses JWTSecretName/JWTKeyID exactly as before — test-e2e's call
+	// site sets this explicitly and is otherwise unaffected. "jwks" is new — devcluster
+	// requests it once Zitadel is live, supplying JWTJWKSURL/JWTIssuer/JWTAudience instead.
+	JWTMode       string
+	JWTSecretName string // hmac mode
+	JWTKeyID      string // hmac mode
+	JWTJWKSURL    string // jwks mode
+	JWTIssuer     string // jwks mode
+	JWTAudience   string // jwks mode
+
+	// New. Empty string (the zero value) preserves today's placeholder behavior — only
+	// devcluster sets these, to Zitadel's real values (Task 5).
+	PathRoutingHostname  string // sets gateway.pathRouting.hostname when non-empty
+	OIDCAuthority        string
+	OIDCClientID         string
+	OIDCRedirectURI      string
+	OIDCPostLogoutURI    string
+	WebCommandAPIBaseURL string // web.config.commandApiBaseUrl when OIDCAuthority is set
+	WebQueryAPIBaseURL   string // web.config.queryApiBaseUrl when OIDCAuthority is set
 }
 
 // imageValuesKey maps a Dockerfile/component name to its chart values key.
@@ -80,25 +99,55 @@ func InstallPlatform(in PlatformInstallInputs) error {
 		"--set", "postgres.secretKey=uri",
 		"--set", "nats.enabled=false",
 		"--set", "nats.externalURL=" + in.NATSExternalURL,
-		"--set", "jwt.mode=hmac",
-		"--set", "jwt.hmac.existingSecret=" + in.JWTSecretName,
-		"--set", "jwt.hmac.keyID=" + in.JWTKeyID,
 		"--set", "gateway.gatewayClassName=" + in.GatewayClassName,
 		"--set", "commandApi.route.hostname=" + commandAPIHostname,
 		"--set", "queryApi.route.hostname=" + queryAPIHostname,
 		"--set", "web.route.hostname=" + webHostname,
-		// This Go e2e suite only exercises the command-api/query-api HTTP endpoints via
-		// port-forward — it never loads the web SPA in a browser — so these web.config.*
-		// values just need to be non-empty to satisfy Helm's `required` checks and let the
-		// web Deployment's pod become Ready for `--wait`.
-		"--set", "web.config.commandApiBaseUrl=http://placeholder.e2e.test",
-		"--set", "web.config.queryApiBaseUrl=http://placeholder.e2e.test",
-		"--set", "web.config.oidc.authority=http://placeholder.e2e.test",
-		"--set", "web.config.oidc.clientId=e2e-placeholder",
-		"--set", "web.config.oidc.redirectUri=http://placeholder.e2e.test/login",
-		"--set", "web.config.oidc.postLogoutRedirectUri=http://placeholder.e2e.test/",
 		"--wait", "--timeout", "5m",
 	}
+
+	if in.JWTMode == "jwks" {
+		args = append(args,
+			"--set", "jwt.mode=jwks",
+			"--set", "jwt.jwksURL="+in.JWTJWKSURL,
+			"--set", "jwt.issuer="+in.JWTIssuer,
+			"--set", "jwt.audience="+in.JWTAudience,
+		)
+	} else {
+		args = append(args,
+			"--set", "jwt.mode=hmac",
+			"--set", "jwt.hmac.existingSecret="+in.JWTSecretName,
+			"--set", "jwt.hmac.keyID="+in.JWTKeyID,
+		)
+	}
+
+	if in.PathRoutingHostname != "" {
+		args = append(args, "--set", "gateway.pathRouting.hostname="+in.PathRoutingHostname)
+	}
+
+	// This Go e2e suite only exercises the command-api/query-api HTTP endpoints via
+	// port-forward — it never loads the web SPA in a browser — so when devcluster hasn't
+	// supplied real values, these just need to be non-empty to satisfy Helm's `required`
+	// checks and let the web Deployment's pod become Ready for `--wait`.
+	webCommandAPIBaseURL, webQueryAPIBaseURL := "http://placeholder.e2e.test", "http://placeholder.e2e.test"
+	oidcAuthority, oidcClientID := "http://placeholder.e2e.test", "e2e-placeholder"
+	oidcRedirectURI, oidcPostLogoutURI := "http://placeholder.e2e.test/login", "http://placeholder.e2e.test/"
+	if in.OIDCAuthority != "" {
+		webCommandAPIBaseURL = in.WebCommandAPIBaseURL
+		webQueryAPIBaseURL = in.WebQueryAPIBaseURL
+		oidcAuthority = in.OIDCAuthority
+		oidcClientID = in.OIDCClientID
+		oidcRedirectURI = in.OIDCRedirectURI
+		oidcPostLogoutURI = in.OIDCPostLogoutURI
+	}
+	args = append(args,
+		"--set", "web.config.commandApiBaseUrl="+webCommandAPIBaseURL,
+		"--set", "web.config.queryApiBaseUrl="+webQueryAPIBaseURL,
+		"--set", "web.config.oidc.authority="+oidcAuthority,
+		"--set", "web.config.oidc.clientId="+oidcClientID,
+		"--set", "web.config.oidc.redirectUri="+oidcRedirectURI,
+		"--set", "web.config.oidc.postLogoutRedirectUri="+oidcPostLogoutURI,
+	)
 
 	for component, tag := range in.ImageTags {
 		key := imageValuesKey(component)

@@ -129,3 +129,10 @@ gateway:
     name: ""
     namespace: ""
     sectionName: ""
+  # Opt-in, additive path-based routing: when set, command-api/query-api also become
+  # reachable under this single shared hostname via /api/command and /api/query path
+  # prefixes (stripped before forwarding), and web's existing HTTPRoute also starts
+  # answering on this hostname (its rule, path "/", is identical either way). Empty
+  # (the default) renders nothing extra — test-e2e and production are unaffected.
+  pathRouting:
+    hostname: ""

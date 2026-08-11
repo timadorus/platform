@@ -8,6 +8,9 @@ spec:
   {{- include "timadorus-platform.gatewayParentRefs" . | nindent 2 }}
   hostnames:
     - {{ required "web.route.hostname is required" .Values.web.route.hostname | quote }}
+    {{- if .Values.gateway.pathRouting.hostname }}
+    - {{ .Values.gateway.pathRouting.hostname | quote }}
+    {{- end }}
   rules:
     - matches:
         - path:
