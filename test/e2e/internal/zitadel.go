@@ -22,6 +22,18 @@ const (
 	zitadelChartRepoURL    = "https://charts.zitadel.com"
 	zitadelPostgresCluster = "zitadel-pg"
 
+	// zitadelChartVersion pins the zitadel/zitadel chart, matching the rest of this package's
+	// convention (cert-manager/Prometheus-operator/CloudNativePG/NATS/Traefik all pin
+	// --version too). This matters more here than for the other installers: Org.Human below
+	// is an undocumented passthrough field (see its own WARNING comment) that ZITADEL's
+	// binary happens to accept today but the chart doesn't promise — an unpinned chart means
+	// a future `helm repo update` could silently stop creating the human user with no error
+	// (the setup Job would still succeed, `up` would still succeed, printStatus would print
+	// credentials for a user that was never created). Set to the exact chart/appVersion
+	// already exercised live in this branch's own verification (10.0.4 / v4.15.3, see
+	// task-3-report.md), which is also still the newest version in the repo as of this pin.
+	zitadelChartVersion = "10.0.4"
+
 	// ZitadelServiceName is the zitadel/zitadel chart's own default Service name for the main
 	// Zitadel API/UI (port 8080) — confirmed live against `kubectl get svc -n zitadel`
 	// (chart 10.0.4/appVersion v4.15.3) in this task's own verification. NOT
@@ -197,6 +209,7 @@ func installZitadelHelmRelease(externalPort int, humanUsername, humanPassword st
 	args := []string{
 		"upgrade", "--install", zitadelReleaseName, "zitadel/zitadel",
 		"--namespace", ZitadelNamespace, "--create-namespace",
+		"--version", zitadelChartVersion,
 		"--set", "zitadel.masterkey=" + masterkey,
 		"--set", "replicaCount=1",
 		"--set", fmt.Sprintf("env[0].name=ZITADEL_DATABASE_POSTGRES_DSN"),
@@ -211,11 +224,13 @@ func installZitadelHelmRelease(externalPort int, humanUsername, humanPassword st
 		// passthrough straight into ZITADEL's own setup-step config (see ZITADEL's
 		// cmd/defaults.yaml upstream), so Org.Human works today (confirmed against a live
 		// install with chart 10.0.4/appVersion v4.15.3 — see task-3-report.md) purely because
-		// ZITADEL's binary still accepts it, not because this chart promises to. No version is
-		// pinned here, so a future `helm repo update` could silently stop creating the human
-		// user if this field moves or is removed upstream. If FirstInstance human bootstrap
-		// stops working, check ZITADEL's own defaults.yaml for a renamed/relocated field before
-		// assuming it's a local bug.
+		// ZITADEL's binary still accepts it, not because this chart promises to. The chart
+		// version is now pinned (zitadelChartVersion) specifically so a `helm repo update`
+		// can't silently move to a chart/appVersion where this field has moved or been
+		// removed upstream — bumping zitadelChartVersion is a deliberate act that should be
+		// re-verified live, not something that happens for free. If FirstInstance human
+		// bootstrap stops working after such a bump, check ZITADEL's own defaults.yaml for a
+		// renamed/relocated field before assuming it's a local bug.
 		"--set", "zitadel.configmapConfig.FirstInstance.Org.Human.UserName=" + humanUsername,
 		"--set", "zitadel.configmapConfig.FirstInstance.Org.Human.Email.Address=" + humanUsername + "@timadorus.local",
 		"--set", "zitadel.configmapConfig.FirstInstance.Org.Human.Email.Verified=true",

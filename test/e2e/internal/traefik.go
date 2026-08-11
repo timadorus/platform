@@ -13,6 +13,13 @@ const (
 	traefikReleaseName  = "traefik"
 	traefikChartRepoURL = "https://traefik.github.io/charts"
 
+	// traefikChartVersion pins the traefik/traefik chart, matching the rest of this package's
+	// convention (cert-manager/Prometheus-operator/CloudNativePG/NATS all pin --version too).
+	// Without a pin, every `dev-up` would silently pull whatever chart version is currently
+	// newest from the repo. Current as of this pin: verified live via
+	// `helm show chart traefik/traefik | grep version` after `helm repo update`.
+	traefikChartVersion = "41.2.0"
+
 	// TraefikGatewayClassName is the name Traefik's own chart gives the GatewayClass it
 	// creates when providers.kubernetesGateway.enabled and the default gatewayClass.enabled
 	// (true by default) are both set — confirmed against the chart's own
@@ -58,6 +65,7 @@ func InstallTraefik() error {
 	}
 	_, err := Run(exec.Command("helm", "upgrade", "--install", traefikReleaseName, "traefik/traefik",
 		"--namespace", TraefikNamespace, "--create-namespace",
+		"--version", traefikChartVersion,
 		"--set", "providers.kubernetesGateway.enabled=true",
 		"--set", "gateway.enabled=false",
 		"--set", "service.spec.type=ClusterIP",

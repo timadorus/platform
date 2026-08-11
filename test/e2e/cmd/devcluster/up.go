@@ -92,6 +92,18 @@ func runUp() error {
 		}
 	}
 
+	// InstallGatewayAPI must run before InstallTraefik: Traefik's chart unconditionally
+	// renders a gateway.networking.k8s.io/v1 GatewayClass object when
+	// providers.kubernetesGateway.enabled is set (no capability guard in the chart's
+	// templates/gatewayclass.yaml), so on a genuinely fresh cluster — one that doesn't
+	// already have the Gateway API CRDs from some earlier run — `helm upgrade --install
+	// traefik` fails outright with "no matches for kind \"GatewayClass\" in version
+	// \"gateway.networking.k8s.io/v1\"". InstallGatewayAPI is idempotent and unconditional,
+	// so running it first is always safe regardless of what else has or hasn't run yet.
+	if err := e2eutil.InstallGatewayAPI(); err != nil {
+		return fmt.Errorf("gateway API: %w", err)
+	}
+
 	if !e2eutil.IsTraefikInstalled() {
 		if err := e2eutil.InstallTraefik(); err != nil {
 			return fmt.Errorf("traefik: %w", err)
@@ -104,25 +116,33 @@ func runUp() error {
 
 	var zitadel e2eutil.ZitadelBootstrap
 	if !e2eutil.IsZitadelInstalled() {
+		// state.InstalledZitadel is marked true (and saved) BEFORE attempting the install,
+		// not after it returns: IsZitadelInstalled uses `helm status`, which reports success
+		// even for a release stuck in "failed" or "pending-install" (a real state hit live
+		// during this branch's own testing, from the password-complexity bug). If we only
+		// marked state after a successful return, a failed/partial install would leave
+		// state.InstalledZitadel false, so a retry would take the FetchZitadelBootstrap
+		// branch below and fail forever (the bootstrap Secret was never written), while
+		// `dev-down` would also refuse to clean up the stuck release (same false gate).
+		// Marking dev-owned first means a failed attempt is still tracked as this run's
+		// responsibility, so dev-down can always clean it up. UninstallZitadel's own calls
+		// already tolerate "nothing to remove" (--ignore-not-found / tolerated helm
+		// uninstall failure), so tearing down a never-fully-created release is safe.
+		state.InstalledZitadel = true
+		if err := saveState(state); err != nil {
+			return fmt.Errorf("save state: %w", err)
+		}
 		zitadel, err = e2eutil.InstallZitadel(devZitadelPort,
 			fmt.Sprintf("http://localhost:%d/login", devGatewayPort),
 			fmt.Sprintf("http://localhost:%d/", devGatewayPort))
 		if err != nil {
 			return fmt.Errorf("zitadel: %w", err)
 		}
-		state.InstalledZitadel = true
-		if err := saveState(state); err != nil {
-			return fmt.Errorf("save state: %w", err)
-		}
 	} else {
 		zitadel, err = e2eutil.FetchZitadelBootstrap()
 		if err != nil {
 			return fmt.Errorf("fetch existing zitadel bootstrap: %w", err)
 		}
-	}
-
-	if err := e2eutil.InstallGatewayAPI(); err != nil {
-		return fmt.Errorf("gateway API: %w", err)
 	}
 
 	postgresSecret, err := e2eutil.EnsurePostgresCluster()

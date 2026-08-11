@@ -46,28 +46,42 @@ Every mutating and read endpoint requires a JWT bearer token. Aggregates are nev
 make dev-up
 ```
 
-`dev-up` stands up the **entire platform** — all three Go binaries plus the web SPA pod — on a
-Kubernetes cluster: it targets whatever your current kubeconfig context already reaches, falling
-back to an existing `kind` cluster of its own name, and only creating a new `kind` cluster if
-neither is available. It installs whatever's missing (cert-manager, the Prometheus Operator,
-CloudNativePG, NATS JetStream, the Gateway API) and deploys the platform itself freshly built
-from your current code, via the real Helm chart (`deploy/helm/timadorus-platform`) — the same
-one used in production and by `make test-e2e`, into its own `timadorus-dev` namespace/Helm
-release (isolated from `test-e2e`'s namespace, though the GatewayClass and NATS JetStream
-streams are shared cluster-wide — see below). The web pod deploys but isn't configured with
-real API/OIDC endpoints in this flow, so it's not meant for interactive browser use; the
-port-forward + curl workflow below against command-api/query-api is the intended dev interface.
-When it's ready, it prints something like:
+`dev-up` stands up the **entire platform** — all three Go binaries plus the web SPA pod, fronted
+by a real Gateway API controller and a real local OIDC provider — on a Kubernetes cluster: it
+targets whatever your current kubeconfig context already reaches, falling back to an existing
+`kind` cluster of its own name, and only creating a new `kind` cluster if neither is available.
+It installs whatever's missing (cert-manager, the Prometheus Operator, CloudNativePG, NATS
+JetStream, the Gateway API CRDs, Traefik as the Gateway API controller, Zitadel as a local OIDC
+provider) and deploys the platform itself freshly built from your current code, via the real
+Helm chart (`deploy/helm/timadorus-platform`) — the same one used in production and by
+`make test-e2e`, into its own `timadorus-dev` namespace/Helm release (isolated from
+`test-e2e`'s namespace, though the GatewayClass and NATS JetStream streams are shared
+cluster-wide — see below). The web pod is fully configured with real API and OIDC endpoints in
+this flow, so it's meant for interactive browser use, not just curl — see the login workflow
+below. When it's ready, it prints something like:
 
 ```
 Dev cluster ready. Namespace: timadorus-dev
 
-Port-forward the APIs in another terminal:
+Open the web UI (one port-forward covers the app and both APIs):
+  kubectl port-forward --namespace traefik svc/traefik 8080:80
+
+  http://localhost:8080/
+
+Log in (another terminal — Zitadel needs its own port-forward, see below) with:
+  username: devuser
+  password: <randomly generated>
+
+Zitadel (needed for the login redirect above to resolve):
+  kubectl port-forward --namespace zitadel svc/zitadel 8084:8080
+
+Direct API access — fetch a real token via client_credentials, then curl:
+  TOKEN=$(curl -s -u <client-id>:<client-secret> -d grant_type=client_credentials -d "scope=openid profile" http://localhost:8084/oauth/v2/token | jq -r .access_token)
+  curl http://localhost:8080/api/query/universes -H "Authorization: Bearer $TOKEN"
+
+Per-service access without the shared Gateway (also still available):
   kubectl port-forward --namespace timadorus-dev svc/timadorus-dev-timadorus-platform-command-api 8081:8081
   kubectl port-forward --namespace timadorus-dev svc/timadorus-dev-timadorus-platform-query-api 8082:8082
-
-Bearer token for local calls (1 hour expiry):
-  eyJhbGciOi...
 ```
 
 Once it prints its status, two `kubectl port-forward` commands (each run in its own terminal)
@@ -75,14 +89,9 @@ give you the full experience: one to Traefik (`http://localhost:8080/` — the w
 APIs at `/api/command`/`/api/query`, all one origin) and one to Zitadel itself
 (`http://localhost:8084` — needed for the login redirect to resolve; it can't share Traefik's
 origin, see `docs/superpowers/specs/2026-08-10-dev-gateway-oidc-design.md` §2 if you're curious
-why). Log in with the printed test-user credentials. For scripted/curl access instead of the
-browser, the printed `client_credentials` command fetches a real token the same way.
-
-Run those two `port-forward` commands (each in its own terminal, or backgrounded), then:
-
-```sh
-curl -H "Authorization: Bearer <token>" http://localhost:8082/universes
-```
+why). Log in with the printed test-user credentials for a real interactive browser session. For
+scripted/curl access instead of the browser, the printed `client_credentials` command fetches a
+real token the same way.
 
 When you're done:
 
@@ -91,11 +100,11 @@ make dev-down
 ```
 
 `dev-down` only removes what `dev-up` itself installed — if cert-manager/the Prometheus
-Operator/CloudNativePG/NATS were already on your cluster for some other reason, they're left
-running. The GatewayClass and NATS JetStream streams are shared cluster-wide, though (not
-namespaced per session), so running `dev-down` — or letting `make test-e2e` finish — while the
-other flow is still live can disrupt it: it deletes the shared GatewayClass and purges shared
-NATS streams, including the still-live session's own event data.
+Operator/CloudNativePG/NATS/Traefik/Zitadel were already on your cluster for some other reason,
+they're left running. The GatewayClass and NATS JetStream streams are shared cluster-wide,
+though (not namespaced per session), so running `dev-down` — or letting `make test-e2e` finish —
+while the other flow is still live can disrupt it: it deletes the shared GatewayClass and purges
+shared NATS streams, including the still-live session's own event data.
 
 ### Faster local iteration without Kubernetes
 
