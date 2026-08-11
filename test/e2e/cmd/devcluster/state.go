@@ -37,6 +37,8 @@ type DevState struct {
 	InstalledPrometheusOperator bool `json:"installedPrometheusOperator"`
 	InstalledCloudNativePG      bool `json:"installedCloudNativePG"`
 	InstalledNATS               bool `json:"installedNATS"`
+	InstalledTraefik            bool `json:"installedTraefik"`
+	InstalledZitadel            bool `json:"installedZitadel"`
 }
 
 // loadState reads the state file, returning a zero-value DevState (nothing installed by us
