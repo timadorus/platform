@@ -70,6 +70,14 @@ Bearer token for local calls (1 hour expiry):
   eyJhbGciOi...
 ```
 
+Once it prints its status, two `kubectl port-forward` commands (each run in its own terminal)
+give you the full experience: one to Traefik (`http://localhost:8080/` — the web UI, and both
+APIs at `/api/command`/`/api/query`, all one origin) and one to Zitadel itself
+(`http://localhost:8084` — needed for the login redirect to resolve; it can't share Traefik's
+origin, see `docs/superpowers/specs/2026-08-10-dev-gateway-oidc-design.md` §2 if you're curious
+why). Log in with the printed test-user credentials. For scripted/curl access instead of the
+browser, the printed `client_credentials` command fetches a real token the same way.
+
 Run those two `port-forward` commands (each in its own terminal, or backgrounded), then:
 
 ```sh

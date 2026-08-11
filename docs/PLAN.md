@@ -1060,6 +1060,14 @@ Full design: `docs/superpowers/specs/2026-08-09-devcluster-tool-design.md`.
 already shared-installed can cross-contaminate each session's projections. Not solved here;
 avoid running both simultaneously on a machine with pre-existing shared NATS.
 
+**Update (2026-08-10):** `dev-up` now also installs Traefik (a real Gateway API controller)
+and Zitadel (a real local OIDC provider), routing web-ui/command-api/query-api under one
+shared `localhost` origin via path prefixes — eliminating any need for CORS handling in the Go
+APIs — and auto-provisioning a working test-user login. Full design:
+`docs/superpowers/specs/2026-08-10-dev-gateway-oidc-design.md`. Zitadel itself is not part of
+that shared origin (IdPs can't be cleanly reverse-proxied under a sub-path) — it gets its own
+port-forward, printed alongside Traefik's.
+
 ---
 
 ## Verification
