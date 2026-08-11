@@ -130,6 +130,16 @@ func installZitadelHelmRelease(externalPort int, humanUsername, humanPassword st
 		"--set", fmt.Sprintf("zitadel.configmapConfig.ExternalPort=%d", externalPort),
 		"--set", "zitadel.configmapConfig.ExternalSecure=false",
 		"--set", "zitadel.configmapConfig.TLS.Enabled=false",
+		// WARNING: Org.Human is not in the zitadel/zitadel chart's own values.yaml/schema —
+		// `helm show values` only documents Org.Machine. configmapConfig is a freeform
+		// passthrough straight into ZITADEL's own setup-step config (see ZITADEL's
+		// cmd/defaults.yaml upstream), so Org.Human works today (confirmed against a live
+		// install with chart 10.0.4/appVersion v4.15.3 — see task-3-report.md) purely because
+		// ZITADEL's binary still accepts it, not because this chart promises to. No version is
+		// pinned here, so a future `helm repo update` could silently stop creating the human
+		// user if this field moves or is removed upstream. If FirstInstance human bootstrap
+		// stops working, check ZITADEL's own defaults.yaml for a renamed/relocated field before
+		// assuming it's a local bug.
 		"--set", "zitadel.configmapConfig.FirstInstance.Org.Human.UserName=" + humanUsername,
 		"--set", "zitadel.configmapConfig.FirstInstance.Org.Human.Email.Address=" + humanUsername + "@timadorus.local",
 		"--set", "zitadel.configmapConfig.FirstInstance.Org.Human.Email.Verified=true",
@@ -162,8 +172,11 @@ func readZitadelPAT() (string, error) {
 	pat, err := Run(exec.Command("kubectl", "get", "secret", zitadelMachinePatSecretName,
 		"-n", ZitadelNamespace,
 		"-o", "jsonpath={.data.pat}"))
-	if err != nil || strings.TrimSpace(pat) == "" {
+	if err != nil {
 		return "", fmt.Errorf("e2eutil: read zitadel PAT secret: %w", err)
+	}
+	if strings.TrimSpace(pat) == "" {
+		return "", fmt.Errorf("e2eutil: read zitadel PAT secret: secret %q has no \"pat\" data", zitadelMachinePatSecretName)
 	}
 	decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(pat))
 	if err != nil {
