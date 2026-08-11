@@ -1,11 +1,16 @@
 package e2eutil
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 const (
@@ -192,4 +197,279 @@ func UninstallZitadel() {
 		"--namespace", ZitadelNamespace, "--ignore-not-found"))
 	_, _ = Run(exec.Command("helm", "uninstall", zitadelReleaseName, "--namespace", ZitadelNamespace))
 	_, _ = Run(exec.Command("kubectl", "delete", "namespace", ZitadelNamespace, "--ignore-not-found"))
+}
+
+// ZitadelBootstrap is everything the rest of devcluster needs after Zitadel is fully
+// provisioned: a real Org, a human test user, a public/PKCE OIDC Application for the browser
+// SPA, and a Machine User (see bootstrapZitadelProject's doc comment for why this is a Machine
+// User and not a second Application) for machine-to-machine client_credentials access.
+type ZitadelBootstrap struct {
+	Authority       string // OIDC issuer / authority URL, e.g. http://localhost:8084
+	JWKSURL         string
+	SPAClientID     string // public/PKCE application, for web.config.oidc.clientId
+	APIClientID     string // Machine User's username, for client_credentials
+	APIClientSecret string
+	TestUsername    string
+	TestPassword    string
+}
+
+// zitadelAPICall POSTs a Connect-RPC-over-HTTP request to Zitadel's v2 Management API,
+// authenticated with the FirstInstance machine user's PAT, and decodes the JSON response into
+// out. authority is Zitadel's own externally-reachable base URL (matches
+// installZitadelHelmRelease's externalPort).
+func zitadelAPICall(authority, pat, method string, reqBody, out any) error {
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return fmt.Errorf("e2eutil: marshal zitadel request: %w", err)
+	}
+	req, err := http.NewRequest(http.MethodPost, authority+method, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("e2eutil: build zitadel request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Connect-Protocol-Version", "1")
+	req.Header.Set("Authorization", "Bearer "+pat)
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("e2eutil: call zitadel %s: %w", method, err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("e2eutil: read zitadel %s response: %w", method, err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("e2eutil: zitadel %s: HTTP %d: %s", method, resp.StatusCode, string(respBody))
+	}
+	if out != nil {
+		if err := json.Unmarshal(respBody, out); err != nil {
+			return fmt.Errorf("e2eutil: decode zitadel %s response: %w", method, err)
+		}
+	}
+	return nil
+}
+
+// bootstrapZitadelProject creates a Project with a PKCE public Application for the browser SPA,
+// plus a separate Machine User with a generated client secret for machine-to-machine
+// client_credentials scripted/curl access, via Zitadel's Management API v2, authenticated with
+// the FirstInstance machine user's PAT. organizationId is required by CreateProject — fetched
+// by listing the orgs visible to the same PAT's own identity (the machine user's default org,
+// i.e. the one FirstInstance created).
+//
+// The API client is a Machine User, not a second Project Application, even though the brief
+// originally called for "a confidential OIDC Application (client_credentials, ...)" — see the
+// CORRECTION comment inline below (and task-4-report.md) for the live evidence that ZITADEL's
+// client_credentials grant only ever recognizes Machine User credentials, never an
+// Application's clientId, regardless of the Application's type or grant-type config.
+func bootstrapZitadelProject(authority, pat, spaRedirectURI, spaPostLogoutURI string) (spaClientID, apiClientID, apiClientSecret string, err error) {
+	// The machine user's own org — FirstInstance creates exactly one org, so listing the orgs
+	// visible to the PAT's own identity is more robust than assuming a fixed org name/ID.
+	//
+	// CORRECTION (evidence-based, see task-4-report.md): the brief called
+	// "/zitadel.auth.v1.AuthService/GetMyOrg" here. That is a v1 Auth API method, and v1
+	// services (auth/v1, management/v1, admin/v1) are exposed ONLY via grpc-gateway REST
+	// endpoints (confirmed working: "GET /auth/v1/users/me", "GET /management/v1/orgs/me"),
+	// not via Connect-RPC-over-HTTP-JSON — "POST /zitadel.auth.v1.AuthService/GetMyOrg"
+	// returns a real "HTTP 404: {\"code\":5, \"message\":\"Not Found\"}" body against a live
+	// instance. Connect-RPC (what zitadelAPICall speaks) is only wired up for v2+ services.
+	// The v2 equivalent, ListOrganizations, IS Connect-RPC and returns the identical org ID
+	// (cross-checked live against both "GET /auth/v1/users/me"'s "resourceOwner" and
+	// "GET /management/v1/orgs/me"'s "id" — all three agree), so it's used here instead.
+	var orgs struct {
+		Result []struct {
+			Id string `json:"id"`
+		} `json:"result"`
+	}
+	if err := zitadelAPICall(authority, pat, "/zitadel.org.v2.OrganizationService/ListOrganizations", map[string]any{}, &orgs); err != nil {
+		return "", "", "", fmt.Errorf("look up bootstrap org: %w", err)
+	}
+	if len(orgs.Result) == 0 {
+		return "", "", "", fmt.Errorf("look up bootstrap org: ListOrganizations returned no organizations")
+	}
+	organizationId := orgs.Result[0].Id
+
+	// CORRECTION (evidence-based, see task-4-report.md): the brief expected the created
+	// project's ID under response field "id". Live: "POST .../CreateProject" actually returns
+	// {"projectId":"...", "creationDate":"..."} — the field is "projectId", not "id".
+	var project struct {
+		ProjectId string `json:"projectId"`
+	}
+	if err := zitadelAPICall(authority, pat, "/zitadel.project.v2.ProjectService/CreateProject",
+		map[string]string{"organizationId": organizationId, "name": "timadorus-dev"}, &project); err != nil {
+		return "", "", "", fmt.Errorf("create project: %w", err)
+	}
+
+	// CORRECTION (evidence-based, see task-4-report.md): the brief expected a top-level
+	// "clientId" field on the CreateApplication response. Live: for an OIDC application the
+	// response is {"applicationId":"...", "creationDate":"...", "oidcConfiguration":
+	// {"clientId":"..."}} — clientId is nested under "oidcConfiguration", not top-level.
+	var spaApp struct {
+		ApplicationId     string `json:"applicationId"`
+		OidcConfiguration struct {
+			ClientId string `json:"clientId"`
+		} `json:"oidcConfiguration"`
+	}
+	if err := zitadelAPICall(authority, pat, "/zitadel.application.v2.ApplicationService/CreateApplication", map[string]any{
+		"projectId": project.ProjectId,
+		"name":      "timadorus-web",
+		"oidcConfiguration": map[string]any{
+			"redirectUris":           []string{spaRedirectURI},
+			"postLogoutRedirectUris": []string{spaPostLogoutURI},
+			"responseTypes":          []string{"OIDC_RESPONSE_TYPE_CODE"},
+			"grantTypes":             []string{"OIDC_GRANT_TYPE_AUTHORIZATION_CODE"},
+			"appType":                "OIDC_APP_TYPE_USER_AGENT",
+			"authMethodType":         "OIDC_AUTH_METHOD_TYPE_NONE",
+			"version":                "OIDC_VERSION_1_0",
+		},
+	}, &spaApp); err != nil {
+		return "", "", "", fmt.Errorf("create SPA application: %w", err)
+	}
+
+	// CORRECTION (evidence-based, design-level, not just a field-name typo — see
+	// task-4-report.md): the brief's plan for machine-to-machine access was a second
+	// Project Application (apiConfiguration, authMethodType API_AUTH_METHOD_TYPE_BASIC),
+	// using its clientId/clientSecret against "POST /oauth/v2/token" with
+	// grant_type=client_credentials. Live, that returns a real HTTP 200 with a genuine
+	// clientId/clientSecret pair from CreateApplication, but the token endpoint itself then
+	// rejects those exact credentials with "HTTP 400: {\"error\":\"invalid_client\",
+	// \"error_description\":\"client not found\"}" — reproduced identically against BOTH an
+	// "apiConfiguration" Application AND an OIDC-type confidential Application with
+	// grantTypes explicitly including "OIDC_GRANT_TYPE_CLIENT_CREDENTIALS". ZITADEL's own
+	// docs (https://zitadel.com/docs/guides/integrate/service-accounts/client-credentials)
+	// confirm why: the client_credentials grant is implemented against Machine (service)
+	// Users, not Project Applications at all — "the client id is the users username" — so no
+	// Application-shaped clientId is ever a valid client_credentials client, regardless of
+	// its config. Fix: create a dedicated Machine User (CreateUser) and generate a secret for
+	// it (AddSecret) instead of a second CreateApplication call. Verified live end-to-end:
+	// "POST /oauth/v2/token" with the resulting username/secret returns a real access_token
+	// (see task-4-report.md Step 3).
+	apiUsername := "timadorus-dev-curl"
+	var machineUser struct {
+		Id string `json:"id"`
+	}
+	if err := zitadelAPICall(authority, pat, "/zitadel.user.v2.UserService/CreateUser", map[string]any{
+		"organizationId": organizationId,
+		"username":       apiUsername,
+		"machine": map[string]any{
+			"name": "devcluster API client (client_credentials)",
+		},
+	}, &machineUser); err != nil {
+		return "", "", "", fmt.Errorf("create API machine user: %w", err)
+	}
+
+	// AddSecret's response carries only "clientSecret" — no clientId field. Per ZITADEL's own
+	// docs, the client_id for this machine user's client_credentials grant is always its
+	// username, not its (numeric) user ID.
+	var secret struct {
+		ClientSecret string `json:"clientSecret"`
+	}
+	if err := zitadelAPICall(authority, pat, "/zitadel.user.v2.UserService/AddSecret",
+		map[string]string{"userId": machineUser.Id}, &secret); err != nil {
+		return "", "", "", fmt.Errorf("generate API client secret: %w", err)
+	}
+
+	return spaApp.OidcConfiguration.ClientId, apiUsername, secret.ClientSecret, nil
+}
+
+// zitadelBootstrapSecretName is a Kubernetes Secret in ZitadelNamespace that caches the full
+// ZitadelBootstrap result as JSON, written once right after InstallZitadel first provisions
+// everything. This is what lets a later `up` run — one that finds Zitadel already installed —
+// recover the exact same bootstrap values (including the human test user's password, which
+// Zitadel itself never exposes again after creation) without needing to re-derive them by
+// listing/searching Zitadel's own API for the Project/Applications it already created.
+const zitadelBootstrapSecretName = "zitadel-bootstrap"
+
+// saveZitadelBootstrapSecret persists b as a Kubernetes Secret so a later `up` run (Zitadel
+// already installed) can recover it via FetchZitadelBootstrap without any Management API
+// calls.
+func saveZitadelBootstrapSecret(b ZitadelBootstrap) error {
+	data, err := json.Marshal(b)
+	if err != nil {
+		return fmt.Errorf("e2eutil: marshal zitadel bootstrap: %w", err)
+	}
+	cmd := exec.Command("kubectl", "create", "secret", "generic", zitadelBootstrapSecretName,
+		"--namespace", ZitadelNamespace,
+		"--from-literal=bootstrap.json="+string(data),
+		"--dry-run=client", "-o", "yaml")
+	var applyCmd = exec.Command("kubectl", "apply", "-f", "-")
+	manifest, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("e2eutil: render zitadel bootstrap secret manifest: %w", err)
+	}
+	applyCmd.Stdin = bytes.NewReader(manifest)
+	if _, err := Run(applyCmd); err != nil {
+		return fmt.Errorf("e2eutil: apply zitadel bootstrap secret: %w", err)
+	}
+	return nil
+}
+
+// FetchZitadelBootstrap reads back the ZitadelBootstrap a prior InstallZitadel call persisted
+// (saveZitadelBootstrapSecret) — used when a later `up` run finds Zitadel already installed,
+// so it doesn't need to re-provision (or re-derive via the Management API) a Project/
+// Applications/test-user that already exist.
+func FetchZitadelBootstrap() (ZitadelBootstrap, error) {
+	out, err := Run(exec.Command("kubectl", "get", "secret", zitadelBootstrapSecretName,
+		"--namespace", ZitadelNamespace,
+		"-o", "jsonpath={.data.bootstrap\\.json}"))
+	if err != nil {
+		return ZitadelBootstrap{}, fmt.Errorf("e2eutil: read zitadel bootstrap secret: %w", err)
+	}
+	data, err := base64.StdEncoding.DecodeString(strings.TrimSpace(out))
+	if err != nil {
+		return ZitadelBootstrap{}, fmt.Errorf("e2eutil: decode zitadel bootstrap secret: %w", err)
+	}
+	var b ZitadelBootstrap
+	if err := json.Unmarshal(data, &b); err != nil {
+		return ZitadelBootstrap{}, fmt.Errorf("e2eutil: unmarshal zitadel bootstrap secret: %w", err)
+	}
+	return b, nil
+}
+
+// InstallZitadel provisions everything devcluster needs: the Helm release (Task 3), then a
+// Project with a public/PKCE Application (browser SPA login) and a Machine User with a
+// generated secret (client_credentials, scripted/curl access) via the Management API, then
+// caches the result
+// (saveZitadelBootstrapSecret) so a later run can recover it via FetchZitadelBootstrap without
+// re-provisioning. externalPort must match whatever local port devcluster port-forwards
+// Zitadel's Service to, and must agree with the same value InstallPlatform's
+// PlatformInstallInputs.PathRoutingHostname-derived web base URLs use for its own port (Task
+// 5). spaRedirectURI/spaPostLogoutURI are the web SPA's own /login and / routes on the shared
+// Traefik-fronted origin (Task 5's port).
+func InstallZitadel(externalPort int, spaRedirectURI, spaPostLogoutURI string) (ZitadelBootstrap, error) {
+	humanUsername := "devuser"
+	humanPassword, err := randomSecret(16)
+	if err != nil {
+		return ZitadelBootstrap{}, err
+	}
+
+	if err := installZitadelHelmRelease(externalPort, humanUsername, humanPassword); err != nil {
+		return ZitadelBootstrap{}, err
+	}
+
+	pat, err := readZitadelPAT()
+	if err != nil {
+		return ZitadelBootstrap{}, err
+	}
+
+	authority := fmt.Sprintf("http://localhost:%d", externalPort)
+	spaClientID, apiClientID, apiClientSecret, err := bootstrapZitadelProject(authority, pat, spaRedirectURI, spaPostLogoutURI)
+	if err != nil {
+		return ZitadelBootstrap{}, fmt.Errorf("e2eutil: bootstrap zitadel project: %w", err)
+	}
+
+	b := ZitadelBootstrap{
+		Authority:       authority,
+		JWKSURL:         authority + "/oauth/v2/keys",
+		SPAClientID:     spaClientID,
+		APIClientID:     apiClientID,
+		APIClientSecret: apiClientSecret,
+		TestUsername:    humanUsername,
+		TestPassword:    humanPassword,
+	}
+	if err := saveZitadelBootstrapSecret(b); err != nil {
+		return ZitadelBootstrap{}, err
+	}
+	return b, nil
 }
