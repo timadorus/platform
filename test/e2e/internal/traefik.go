@@ -9,9 +9,9 @@ const (
 	// TraefikNamespace is Traefik's own dedicated namespace — matching the existing
 	// cert-manager/Prometheus-operator/NATS convention of one namespace per shared,
 	// cluster-wide infra dependency.
-	TraefikNamespace     = "traefik"
-	traefikReleaseName   = "traefik"
-	traefikChartRepoURL  = "https://traefik.github.io/charts"
+	TraefikNamespace    = "traefik"
+	traefikReleaseName  = "traefik"
+	traefikChartRepoURL = "https://traefik.github.io/charts"
 
 	// TraefikGatewayClassName is the name Traefik's own chart gives the GatewayClass it
 	// creates when providers.kubernetesGateway.enabled and the default gatewayClass.enabled
@@ -21,6 +21,19 @@ const (
 	// must match the chart's own default if the chart version changes — verified live in
 	// this task's own verification step.
 	TraefikGatewayClassName = "traefik"
+
+	// TraefikWebEntryPointPort is the traefik/traefik chart's own default "web" entryPoint
+	// port (its ports.web.port value) — the port Traefik's container actually binds and the
+	// Kubernetes Gateway provider matches a Gateway Listener's port against, NOT
+	// ports.web.exposedPort (80, the Service's own external port; see InstallTraefik's doc
+	// comment). A caller's Gateway object (deploy/helm/timadorus-platform's gateway.yaml, via
+	// PlatformInstallInputs.GatewayListenerPort) must set its HTTP listener's port to this
+	// value, not 80, for Traefik to accept it — confirmed live: leaving it at 80 left the
+	// Gateway stuck "Cannot find entryPoint for Gateway: no matching entryPoint for port 80
+	// and protocol HTTP", never Programmed. Not overridden by InstallTraefik, so this constant
+	// must track the chart's own default if the chart version changes (same caveat as
+	// TraefikGatewayClassName above).
+	TraefikWebEntryPointPort = 8000
 )
 
 // IsTraefikInstalled reports whether the standalone "traefik" Helm release already exists in

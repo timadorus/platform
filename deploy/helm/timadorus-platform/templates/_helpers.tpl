@@ -54,7 +54,8 @@ migration Job — postgres.existingSecret is required.
 {{/*
 JWT env entries for command-api/query-api, matching internal/config.JWT's field set. Mode
 "hmac" sets JWT_HMAC_KEY_ID + JWT_HMAC_SECRET (from an existingSecret); mode "jwks" sets
-JWT_JWKS_URL instead. JWT_ISSUER/JWT_AUDIENCE are always set (empty string if unconfigured,
+JWT_JWKS_URL instead (plus JWT_JWKS_HOST, only when jwt.jwksHost is set — see its doc comment
+in values.yaml). JWT_ISSUER/JWT_AUDIENCE are always set (empty string if unconfigured,
 matching internal/config's os.Getenv default of "").
 */}}
 {{- define "timadorus-platform.jwtEnv" -}}
@@ -73,6 +74,10 @@ matching internal/config's os.Getenv default of "").
 {{- else }}
 - name: JWT_JWKS_URL
   value: {{ required "jwt.jwksURL is required when jwt.mode is jwks" .Values.jwt.jwksURL | quote }}
+{{- if .Values.jwt.jwksHost }}
+- name: JWT_JWKS_HOST
+  value: {{ .Values.jwt.jwksHost | quote }}
+{{- end }}
 {{- end }}
 {{- end -}}
 

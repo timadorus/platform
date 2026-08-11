@@ -22,6 +22,12 @@ func runDown() error {
 	e2eutil.UninstallPlatform()
 	e2eutil.RemoveGatewayClass()
 
+	if state.InstalledZitadel {
+		e2eutil.UninstallZitadel()
+	}
+	if state.InstalledTraefik {
+		e2eutil.UninstallTraefik()
+	}
 	if state.InstalledNATS {
 		e2eutil.UninstallNATS()
 	} else {
@@ -50,6 +56,8 @@ func runDown() error {
 	fmt.Println("Dev cluster torn down:")
 	fmt.Printf("  - %s namespace (Helm release, Postgres cluster, JWT secret): removed\n", devNamespace)
 	fmt.Println("  - Gateway API placeholder GatewayClass: removed")
+	printComponentStatus("Zitadel", state.InstalledZitadel)
+	printComponentStatus("Traefik", state.InstalledTraefik)
 	printComponentStatus("NATS", state.InstalledNATS)
 	printComponentStatus("CloudNativePG operator", state.InstalledCloudNativePG)
 	printComponentStatus("Prometheus operator", state.InstalledPrometheusOperator)

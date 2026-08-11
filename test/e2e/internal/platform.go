@@ -43,7 +43,14 @@ type PlatformInstallInputs struct {
 	PostgresSecretName string
 	NATSExternalURL    string
 	GatewayClassName   string
-	ImageTags          ImageTags
+	// GatewayListenerPort, if non-zero, sets gateway.listenerPort — the Gateway object's own
+	// HTTP listener port, which a real Gateway API controller (Traefik) validates against its
+	// own entryPoint port, NOT necessarily the port a human/browser connects to. See
+	// gateway.yaml's values.yaml doc comment. Zero (the default) leaves the chart's own
+	// default (80) in place — correct for the no-op placeholder GatewayClass, which doesn't
+	// validate this at all; devcluster sets it to e2eutil.TraefikWebEntryPointPort (Task 5).
+	GatewayListenerPort int
+	ImageTags           ImageTags
 
 	// JWT verification mode for the deployed command-api/query-api. "hmac" (the default,
 	// existing behavior) uses JWTSecretName/JWTKeyID exactly as before — test-e2e's call
@@ -53,8 +60,14 @@ type PlatformInstallInputs struct {
 	JWTSecretName string // hmac mode
 	JWTKeyID      string // hmac mode
 	JWTJWKSURL    string // jwks mode
-	JWTIssuer     string // jwks mode
-	JWTAudience   string // jwks mode
+	// JWTJWKSHost, if set, is the Host header command-api/query-api send when fetching
+	// JWTJWKSURL — needed when JWTJWKSURL is a network address (e.g. a Kubernetes-internal
+	// Service DNS name) that differs from the identity provider's own externally-configured
+	// domain. See internal/auth.FetchJWKS's doc comment; devcluster sets this to Zitadel's
+	// externally-visible "localhost:<port>" (Task 5).
+	JWTJWKSHost string // jwks mode, optional
+	JWTIssuer   string // jwks mode
+	JWTAudience string // jwks mode
 
 	// New. Empty string (the zero value) preserves today's placeholder behavior — only
 	// devcluster sets these, to Zitadel's real values (Task 5).
@@ -113,6 +126,9 @@ func InstallPlatform(in PlatformInstallInputs) error {
 			"--set", "jwt.issuer="+in.JWTIssuer,
 			"--set", "jwt.audience="+in.JWTAudience,
 		)
+		if in.JWTJWKSHost != "" {
+			args = append(args, "--set", "jwt.jwksHost="+in.JWTJWKSHost)
+		}
 	} else {
 		args = append(args,
 			"--set", "jwt.mode=hmac",
@@ -123,6 +139,10 @@ func InstallPlatform(in PlatformInstallInputs) error {
 
 	if in.PathRoutingHostname != "" {
 		args = append(args, "--set", "gateway.pathRouting.hostname="+in.PathRoutingHostname)
+	}
+
+	if in.GatewayListenerPort != 0 {
+		args = append(args, "--set", fmt.Sprintf("gateway.listenerPort=%d", in.GatewayListenerPort))
 	}
 
 	// This Go e2e suite only exercises the command-api/query-api HTTP endpoints via

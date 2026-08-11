@@ -10,7 +10,10 @@ import (
 // where its configuration happens to live; internal/config.JWT satisfies this by having the
 // same field names/types.
 type Config struct {
-	JWKSURL    string
+	JWKSURL string
+	// JWKSHost, if set, overrides the Host header FetchJWKS sends when fetching JWKSURL — see
+	// FetchJWKS's doc comment.
+	JWKSHost   string
 	HMACSecret string
 	HMACKeyID  string
 	Issuer     string
@@ -28,7 +31,7 @@ const insecureDevSecret = "insecure-dev-secret-change-me"
 func NewVerifierFromConfig(ctx context.Context, cfg Config, logger *slog.Logger, service string) (*Verifier, error) {
 	switch {
 	case cfg.JWKSURL != "":
-		keySet, err := FetchJWKS(ctx, cfg.JWKSURL)
+		keySet, err := FetchJWKS(ctx, cfg.JWKSURL, cfg.JWKSHost)
 		if err != nil {
 			return nil, err
 		}

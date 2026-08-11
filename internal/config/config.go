@@ -9,6 +9,11 @@ type JWT struct {
 	// JWKSURL, if set, fetches the verification key set from an identity provider. Takes
 	// precedence over HMACSecret.
 	JWKSURL string
+	// JWKSHost, if set, overrides the Host header sent when fetching JWKSURL — see
+	// internal/auth.FetchJWKS's doc comment for why a multi-tenant identity provider reached
+	// via a network address that differs from its own configured external domain (e.g. a
+	// Kubernetes-internal Service DNS name) needs this.
+	JWKSHost string
 	// HMACSecret, if set (and JWKSURL is not), builds a single-key static HS256 key set —
 	// intended for local development/testing only, never a real identity provider.
 	HMACSecret string
@@ -68,6 +73,7 @@ func LoadProjector() Projector {
 func loadJWT() JWT {
 	return JWT{
 		JWKSURL:    os.Getenv("JWT_JWKS_URL"),
+		JWKSHost:   os.Getenv("JWT_JWKS_HOST"),
 		HMACSecret: os.Getenv("JWT_HMAC_SECRET"),
 		HMACKeyID:  getEnv("JWT_HMAC_KEY_ID", "dev"),
 		Issuer:     os.Getenv("JWT_ISSUER"),

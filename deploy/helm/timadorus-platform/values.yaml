@@ -110,6 +110,11 @@ jwt:
   # "jwks" or "hmac" — selects which of the two blocks below is used.
   mode: jwks
   jwksURL: ""
+  # jwksHost, if set, overrides the Host header command-api/query-api send when fetching
+  # jwksURL — needed when jwksURL is a network address (e.g. a Kubernetes-internal Service
+  # DNS name) that differs from the identity provider's own externally-configured domain; see
+  # internal/auth.FetchJWKS's doc comment. Empty by default (no override sent).
+  jwksHost: ""
   issuer: ""
   audience: ""
   hmac:
@@ -122,6 +127,21 @@ gateway:
   # false: attach both HTTPRoutes to an existing Gateway (gateway.existing.* required below).
   create: true
   gatewayClassName: ""
+  # listenerPort is the Gateway object's own spec.listeners[0].port (HTTP listener) — NOT
+  # necessarily the port a human/browser actually connects to (that's whatever the Gateway
+  # controller's own Service exposes, e.g. 80 via a LoadBalancer/NodePort/ClusterIP mapping).
+  # The no-op placeholder GatewayClass (test-e2e's default; see test/e2e's InstallGatewayAPI)
+  # doesn't reconcile this at all, so 80 (the obvious default) works fine there. A REAL
+  # controller does validate it: Traefik's Kubernetes Gateway provider only accepts a Listener
+  # whose port matches one of Traefik's own configured entryPoint ports — its default "web"
+  # entryPoint listens on port 8000 internally (its Service then maps external port 80 to that
+  # 8000, see the traefik/traefik chart's ports.web.port vs. ports.web.exposedPort), not 80
+  # directly (binding 80 in-container needs CAP_NET_BIND_SERVICE, which Traefik's chart
+  # deliberately doesn't grant — hardening default). Reproduced live: with this left at 80
+  # against a real Traefik GatewayClass, the Gateway's own status read "Cannot find entryPoint
+  # for Gateway: no matching entryPoint for port 80 and protocol HTTP", and it never became
+  # Programmed/Accepted. devcluster (Task 5) sets this to 8000 to match.
+  listenerPort: 80
   tls:
     enabled: false
     secretName: ""

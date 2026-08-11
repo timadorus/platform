@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"os/exec"
 	"strings"
@@ -20,6 +21,14 @@ const (
 	zitadelReleaseName     = "zitadel"
 	zitadelChartRepoURL    = "https://charts.zitadel.com"
 	zitadelPostgresCluster = "zitadel-pg"
+
+	// ZitadelServiceName is the zitadel/zitadel chart's own default Service name for the main
+	// Zitadel API/UI (port 8080) — confirmed live against `kubectl get svc -n zitadel`
+	// (chart 10.0.4/appVersion v4.15.3) in this task's own verification. NOT
+	// "zitadel-zitadel": an earlier draft of the plan guessed the chart namespaced its
+	// Service name the way some charts do (release name prefix), but this one just uses its
+	// own component name ("zitadel") unprefixed.
+	ZitadelServiceName = "zitadel"
 
 	// zitadelMachineUsername is the FirstInstance-bootstrapped machine (service) user's
 	// username — it doubles as the name of the Kubernetes Secret the chart's setup Job
@@ -44,13 +53,75 @@ func IsZitadelInstalled() bool {
 }
 
 // randomSecret returns a URL-safe random string of at least n bytes of entropy, suitable for
-// Zitadel's masterkey (must be exactly 32 bytes) or a generated password.
+// Zitadel's masterkey (must be exactly 32 bytes).
 func randomSecret(n int) (string, error) {
 	buf := make([]byte, n)
 	if _, err := rand.Read(buf); err != nil {
 		return "", fmt.Errorf("e2eutil: generate random secret: %w", err)
 	}
 	return base64.RawURLEncoding.EncodeToString(buf), nil
+}
+
+// randomPassword returns a random password guaranteed to satisfy Zitadel's default password
+// complexity policy: minimum length, and at least one uppercase letter, one lowercase letter,
+// one digit, and one symbol.
+//
+// CORRECTION (evidence-based, found live in this task's own verification): the human test
+// user's password was originally generated via randomSecret(16) — a base64 (URL-safe)
+// encoding of random bytes. That alphabet's only non-alphanumeric characters are '-' and '_',
+// and neither is guaranteed to appear in a given random draw (for a ~22-character string,
+// roughly a coin flip). When neither appeared, the zitadel/zitadel chart's setup Job failed
+// its pre-install hook outright: "Errors.User.PasswordComplexityPolicy.HasSymbol"
+// (internal/command/policy_password_complexity_model.go), which then wedges the Helm release
+// in STATUS "failed" — reproduced live against a real cluster. This function instead builds
+// the password from one guaranteed character per required class plus random filler, then
+// shuffles, so it always satisfies the policy regardless of which random bytes come up.
+func randomPassword() (string, error) {
+	const (
+		uppers  = "ABCDEFGHJKLMNPQRSTUVWXYZ"
+		lowers  = "abcdefghijkmnpqrstuvwxyz"
+		digits  = "23456789"
+		symbols = "!@#$%^&*-_"
+		all     = uppers + lowers + digits + symbols
+		length  = 20
+	)
+
+	pickFrom := func(charset string) (byte, error) {
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
+		if err != nil {
+			return 0, fmt.Errorf("e2eutil: generate random password: %w", err)
+		}
+		return charset[n.Int64()], nil
+	}
+
+	buf := make([]byte, length)
+	// Guarantee one character from each required class in the first four slots...
+	for i, class := range []string{uppers, lowers, digits, symbols} {
+		c, err := pickFrom(class)
+		if err != nil {
+			return "", err
+		}
+		buf[i] = c
+	}
+	// ...then fill the rest from the full combined alphabet.
+	for i := 4; i < length; i++ {
+		c, err := pickFrom(all)
+		if err != nil {
+			return "", err
+		}
+		buf[i] = c
+	}
+	// Fisher-Yates shuffle so the guaranteed characters aren't always in the first four
+	// positions (which would itself be a predictable weakness).
+	for i := len(buf) - 1; i > 0; i-- {
+		jBig, err := rand.Int(rand.Reader, big.NewInt(int64(i+1)))
+		if err != nil {
+			return "", fmt.Errorf("e2eutil: shuffle random password: %w", err)
+		}
+		j := jBig.Int64()
+		buf[i], buf[j] = buf[j], buf[i]
+	}
+	return string(buf), nil
 }
 
 // ensureZitadelPostgresCluster creates (if absent) a dedicated single-instance CloudNativePG
@@ -204,7 +275,17 @@ func UninstallZitadel() {
 // SPA, and a Machine User (see bootstrapZitadelProject's doc comment for why this is a Machine
 // User and not a second Application) for machine-to-machine client_credentials access.
 type ZitadelBootstrap struct {
-	Authority       string // OIDC issuer / authority URL, e.g. http://localhost:8084
+	Authority string // OIDC issuer / authority URL, e.g. http://localhost:8084
+
+	// JWKSURL is Zitadel's JWKS endpoint reachable from *inside* the cluster — the platform's
+	// own command-api/query-api pods fetch signing keys directly from here over the Service's
+	// ClusterIP (internal/auth.FetchJWKS), not through the browser-facing "localhost" port
+	// devcluster's human operator port-forwards to. It is deliberately NOT
+	// Authority+"/oauth/v2/keys": that URL only resolves from the developer's own machine
+	// once they've run the printed `kubectl port-forward`, and is unreachable from inside a
+	// Pod (there, "localhost" means the Pod itself, not Zitadel) — reproduced live as
+	// command-api/query-api CrashLoopBackOff with "dial tcp [::1]:<port>: connect: connection
+	// refused" when this field was still built from Authority.
 	JWKSURL         string
 	SPAClientID     string // public/PKCE application, for web.config.oidc.clientId
 	APIClientID     string // Machine User's username, for client_credentials
@@ -246,6 +327,48 @@ func zitadelAPICall(authority, pat, method string, reqBody, out any) error {
 	if out != nil {
 		if err := json.Unmarshal(respBody, out); err != nil {
 			return fmt.Errorf("e2eutil: decode zitadel %s response: %w", method, err)
+		}
+	}
+	return nil
+}
+
+// zitadelRESTCall issues a plain REST (grpc-gateway) request against Zitadel's deprecated v1
+// APIs (management/v1, auth/v1, admin/v1) — these are NOT exposed via Connect-RPC (see
+// zitadelAPICall's doc comment above for the live evidence), so they need a literal HTTP
+// method + path, not v2's single-POST-to-the-fully-qualified-method-name shape. path must
+// include its leading "/" (e.g. "/management/v1/users/123/machine").
+func zitadelRESTCall(authority, pat, httpMethod, path string, reqBody, out any) error {
+	var bodyReader io.Reader
+	if reqBody != nil {
+		body, err := json.Marshal(reqBody)
+		if err != nil {
+			return fmt.Errorf("e2eutil: marshal zitadel request: %w", err)
+		}
+		bodyReader = bytes.NewReader(body)
+	}
+	req, err := http.NewRequest(httpMethod, authority+path, bodyReader)
+	if err != nil {
+		return fmt.Errorf("e2eutil: build zitadel request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+pat)
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("e2eutil: call zitadel %s %s: %w", httpMethod, path, err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("e2eutil: read zitadel %s %s response: %w", httpMethod, path, err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("e2eutil: zitadel %s %s: HTTP %d: %s", httpMethod, path, resp.StatusCode, string(respBody))
+	}
+	if out != nil {
+		if err := json.Unmarshal(respBody, out); err != nil {
+			return fmt.Errorf("e2eutil: decode zitadel %s %s response: %w", httpMethod, path, err)
 		}
 	}
 	return nil
@@ -322,6 +445,16 @@ func bootstrapZitadelProject(authority, pat, spaRedirectURI, spaPostLogoutURI st
 			"appType":                "OIDC_APP_TYPE_USER_AGENT",
 			"authMethodType":         "OIDC_AUTH_METHOD_TYPE_NONE",
 			"version":                "OIDC_VERSION_1_0",
+			// CORRECTION (evidence-based, found live in this task's own verification):
+			// without this, Zitadel issues this Application's access_token in its default
+			// format — a JWE (encrypted, 5-segment opaque-to-clients token; confirmed live by
+			// decoding a real token's header: {"alg":"A256GCMKW","enc":"A256GCM",...}), not a
+			// verifiable signed JWT. internal/auth.Verifier validates signed JWTs against a
+			// JWKS public key set — it cannot verify (or even parse) an encrypted token, so
+			// every real API call from the browser SPA would fail auth. OIDC_TOKEN_TYPE_JWT
+			// makes Zitadel issue a real RS256-signed JWT access_token instead (verifiable via
+			// JWTJWKSURL), matching what internal/auth.Verifier actually expects.
+			"accessTokenType": "OIDC_TOKEN_TYPE_JWT",
 		},
 	}, &spaApp); err != nil {
 		return "", "", "", fmt.Errorf("create SPA application: %w", err)
@@ -357,6 +490,23 @@ func bootstrapZitadelProject(authority, pat, spaRedirectURI, spaPostLogoutURI st
 		},
 	}, &machineUser); err != nil {
 		return "", "", "", fmt.Errorf("create API machine user: %w", err)
+	}
+
+	// CORRECTION (evidence-based, found live in this task's own verification): like the SPA
+	// Application above, a Machine User's client_credentials access_token also defaults to
+	// Zitadel's opaque/JWE format, not a verifiable signed JWT — confirmed live with the same
+	// decoded-JWE-header evidence. Unlike Applications, UserService v2's CreateUser has no
+	// accessTokenType field at all (a known gap: zitadel/zitadel#10850, "Missing field to set
+	// access token type for machine user using User Service V2" — open against the chart
+	// version this task verified against, appVersion v4.15.3). The documented workaround is
+	// the deprecated Management API v1's UpdateMachine, a REST (not Connect-RPC) endpoint —
+	// hence zitadelRESTCall, not zitadelAPICall.
+	if err := zitadelRESTCall(authority, pat, http.MethodPut, "/management/v1/users/"+machineUser.Id+"/machine",
+		map[string]string{
+			"name":            "devcluster API client (client_credentials)",
+			"accessTokenType": "ACCESS_TOKEN_TYPE_JWT",
+		}, nil); err != nil {
+		return "", "", "", fmt.Errorf("set API machine user access token type: %w", err)
 	}
 
 	// AddSecret's response carries only "clientSecret" — no clientId field. Per ZITADEL's own
@@ -439,7 +589,7 @@ func FetchZitadelBootstrap() (ZitadelBootstrap, error) {
 // Traefik-fronted origin (Task 5's port).
 func InstallZitadel(externalPort int, spaRedirectURI, spaPostLogoutURI string) (ZitadelBootstrap, error) {
 	humanUsername := "devuser"
-	humanPassword, err := randomSecret(16)
+	humanPassword, err := randomPassword()
 	if err != nil {
 		return ZitadelBootstrap{}, err
 	}
@@ -454,14 +604,37 @@ func InstallZitadel(externalPort int, spaRedirectURI, spaPostLogoutURI string) (
 	}
 
 	authority := fmt.Sprintf("http://localhost:%d", externalPort)
+
+	// CORRECTION (evidence-based, found live in this task's own verification): bootstrapZitadelProject
+	// below calls the Management API at `authority` (http://localhost:<externalPort>), but
+	// nothing else has a port-forward to Zitadel's Service open yet this early in `up` — the
+	// human's own long-lived one (printed by devcluster's printStatus) doesn't exist until
+	// `up` finishes entirely. Without this, bootstrapZitadelProject fails outright with
+	// "dial tcp 127.0.0.1:<externalPort>: connect: connection refused", reproduced live.
+	// StartPortForward (portforward.go) is keyed off the package-level Namespace var, not a
+	// parameter, so it's temporarily pointed at ZitadelNamespace and restored right after —
+	// safe here because InstallZitadel runs synchronously, single-threaded, within `up`.
+	prevNamespace := Namespace
+	Namespace = ZitadelNamespace
+	pf, err := StartPortForward(ZitadelServiceName, externalPort, 8080, "/.well-known/openid-configuration", 2*time.Minute)
+	Namespace = prevNamespace
+	if err != nil {
+		return ZitadelBootstrap{}, fmt.Errorf("e2eutil: port-forward zitadel for bootstrap: %w", err)
+	}
+	defer pf.Stop()
+
 	spaClientID, apiClientID, apiClientSecret, err := bootstrapZitadelProject(authority, pat, spaRedirectURI, spaPostLogoutURI)
 	if err != nil {
 		return ZitadelBootstrap{}, fmt.Errorf("e2eutil: bootstrap zitadel project: %w", err)
 	}
 
+	// The cluster-internal Service DNS name for Zitadel's own port 8080 — see JWKSURL's doc
+	// comment on ZitadelBootstrap for why this must NOT be authority+"/oauth/v2/keys".
+	clusterJWKSURL := fmt.Sprintf("http://%s.%s.svc.cluster.local:8080/oauth/v2/keys", ZitadelServiceName, ZitadelNamespace)
+
 	b := ZitadelBootstrap{
 		Authority:       authority,
-		JWKSURL:         authority + "/oauth/v2/keys",
+		JWKSURL:         clusterJWKSURL,
 		SPAClientID:     spaClientID,
 		APIClientID:     apiClientID,
 		APIClientSecret: apiClientSecret,
