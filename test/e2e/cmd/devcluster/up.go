@@ -23,6 +23,10 @@ const (
 	// devZitadelPort is Zitadel's own local port-forward — Zitadel can't be reverse-proxied
 	// under devGatewayPort's shared host (design spec §2), so it gets its own origin.
 	devZitadelPort = 8084
+	// devZitadelLoginPort is Zitadel's separate login-UI Service's own local port-forward — a
+	// third, distinct origin from both devGatewayPort and devZitadelPort (see
+	// docs/superpowers/specs/2026-08-11-zitadel-login-ui-routing-design.md).
+	devZitadelLoginPort = 8085
 )
 
 func runUp() error {
@@ -132,7 +136,7 @@ func runUp() error {
 		if err := saveState(state); err != nil {
 			return fmt.Errorf("save state: %w", err)
 		}
-		zitadel, err = e2eutil.InstallZitadel(devZitadelPort,
+		zitadel, err = e2eutil.InstallZitadel(devZitadelPort, devZitadelLoginPort,
 			fmt.Sprintf("http://localhost:%d/login", devGatewayPort),
 			fmt.Sprintf("http://localhost:%d/", devGatewayPort))
 		if err != nil {
@@ -208,7 +212,8 @@ func printStatus(zitadel e2eutil.ZitadelBootstrap) {
 	fmt.Printf("  username: %s\n", zitadel.TestUsername)
 	fmt.Printf("  password: %s\n\n", zitadel.TestPassword)
 	fmt.Println("Zitadel (needed for the login redirect above to resolve):")
-	fmt.Printf("  kubectl port-forward --namespace %s svc/%s %d:8080\n\n", e2eutil.ZitadelNamespace, e2eutil.ZitadelServiceName, devZitadelPort)
+	fmt.Printf("  kubectl port-forward --namespace %s svc/%s %d:8080\n", e2eutil.ZitadelNamespace, e2eutil.ZitadelServiceName, devZitadelPort)
+	fmt.Printf("  kubectl port-forward --namespace %s svc/zitadel-login %d:3000\n\n", e2eutil.ZitadelNamespace, devZitadelLoginPort)
 	fmt.Println("Direct API access — fetch a real token via client_credentials, then curl:")
 	fmt.Printf("  TOKEN=$(curl -s -u %s:%s -d grant_type=client_credentials -d \"scope=openid profile\" http://localhost:%d/oauth/v2/token | jq -r .access_token)\n",
 		zitadel.APIClientID, zitadel.APIClientSecret, devZitadelPort)

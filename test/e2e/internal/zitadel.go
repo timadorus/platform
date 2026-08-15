@@ -184,7 +184,17 @@ spec:
 // port-forwards Zitadel's Service to (Task 5) — Zitadel embeds it in every absolute URL it
 // generates (its OIDC discovery document, redirect targets, etc.), so a mismatch breaks the
 // login flow, not just cosmetics.
-func installZitadelHelmRelease(externalPort int, humanUsername, humanPassword string) error {
+//
+// loginPort must match whatever local port devcluster port-forwards Zitadel's separate
+// "zitadel-login" Service (port 3000) to — the chart deploys the login UI as its own
+// Deployment/Service, and Zitadel's backend needs to be told its externally-reachable address
+// via Features.LoginV2.BaseURI (its own setup job otherwise defaults this to the SAME origin
+// as the backend itself, assuming a reverse proxy routes /ui/v2/login there — nothing in this
+// devcluster setup does, so without this the backend's own OIDC-authorize redirect leads to a
+// 404 on itself). Confirmed live: the relevant upstream bug
+// (zitadel/zitadel#10405, "setting this env var has no effect") is closed/fixed well before
+// this repo's pinned zitadelChartVersion's Zitadel version (v4.15.3 vs. the bug's v4.0.0).
+func installZitadelHelmRelease(externalPort, loginPort int, humanUsername, humanPassword string) error {
 	pgSecret, err := ensureZitadelPostgresCluster()
 	if err != nil {
 		return err
@@ -219,6 +229,8 @@ func installZitadelHelmRelease(externalPort int, humanUsername, humanPassword st
 		"--set", fmt.Sprintf("zitadel.configmapConfig.ExternalPort=%d", externalPort),
 		"--set", "zitadel.configmapConfig.ExternalSecure=false",
 		"--set", "zitadel.configmapConfig.TLS.Enabled=false",
+		"--set", fmt.Sprintf("zitadel.configmapConfig.DefaultInstance.Features.LoginV2.BaseURI=http://localhost:%d/ui/v2/login", loginPort),
+		"--set", "zitadel.configmapConfig.DefaultInstance.Features.LoginV2.Required=true",
 		// WARNING: Org.Human is not in the zitadel/zitadel chart's own values.yaml/schema —
 		// `helm show values` only documents Org.Machine. configmapConfig is a freeform
 		// passthrough straight into ZITADEL's own setup-step config (see ZITADEL's
@@ -602,14 +614,14 @@ func FetchZitadelBootstrap() (ZitadelBootstrap, error) {
 // PlatformInstallInputs.PathRoutingHostname-derived web base URLs use for its own port (Task
 // 5). spaRedirectURI/spaPostLogoutURI are the web SPA's own /login and / routes on the shared
 // Traefik-fronted origin (Task 5's port).
-func InstallZitadel(externalPort int, spaRedirectURI, spaPostLogoutURI string) (ZitadelBootstrap, error) {
+func InstallZitadel(externalPort, loginPort int, spaRedirectURI, spaPostLogoutURI string) (ZitadelBootstrap, error) {
 	humanUsername := "devuser"
 	humanPassword, err := randomPassword()
 	if err != nil {
 		return ZitadelBootstrap{}, err
 	}
 
-	if err := installZitadelHelmRelease(externalPort, humanUsername, humanPassword); err != nil {
+	if err := installZitadelHelmRelease(externalPort, loginPort, humanUsername, humanPassword); err != nil {
 		return ZitadelBootstrap{}, err
 	}
 

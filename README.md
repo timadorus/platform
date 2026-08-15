@@ -74,6 +74,7 @@ Log in (another terminal — Zitadel needs its own port-forward, see below) with
 
 Zitadel (needed for the login redirect above to resolve):
   kubectl port-forward --namespace zitadel svc/zitadel 8084:8080
+  kubectl port-forward --namespace zitadel svc/zitadel-login 8085:3000
 
 Direct API access — fetch a real token via client_credentials, then curl:
   TOKEN=$(curl -s -u <client-id>:<client-secret> -d grant_type=client_credentials -d "scope=openid profile" http://localhost:8084/oauth/v2/token | jq -r .access_token)
@@ -84,14 +85,17 @@ Per-service access without the shared Gateway (also still available):
   kubectl port-forward --namespace timadorus-dev svc/timadorus-dev-timadorus-platform-query-api 8082:8082
 ```
 
-Once it prints its status, two `kubectl port-forward` commands (each run in its own terminal)
+Once it prints its status, three `kubectl port-forward` commands (each run in its own terminal)
 give you the full experience: one to Traefik (`http://localhost:8080/` — the web UI, and both
-APIs at `/api/command`/`/api/query`, all one origin) and one to Zitadel itself
+APIs at `/api/command`/`/api/query`, all one origin), one to Zitadel itself
 (`http://localhost:8084` — needed for the login redirect to resolve; it can't share Traefik's
 origin, see `docs/superpowers/specs/2026-08-10-dev-gateway-oidc-design.md` §2 if you're curious
-why). Log in with the printed test-user credentials for a real interactive browser session. For
-scripted/curl access instead of the browser, the printed `client_credentials` command fetches a
-real token the same way.
+why), and one to Zitadel's separate login-UI Service (`http://localhost:8085` — Zitadel's
+backend redirects the browser here to actually render the login form; see
+`docs/superpowers/specs/2026-08-11-zitadel-login-ui-routing-design.md` for why this is a third,
+distinct origin). Log in with the printed test-user credentials for a real interactive browser
+session. For scripted/curl access instead of the browser, the printed `client_credentials`
+command fetches a real token the same way.
 
 When you're done:
 
