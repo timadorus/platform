@@ -42,6 +42,13 @@ const (
 	// own component name ("zitadel") unprefixed.
 	ZitadelServiceName = "zitadel"
 
+	// ZitadelLoginServiceName is the zitadel/zitadel chart's own Service name for its separate
+	// login-UI Deployment (port 3000) — confirmed live against `kubectl get svc -n zitadel`
+	// (chart 10.0.4/appVersion v4.15.3), same as ZitadelServiceName above. It is NOT a fixed
+	// chart constant either: like ZitadelServiceName, it's derived from zitadelReleaseName
+	// (here, "<release>-login"), so a future release-name change would break both the same way.
+	ZitadelLoginServiceName = zitadelReleaseName + "-login"
+
 	// zitadelMachineUsername is the FirstInstance-bootstrapped machine (service) user's
 	// username — it doubles as the name of the Kubernetes Secret the chart's setup Job
 	// writes the user's Personal Access Token into (see zitadelMachinePatSecretName below).
@@ -191,9 +198,19 @@ spec:
 // via Features.LoginV2.BaseURI (its own setup job otherwise defaults this to the SAME origin
 // as the backend itself, assuming a reverse proxy routes /ui/v2/login there — nothing in this
 // devcluster setup does, so without this the backend's own OIDC-authorize redirect leads to a
-// 404 on itself). Confirmed live: the relevant upstream bug
-// (zitadel/zitadel#10405, "setting this env var has no effect") is closed/fixed well before
-// this repo's pinned zitadelChartVersion's Zitadel version (v4.15.3 vs. the bug's v4.0.0).
+// 404 on itself). Per research (not live-verified): the relevant upstream bug
+// (zitadel/zitadel#10405, "setting this env var has no effect") reads as closed/fixed well
+// before this repo's pinned zitadelChartVersion's Zitadel version (v4.15.3 vs. the bug's
+// v4.0.0). What WAS confirmed live in this task's own verification is that BaseURI, once set,
+// actually takes effect — the backend's OIDC-authorize redirect lands on loginPort instead of
+// 404ing on itself.
+//
+// This is a Zitadel-instance-creation-time-only setting: it's applied by the chart's
+// FirstInstance setup Job, which only runs the first time this Helm release is installed. If a
+// Zitadel release from before this config existed (or with a different loginPort) is already
+// running, IsZitadelInstalled will find it and `up` will skip calling InstallZitadel entirely
+// (see up.go), so this BaseURI value never gets applied to it — `make dev-down && make dev-up`
+// (which fully removes and recreates the release) is needed to pick up a change here.
 func installZitadelHelmRelease(externalPort, loginPort int, humanUsername, humanPassword string) error {
 	pgSecret, err := ensureZitadelPostgresCluster()
 	if err != nil {
@@ -317,8 +334,16 @@ type ZitadelBootstrap struct {
 	SPAClientID     string // public/PKCE application, for web.config.oidc.clientId
 	APIClientID     string // Machine User's username, for client_credentials
 	APIClientSecret string
-	TestUsername    string
-	TestPassword    string
+	TestUsername    string // bare username ("devuser") — NOT what the login form accepts, see TestLoginName
+
+	// TestLoginName is the qualified login name the Zitadel login form actually accepts —
+	// confirmed live in this task's own verification: submitting TestUsername's bare value
+	// ("devuser") to the real login form is rejected outright with "User not found in the
+	// system". It's built the same way as Org.Human.Email.Address above
+	// (humanUsername + "@timadorus.local"), which is what Zitadel treats as this user's login
+	// name.
+	TestLoginName string
+	TestPassword  string
 }
 
 // zitadelAPICall POSTs a Connect-RPC-over-HTTP request to Zitadel's v2 Management API,
@@ -666,6 +691,7 @@ func InstallZitadel(externalPort, loginPort int, spaRedirectURI, spaPostLogoutUR
 		APIClientID:     apiClientID,
 		APIClientSecret: apiClientSecret,
 		TestUsername:    humanUsername,
+		TestLoginName:   humanUsername + "@timadorus.local",
 		TestPassword:    humanPassword,
 	}
 	if err := saveZitadelBootstrapSecret(b); err != nil {

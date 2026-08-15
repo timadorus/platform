@@ -68,8 +68,8 @@ Open the web UI (one port-forward covers the app and both APIs):
 
   http://localhost:8080/
 
-Log in (another terminal — Zitadel needs its own port-forward, see below) with:
-  username: devuser
+Log in (another terminal — Zitadel needs its own two port-forwards, see below) with:
+  username: devuser@timadorus.local
   password: <randomly generated>
 
 Zitadel (needed for the login redirect above to resolve):
