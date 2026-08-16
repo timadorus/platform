@@ -5,7 +5,7 @@ import BaseButton from '@/components/common/BaseButton.vue'
 import ErrorBanner from '@/components/common/ErrorBanner.vue'
 import { useUsers } from '@/composables/useUsers'
 
-const emit = defineEmits<{ close: []; created: [] }>()
+const emit = defineEmits<{ close: []; created: [id: string, name: string] }>()
 
 const { create } = useUsers()
 const name = ref('')
@@ -20,8 +20,9 @@ async function submit() {
   submitting.value = true
   error.value = null
   try {
-    await create(name.value.trim())
-    emit('created')
+    const trimmed = name.value.trim()
+    const id = await create(trimmed)
+    emit('created', id, trimmed)
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Failed to create User.'
   } finally {

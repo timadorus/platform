@@ -52,5 +52,25 @@ export function useUsers() {
     }
   }
 
-  return { users, loading, error, list, create, rename, archive }
+  // waitForUser polls list() until a User with id appears in the freshly fetched list, or
+  // timeoutMs elapses. The Query API's read model is populated asynchronously by a projector, so
+  // a User created via create() is not guaranteed to be present in the very next list() call.
+  // Returns true once found, false on timeout — never throws, since a timeout is an expected,
+  // handleable outcome for a caller (CreatingUserModal), not a programming error.
+  async function waitForUser(
+    id: string,
+    opts: { intervalMs?: number; timeoutMs?: number } = {},
+  ): Promise<boolean> {
+    const intervalMs = opts.intervalMs ?? 750
+    const timeoutMs = opts.timeoutMs ?? 15000
+    const deadline = Date.now() + timeoutMs
+    for (;;) {
+      await list()
+      if (users.value.some((u) => u.id === id)) return true
+      if (Date.now() >= deadline) return false
+      await new Promise((resolve) => setTimeout(resolve, intervalMs))
+    }
+  }
+
+  return { users, loading, error, list, create, rename, archive, waitForUser }
 }

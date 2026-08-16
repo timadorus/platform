@@ -5,11 +5,13 @@ import BaseButton from '@/components/common/BaseButton.vue'
 import ErrorBanner from '@/components/common/ErrorBanner.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import CreateUserModal from '@/components/modals/CreateUserModal.vue'
+import CreatingUserModal from '@/components/modals/CreatingUserModal.vue'
 import AppHeader from '@/components/layout/AppHeader.vue'
 
 const { users, list, rename, archive } = useUsers()
 const error = ref<string | null>(null)
 const showCreate = ref(false)
+const creatingUser = ref<{ id: string; name: string } | null>(null)
 const editingId = ref<string | null>(null)
 const editingName = ref('')
 const archiveTargetId = ref<string | null>(null)
@@ -46,9 +48,14 @@ async function confirmArchive() {
   }
 }
 
-function onCreated() {
+function onCreated(id: string, name: string) {
   showCreate.value = false
-  list()
+  creatingUser.value = { id, name }
+}
+
+async function onCreatingDone() {
+  creatingUser.value = null
+  await list()
 }
 </script>
 
@@ -79,6 +86,13 @@ function onCreated() {
     </ul>
 
     <CreateUserModal v-if="showCreate" @close="showCreate = false" @created="onCreated" />
+    <CreatingUserModal
+      v-if="creatingUser"
+      :user-id="creatingUser.id"
+      :user-name="creatingUser.name"
+      @done="onCreatingDone"
+      @close="creatingUser = null"
+    />
     <ConfirmDialog
       v-if="archiveTargetId"
       title="Archive User"
