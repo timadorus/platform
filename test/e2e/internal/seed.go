@@ -50,7 +50,11 @@ func SeedPlatformData(zitadel ZitadelBootstrap, zitadelPort, gatewayPort int) er
 	}
 	defer pf.Stop()
 
-	base := fmt.Sprintf("http://127.0.0.1:%d", gatewayPort)
+	// "localhost", not "127.0.0.1": Traefik's HTTPRoute is host-matched against
+	// gateway.pathRouting.hostname (up.go sets it to "localhost" — see PathRoutingHostname),
+	// same as Zitadel's ExternalDomain check below — reproduced live as a 404 from Traefik
+	// itself (no matching route) when this used 127.0.0.1.
+	base := fmt.Sprintf("http://localhost:%d", gatewayPort)
 	if err := ensureSeedResource(base, token, "/api/query/users", "/api/command/users", zitadel.TestLoginName); err != nil {
 		return fmt.Errorf("e2eutil: seed user: %w", err)
 	}
@@ -77,8 +81,14 @@ func fetchSeedAccessToken(zitadel ZitadelBootstrap, zitadelPort int) (string, er
 		"grant_type": {"client_credentials"},
 		"scope":      {"openid profile"},
 	}
+	// "localhost", not "127.0.0.1": Zitadel's ExternalDomain=localhost (see
+	// installZitadelHelmRelease) makes it validate the request's Host header against that
+	// domain — reproduced live as "HTTP 404: unable to set instance using origin
+	// &{127.0.0.1:<port> ... }: ID=QUERY-1kIjX Message=Instance not found" when this used
+	// 127.0.0.1, exactly like InstallZitadel's own authority variable above it (line ~658)
+	// already uses "localhost" for the identical reason.
 	req, err := http.NewRequest(http.MethodPost,
-		fmt.Sprintf("http://127.0.0.1:%d/oauth/v2/token", zitadelPort),
+		fmt.Sprintf("http://localhost:%d/oauth/v2/token", zitadelPort),
 		strings.NewReader(form.Encode()))
 	if err != nil {
 		return "", fmt.Errorf("build token request: %w", err)
@@ -126,22 +136,19 @@ func ensureSeedResource(base, token, listPath, createPath, name string) error {
 	if err != nil {
 		return fmt.Errorf("marshal create request: %w", err)
 	}
-	req, err := http.NewRequest(http.MethodPost, base+createPath, bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("build create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
 
 	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
+	resp, respBody, err := seedHTTPDoWithRetry(client, func() (*http.Request, error) {
+		req, err := http.NewRequest(http.MethodPost, base+createPath, bytes.NewReader(body))
+		if err != nil {
+			return nil, fmt.Errorf("build create request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+		return req, nil
+	})
 	if err != nil {
 		return fmt.Errorf("create %q: %w", name, err)
-	}
-	defer resp.Body.Close()
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("read create response: %w", err)
 	}
 	if resp.StatusCode != http.StatusCreated {
 		return fmt.Errorf("create %q: HTTP %d: %s", name, resp.StatusCode, string(respBody))
@@ -150,21 +157,17 @@ func ensureSeedResource(base, token, listPath, createPath, name string) error {
 }
 
 func seedNameExists(base, token, listPath, name string) (bool, error) {
-	req, err := http.NewRequest(http.MethodGet, base+listPath, nil)
-	if err != nil {
-		return false, fmt.Errorf("build list request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-
 	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
+	resp, body, err := seedHTTPDoWithRetry(client, func() (*http.Request, error) {
+		req, err := http.NewRequest(http.MethodGet, base+listPath, nil)
+		if err != nil {
+			return nil, fmt.Errorf("build list request: %w", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		return req, nil
+	})
 	if err != nil {
 		return false, fmt.Errorf("list: %w", err)
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return false, fmt.Errorf("read list response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return false, fmt.Errorf("list: HTTP %d: %s", resp.StatusCode, string(body))
@@ -179,4 +182,47 @@ func seedNameExists(base, token, listPath, name string) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+// seedHTTPDoWithRetry runs a request built fresh by newReq (so a POST body reader can be
+// re-read on each attempt), retrying a bounded number of times on 502/503/504 responses.
+// Traefik's Kubernetes Gateway provider updates its own routing table from Pod endpoints
+// asynchronously, so the very first request against the platform right after InstallPlatform's
+// `helm upgrade --wait` returns can race that sync and see a transient Bad
+// Gateway/Unavailable/Gateway Timeout even though the backing Pod is already Ready — reproduced
+// live as a consistent (not occasional) "HTTP 504: Gateway Timeout" on SeedPlatformData's very
+// first request of a run immediately following a fresh platform rollout, always succeeding
+// within a couple of seconds on retry.
+func seedHTTPDoWithRetry(client *http.Client, newReq func() (*http.Request, error)) (*http.Response, []byte, error) {
+	const attempts = 6
+	const backoff = 2 * time.Second
+
+	var lastErr error
+	for attempt := 0; attempt < attempts; attempt++ {
+		if attempt > 0 {
+			time.Sleep(backoff)
+		}
+		req, err := newReq()
+		if err != nil {
+			return nil, nil, err
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("request: %w", err)
+			continue
+		}
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			lastErr = fmt.Errorf("read response: %w", err)
+			continue
+		}
+		switch resp.StatusCode {
+		case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+			lastErr = fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
+			continue
+		}
+		return resp, body, nil
+	}
+	return nil, nil, fmt.Errorf("gave up after %d attempts: %w", attempts, lastErr)
 }
