@@ -3,22 +3,26 @@ package e2eutil
 import (
 	"fmt"
 	"os/exec"
-	"strings"
 )
 
 const (
 	certManagerNamespace    = "cert-manager"
+	certManagerReleaseName  = "cert-manager"
 	certManagerChartVersion = "v1.21.0"
 )
 
-// IsCertManagerInstalled reports whether cert-manager's CRDs are already present on the
-// cluster, regardless of who installed them.
+// IsCertManagerInstalled reports whether the cert-manager Helm release is present in its
+// namespace. Checking the Helm release directly (not, as an earlier version of this function
+// did, the presence of cert-manager's CRDs) matters because cert-manager's own chart marks its
+// CRDs to survive `helm uninstall` (a deliberate, common Helm convention protecting against
+// accidental data loss) — so after `make dev-down` removes the release and namespace but the
+// CRDs linger, a CRD-presence check reports "installed" on the next `make dev-up` even though
+// nothing is actually there, which skips reinstalling and makes the later, unconditional
+// WaitForCertManagerWebhook call fail with "namespaces \"cert-manager\" not found". Matches the
+// `helm status` pattern nats.go/traefik.go/zitadel.go already use for exactly this reason.
 func IsCertManagerInstalled() bool {
-	output, err := Run(exec.Command("kubectl", "get", "crds"))
-	if err != nil {
-		return false
-	}
-	return strings.Contains(output, "certificates.cert-manager.io")
+	_, err := Run(exec.Command("helm", "status", certManagerReleaseName, "--namespace", certManagerNamespace))
+	return err == nil
 }
 
 // InstallCertManager installs the jetstack/cert-manager Helm chart (adding the jetstack repo
@@ -30,7 +34,7 @@ func InstallCertManager() error {
 	if _, err := Run(exec.Command("helm", "repo", "update", "jetstack")); err != nil {
 		return fmt.Errorf("e2eutil: update jetstack helm repo: %w", err)
 	}
-	_, err := Run(exec.Command("helm", "upgrade", "--install", "cert-manager", "jetstack/cert-manager",
+	_, err := Run(exec.Command("helm", "upgrade", "--install", certManagerReleaseName, "jetstack/cert-manager",
 		"--namespace", certManagerNamespace, "--create-namespace",
 		"--version", certManagerChartVersion,
 		"--set", "crds.enabled=true",
@@ -60,6 +64,6 @@ func WaitForCertManagerWebhook() error {
 
 // UninstallCertManager removes the cert-manager release and its namespace.
 func UninstallCertManager() {
-	_, _ = Run(exec.Command("helm", "uninstall", "cert-manager", "--namespace", certManagerNamespace))
+	_, _ = Run(exec.Command("helm", "uninstall", certManagerReleaseName, "--namespace", certManagerNamespace))
 	_, _ = Run(exec.Command("kubectl", "delete", "namespace", certManagerNamespace, "--ignore-not-found"))
 }

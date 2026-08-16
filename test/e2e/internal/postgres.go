@@ -8,18 +8,22 @@ import (
 
 const (
 	cnpgOperatorNamespace = "cnpg-system"
+	cnpgReleaseName       = "cnpg"
 	cnpgChartVersion      = "0.29.0"
 	postgresClusterName   = "timadorus-pg"
 )
 
-// IsCloudNativePGInstalled reports whether the CloudNativePG operator's CRDs are already
-// present on the cluster.
+// IsCloudNativePGInstalled reports whether the CloudNativePG operator's Helm release is
+// present in its namespace. Checking the Helm release directly (not, as an earlier version of
+// this function did, the presence of the operator's CRDs) matters because those CRDs are
+// marked to survive `helm uninstall` — so after `make dev-down` removes the release and
+// namespace but the CRDs linger, a CRD-presence check reports "installed" on the next
+// `make dev-up` even though nothing is actually there, silently skipping reinstallation.
+// Matches the `helm status` pattern nats.go/traefik.go/zitadel.go already use for exactly this
+// reason.
 func IsCloudNativePGInstalled() bool {
-	output, err := Run(exec.Command("kubectl", "get", "crds"))
-	if err != nil {
-		return false
-	}
-	return strings.Contains(output, "clusters.postgresql.cnpg.io")
+	_, err := Run(exec.Command("helm", "status", cnpgReleaseName, "--namespace", cnpgOperatorNamespace))
+	return err == nil
 }
 
 // InstallCloudNativePG installs the CloudNativePG operator via Helm.
@@ -30,7 +34,7 @@ func InstallCloudNativePG() error {
 	if _, err := Run(exec.Command("helm", "repo", "update", "cnpg")); err != nil {
 		return fmt.Errorf("e2eutil: update cnpg helm repo: %w", err)
 	}
-	_, err := Run(exec.Command("helm", "upgrade", "--install", "cnpg", "cnpg/cloudnative-pg",
+	_, err := Run(exec.Command("helm", "upgrade", "--install", cnpgReleaseName, "cnpg/cloudnative-pg",
 		"--namespace", cnpgOperatorNamespace, "--create-namespace",
 		"--version", cnpgChartVersion,
 		"--wait", "--timeout", "5m",
@@ -97,6 +101,6 @@ spec:
 // own cleanup explicit and independent of that ordering).
 func UninstallCloudNativePG() {
 	_, _ = Run(exec.Command("kubectl", "delete", "cluster.postgresql.cnpg.io", postgresClusterName, "--namespace", Namespace, "--ignore-not-found"))
-	_, _ = Run(exec.Command("helm", "uninstall", "cnpg", "--namespace", cnpgOperatorNamespace))
+	_, _ = Run(exec.Command("helm", "uninstall", cnpgReleaseName, "--namespace", cnpgOperatorNamespace))
 	_, _ = Run(exec.Command("kubectl", "delete", "namespace", cnpgOperatorNamespace, "--ignore-not-found"))
 }
