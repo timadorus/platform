@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
 defineProps<{
@@ -11,6 +12,7 @@ const emit = defineEmits<{
 }>()
 
 const auth = useAuthStore()
+const route = useRoute()
 </script>
 
 <template>
@@ -32,7 +34,22 @@ const auth = useAuthStore()
     </button>
     <div class="ml-auto flex items-center gap-2">
       <span class="text-sm text-slate-700">{{ auth.displayName }}</span>
-      <router-link to="/users" class="text-slate-400 hover:text-slate-700" title="Manage Users" aria-label="Manage Users">
+      <router-link
+        v-if="route.name === 'users-admin'"
+        to="/"
+        class="text-slate-400 hover:text-slate-700"
+        title="Back to Main Page"
+        aria-label="Back to Main Page"
+      >
+        🏠
+      </router-link>
+      <router-link
+        v-else
+        to="/users"
+        class="text-slate-400 hover:text-slate-700"
+        title="Manage Users"
+        aria-label="Manage Users"
+      >
         ⚙
       </router-link>
       <button class="text-xs text-slate-400 hover:text-slate-700" @click="auth.logout()">Log out</button>
