@@ -57,6 +57,11 @@ async function onCreatingDone() {
   creatingUser.value = null
   await list()
 }
+
+async function onCreatingClose() {
+  creatingUser.value = null
+  await list()
+}
 </script>
 
 <template>
@@ -91,7 +96,7 @@ async function onCreatingDone() {
       :user-id="creatingUser.id"
       :user-name="creatingUser.name"
       @done="onCreatingDone"
-      @close="creatingUser = null"
+      @close="onCreatingClose"
     />
     <ConfirmDialog
       v-if="archiveTargetId"

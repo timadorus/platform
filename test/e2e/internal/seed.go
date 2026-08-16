@@ -29,9 +29,12 @@ type seedResource struct {
 // smoke test of that routing as a side effect): a User matching zitadel.TestLoginName (i.e.
 // "devuser@timadorus.local" — derived from the same value the login form accepts, not
 // re-hardcoded, so it can never drift from the account a developer actually logs in with) and a
-// Ruleset named SeedRulesetName. Each is checked against the query-api's own list by name first
-// and skipped if already present — User/Ruleset names carry no uniqueness constraint at the
-// domain level, so an unconditional create would pile up duplicates on every repeated
+// Ruleset named SeedRulesetName. That name match is cosmetic convenience only, for a developer
+// eyeballing the seeded data — there is no actual linkage between this platform User row and the
+// Zitadel/OIDC identity a developer logs in as (the web SPA's auth store never maps
+// sub/preferred_username to a domain User). Each is checked against the query-api's own list by
+// name first and skipped if already present — User/Ruleset names carry no uniqueness constraint
+// at the domain level, so an unconditional create would pile up duplicates on every repeated
 // `make dev-up` against an already-seeded cluster. zitadelPort/gatewayPort are reused transiently
 // (matching InstallZitadel's own reuse of externalPort for its bootstrap port-forward) — nothing
 // else holds either port open during `up` itself.
@@ -122,7 +125,11 @@ func fetchSeedAccessToken(zitadel ZitadelBootstrap, zitadelPort int) (string, er
 }
 
 // ensureSeedResource GETs listPath (bearer-authenticated) and, unless an entry named name
-// already exists, POSTs {"name": name} to createPath.
+// already exists, POSTs {"name": name} to createPath. Deliberately does NOT wait for the
+// query-api's read model to catch up with a just-created row the way the web SPA's waitForUser
+// (Task 1) does for the create-then-list round trip in the UI — the asymmetry is intentional,
+// not an oversight: the window between two `make dev-up` runs is normally minutes, not the
+// seconds a UI create-then-list flow has to bridge, so there's nothing here worth polling for.
 func ensureSeedResource(base, token, listPath, createPath, name string) error {
 	exists, err := seedNameExists(base, token, listPath, name)
 	if err != nil {
@@ -138,7 +145,7 @@ func ensureSeedResource(base, token, listPath, createPath, name string) error {
 	}
 
 	client := &http.Client{Timeout: 30 * time.Second}
-	resp, respBody, err := seedHTTPDoWithRetry(client, func() (*http.Request, error) {
+	statusCode, respBody, err := seedHTTPDoWithRetry(client, func() (*http.Request, error) {
 		req, err := http.NewRequest(http.MethodPost, base+createPath, bytes.NewReader(body))
 		if err != nil {
 			return nil, fmt.Errorf("build create request: %w", err)
@@ -150,15 +157,19 @@ func ensureSeedResource(base, token, listPath, createPath, name string) error {
 	if err != nil {
 		return fmt.Errorf("create %q: %w", name, err)
 	}
-	if resp.StatusCode != http.StatusCreated {
-		return fmt.Errorf("create %q: HTTP %d: %s", name, resp.StatusCode, string(respBody))
+	if statusCode != http.StatusCreated {
+		return fmt.Errorf("create %q: HTTP %d: %s", name, statusCode, string(respBody))
 	}
 	return nil
 }
 
+// seedNameExists reflects only non-archived rows: the query-api list endpoints it queries
+// (/users, /rulesets) are documented as "List non-archived", so if a developer manually archives
+// the seeded User/Ruleset between runs, the next `make dev-up` won't detect it as already present
+// and will create a new same-named one instead.
 func seedNameExists(base, token, listPath, name string) (bool, error) {
 	client := &http.Client{Timeout: 30 * time.Second}
-	resp, body, err := seedHTTPDoWithRetry(client, func() (*http.Request, error) {
+	statusCode, body, err := seedHTTPDoWithRetry(client, func() (*http.Request, error) {
 		req, err := http.NewRequest(http.MethodGet, base+listPath, nil)
 		if err != nil {
 			return nil, fmt.Errorf("build list request: %w", err)
@@ -169,8 +180,8 @@ func seedNameExists(base, token, listPath, name string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("list: %w", err)
 	}
-	if resp.StatusCode != http.StatusOK {
-		return false, fmt.Errorf("list: HTTP %d: %s", resp.StatusCode, string(body))
+	if statusCode != http.StatusOK {
+		return false, fmt.Errorf("list: HTTP %d: %s", statusCode, string(body))
 	}
 	var items []seedResource
 	if err := json.Unmarshal(body, &items); err != nil {
@@ -193,7 +204,13 @@ func seedNameExists(base, token, listPath, name string) (bool, error) {
 // live as a consistent (not occasional) "HTTP 504: Gateway Timeout" on SeedPlatformData's very
 // first request of a run immediately following a fresh platform rollout, always succeeding
 // within a couple of seconds on retry.
-func seedHTTPDoWithRetry(client *http.Client, newReq func() (*http.Request, error)) (*http.Response, []byte, error) {
+//
+// Returns (statusCode, body, err) rather than the *http.Response itself: the response body is
+// always fully read and closed here before returning, so handing back the now-empty
+// *http.Response would silently give a future caller trying resp.Body/io.ReadAll(resp.Body)
+// nothing — returning the already-decoded status code and body makes that impossible to get
+// wrong.
+func seedHTTPDoWithRetry(client *http.Client, newReq func() (*http.Request, error)) (int, []byte, error) {
 	const attempts = 6
 	const backoff = 2 * time.Second
 
@@ -204,7 +221,7 @@ func seedHTTPDoWithRetry(client *http.Client, newReq func() (*http.Request, erro
 		}
 		req, err := newReq()
 		if err != nil {
-			return nil, nil, err
+			return 0, nil, err
 		}
 		resp, err := client.Do(req)
 		if err != nil {
@@ -222,7 +239,7 @@ func seedHTTPDoWithRetry(client *http.Client, newReq func() (*http.Request, erro
 			lastErr = fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
 			continue
 		}
-		return resp, body, nil
+		return resp.StatusCode, body, nil
 	}
-	return nil, nil, fmt.Errorf("gave up after %d attempts: %w", attempts, lastErr)
+	return 0, nil, fmt.Errorf("gave up after %d attempts: %w", attempts, lastErr)
 }

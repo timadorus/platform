@@ -198,15 +198,22 @@ func runUp() error {
 		return fmt.Errorf("install platform: %w", err)
 	}
 
+	// Seeding is a convenience on top of an already fully-installed, usable cluster — not a
+	// prerequisite for it. A seed failure here must not make runUp return an error: doing so
+	// would suppress printStatus and hide the generated password, port-forward commands, and
+	// client credentials a developer actually needs, even though the cluster underneath is
+	// completely fine.
+	seeded := true
 	if err := e2eutil.SeedPlatformData(zitadel, devZitadelPort, devGatewayPort); err != nil {
-		return fmt.Errorf("seed platform data: %w", err)
+		seeded = false
+		fmt.Printf("warning: seed platform data failed (cluster is still usable — re-run make dev-up to retry seeding): %v\n\n", err)
 	}
 
-	printStatus(zitadel)
+	printStatus(zitadel, seeded)
 	return nil
 }
 
-func printStatus(zitadel e2eutil.ZitadelBootstrap) {
+func printStatus(zitadel e2eutil.ZitadelBootstrap, seeded bool) {
 	fullname := e2eutil.PlatformFullname()
 	fmt.Printf("\nDev cluster ready. Namespace: %s\n\n", devNamespace)
 	fmt.Println("Open the web UI (one port-forward covers the app and both APIs):")
@@ -215,7 +222,9 @@ func printStatus(zitadel e2eutil.ZitadelBootstrap) {
 	fmt.Println("Log in (another terminal — Zitadel needs its own two port-forwards, see below) with:")
 	fmt.Printf("  username: %s\n", zitadel.TestLoginName)
 	fmt.Printf("  password: %s\n\n", zitadel.TestPassword)
-	fmt.Printf("Pre-seeded: User %q, Ruleset %q.\n\n", zitadel.TestLoginName, e2eutil.SeedRulesetName)
+	if seeded {
+		fmt.Printf("Pre-seeded: User %q, Ruleset %q.\n\n", zitadel.TestLoginName, e2eutil.SeedRulesetName)
+	}
 	fmt.Println("Zitadel (needed for the login redirect above to resolve):")
 	fmt.Printf("  kubectl port-forward --namespace %s svc/%s %d:8080\n", e2eutil.ZitadelNamespace, e2eutil.ZitadelServiceName, devZitadelPort)
 	fmt.Printf("  kubectl port-forward --namespace %s svc/%s %d:3000\n\n", e2eutil.ZitadelNamespace, e2eutil.ZitadelLoginServiceName, devZitadelLoginPort)
