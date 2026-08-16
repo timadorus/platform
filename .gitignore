@@ -2,3 +2,4 @@ bin/
 deploy/helm/timadorus-platform/charts/
 .superpowers/
 .dev-cluster-state.json
+.worktrees/
