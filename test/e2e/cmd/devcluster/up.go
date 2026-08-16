@@ -198,6 +198,10 @@ func runUp() error {
 		return fmt.Errorf("install platform: %w", err)
 	}
 
+	if err := e2eutil.SeedPlatformData(zitadel, devZitadelPort, devGatewayPort); err != nil {
+		return fmt.Errorf("seed platform data: %w", err)
+	}
+
 	printStatus(zitadel)
 	return nil
 }
@@ -211,6 +215,7 @@ func printStatus(zitadel e2eutil.ZitadelBootstrap) {
 	fmt.Println("Log in (another terminal — Zitadel needs its own two port-forwards, see below) with:")
 	fmt.Printf("  username: %s\n", zitadel.TestLoginName)
 	fmt.Printf("  password: %s\n\n", zitadel.TestPassword)
+	fmt.Printf("Pre-seeded: User %q, Ruleset %q.\n\n", zitadel.TestLoginName, e2eutil.SeedRulesetName)
 	fmt.Println("Zitadel (needed for the login redirect above to resolve):")
 	fmt.Printf("  kubectl port-forward --namespace %s svc/%s %d:8080\n", e2eutil.ZitadelNamespace, e2eutil.ZitadelServiceName, devZitadelPort)
 	fmt.Printf("  kubectl port-forward --namespace %s svc/%s %d:3000\n\n", e2eutil.ZitadelNamespace, e2eutil.ZitadelLoginServiceName, devZitadelLoginPort)
