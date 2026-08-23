@@ -44,6 +44,13 @@ func main() {
 func run(ctx context.Context, logger *slog.Logger) error {
 	cfg := config.LoadTimadorusEngine()
 
+	// Connection budget: each in-flight Router.Handle call can hold up to 2 pool connections
+	// at once — one for the Router's own transaction, and one for the aggregate's Load, which
+	// reads via the pool rather than the ambient tx (see postgres.Store.Load). So N processors
+	// sharing this one pool can peak at 2N connections, on top of /readyz's own Ping. With the
+	// 2 processors registered below that's already at pgxpool's default floor (max(4,
+	// NumCPU)) in the worst case. A third processor sharing this binary would need an explicit
+	// pool_max_conns bump — a deliberate follow-up, not done here.
 	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return err

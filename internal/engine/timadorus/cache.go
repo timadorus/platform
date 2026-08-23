@@ -19,9 +19,15 @@ import (
 // silently leave a stale string behind in error messages.
 const errPrefix = "timadorus-engine: "
 
-// RulesetCache caches each Campaign's Ruleset name, keyed by campaign id. A Campaign's Ruleset
-// reference is set once at creation and never changes (no such command exists on Campaign), so
-// once resolved, a lookup never needs repeating. Shared by both CharacterProcessor and
+// RulesetCache caches each Campaign's Ruleset name, keyed by campaign id, to avoid repeating
+// the same joined lookup query on every event. The Ruleset id a Campaign references is set once
+// at creation and never changes (no such command exists on Campaign) — but the cached value
+// here is the Ruleset's name, not its id, and Ruleset.Rename does exist (exposed as PATCH
+// /rulesets/{rulesetId}, projected into rulesets_read_model.name). This cache does not observe
+// RulesetRenamed: once a campaign's ruleset name is cached, a later rename to or away from that
+// name has no effect for that campaign until the process restarts. This is an accepted
+// trade-off for now, not a correctness guarantee — a follow-up could add invalidation on
+// RulesetRenamed if this ever matters in practice. Shared by both CharacterProcessor and
 // CampaignProcessor (constructed once in cmd/timadorus-engine/main.go and injected into both) —
 // a Character-triggered lookup and a Campaign-triggered lookup for the same campaign id resolve
 // to the same cached entry. Guarded by a mutex for defensiveness only: each Processor's Handle

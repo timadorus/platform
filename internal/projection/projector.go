@@ -20,12 +20,13 @@ import (
 // sub-package (e.g. domain/universe/events), never the invariant-bearing domain package
 // itself — see plan's read/write import-graph rule.
 //
-// internal/engine/timadorus.Processor is a deliberate exception: it implements this same
-// interface but is not a read-model projector — it's a process-manager-shaped consumer with
-// legitimate write-side access (it loads and saves a Character aggregate), and it registers
-// into cmd/timadorus-engine/main.go, not cmd/projector/main.go. It runs in its own binary for
-// exactly that reason, so it does not violate the import rule above; that rule scopes only to
-// projectors living in cmd/projector.
+// internal/engine/timadorus.CharacterProcessor and internal/engine/timadorus.CampaignProcessor
+// are deliberate exceptions: each implements this same interface but is not a read-model
+// projector — each is a process-manager-shaped consumer with legitimate write-side access to
+// its own aggregate (CharacterProcessor loads and saves a Character; CampaignProcessor loads
+// and saves a Campaign), and both register into cmd/timadorus-engine/main.go, not
+// cmd/projector/main.go. Both run in that same binary for exactly that reason, so neither
+// violates the import rule above; that rule scopes only to projectors living in cmd/projector.
 type Projector interface {
 	// Name is both the durable JetStream consumer name and the checkpoint table key. Must
 	// be stable across restarts/deploys.

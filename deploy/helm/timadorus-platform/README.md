@@ -1,9 +1,10 @@
 # timadorus-platform Helm chart
 
 Deploys the Timadorus CQRS/ES platform's binaries — command-api, query-api, projector, and
-timadorus-engine (which reacts to Character `action` events; unlike projector it is not a
-read-model projector, so it isn't subject to the same read-only-imports rule) — to Kubernetes,
-running schema migrations automatically and exposing command-api/query-api via the Gateway API.
+timadorus-engine (which reacts to Character `action` events and Campaign `configure`-triggered
+events; unlike projector it is not a read-model projector, so it isn't subject to the same
+read-only-imports rule) — to Kubernetes, running schema migrations automatically and exposing
+command-api/query-api via the Gateway API.
 See `docs/PLAN.md` for the platform architecture this chart deploys.
 
 ## Prerequisites

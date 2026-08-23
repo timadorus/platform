@@ -93,6 +93,12 @@ func (p *CampaignProcessor) appendConfigurationTimestamp(ctx context.Context, tx
 		return fmt.Errorf(errPrefix+"load campaign %s: %w", campaignID, err)
 	}
 
+	// Parse into a generic map, touching only "configs" — never discard other top-level keys a
+	// human might have set via the already-existing PUT .../configuration endpoint. If the
+	// existing configuration isn't valid JSON, or isn't a JSON object at all (allowed today:
+	// SetConfiguration accepts any string), start fresh rather than erroring — retrying won't
+	// fix malformed content, so erroring here would get this Campaign permanently stuck
+	// instead of self-healing.
 	config := map[string]any{}
 	if raw := c.Configuration(); raw != "" {
 		_ = json.Unmarshal([]byte(raw), &config) // best-effort; config stays {} on failure
