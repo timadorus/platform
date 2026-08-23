@@ -77,6 +77,21 @@ projector:
       cpu: 500m
       memory: 256Mi
 
+timadorusEngine:
+  image:
+    repository: timadorus/timadorus-engine
+    tag: ""
+    pullPolicy: IfNotPresent
+  replicas: 1
+  containerPort: 8084
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
 migration:
   image:
     repository: timadorus/migrate

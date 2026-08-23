@@ -89,6 +89,8 @@ func imageValuesKey(component string) string {
 		return "queryApi"
 	case "projector":
 		return "projector"
+	case "timadorus-engine":
+		return "timadorusEngine"
 	case "migrate":
 		return "migration"
 	default:

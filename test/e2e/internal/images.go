@@ -12,7 +12,7 @@ import (
 // migration Job can't run without its own image, even though it wasn't among the three named
 // services; web is the nginx-served Vue SPA the chart now also deploys, built from
 // Dockerfile.web).
-var imageComponents = []string{"command-api", "query-api", "projector", "migrate", "web"}
+var imageComponents = []string{"command-api", "query-api", "projector", "timadorus-engine", "migrate", "web"}
 
 // ImageTags maps component name (e.g. "command-api") to the SHA256 digest tag it was built
 // and loaded under.
