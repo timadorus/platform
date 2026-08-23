@@ -17,3 +17,4 @@ Check rollout status:
   kubectl rollout status -n {{ .Release.Namespace }} deployment/{{ include "timadorus-platform.fullname" . }}-command-api
   kubectl rollout status -n {{ .Release.Namespace }} deployment/{{ include "timadorus-platform.fullname" . }}-query-api
   kubectl rollout status -n {{ .Release.Namespace }} deployment/{{ include "timadorus-platform.fullname" . }}-projector
+  kubectl rollout status -n {{ .Release.Namespace }} deployment/{{ include "timadorus-platform.fullname" . }}-timadorus-engine

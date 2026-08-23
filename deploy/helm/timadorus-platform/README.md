@@ -1,8 +1,10 @@
 # timadorus-platform Helm chart
 
-Deploys the Timadorus CQRS/ES platform's three binaries (command-api, query-api, projector) to
-Kubernetes, running schema migrations automatically and exposing command-api/query-api via the
-Gateway API. See `docs/PLAN.md` for the platform architecture this chart deploys.
+Deploys the Timadorus CQRS/ES platform's binaries — command-api, query-api, projector, and
+timadorus-engine (which reacts to Character `action` events; unlike projector it is not a
+read-model projector, so it isn't subject to the same read-only-imports rule) — to Kubernetes,
+running schema migrations automatically and exposing command-api/query-api via the Gateway API.
+See `docs/PLAN.md` for the platform architecture this chart deploys.
 
 ## Prerequisites
 
@@ -12,9 +14,9 @@ Gateway API. See `docs/PLAN.md` for the platform architecture this chart deploys
 - A reachable Postgres instance, plus a `Secret` in the release namespace holding a
   `DATABASE_URL` connection string (this chart never creates that Secret — see
   `postgres.existingSecret` below).
-- Images for `command-api`, `query-api`, `projector`, and `migrate` built and pushed somewhere
-  the cluster can pull from (`Dockerfile.command-api`, `Dockerfile.query-api`,
-  `Dockerfile.projector`, `Dockerfile.migrate` at the repo root).
+- Images for `command-api`, `query-api`, `projector`, `timadorus-engine`, and `migrate` built and
+  pushed somewhere the cluster can pull from (`Dockerfile.command-api`, `Dockerfile.query-api`,
+  `Dockerfile.projector`, `Dockerfile.timadorus-engine`, `Dockerfile.migrate` at the repo root).
 - When `nats.enabled: true` (the default), the bundled NATS subchart provisions a JetStream
   PersistentVolumeClaim (10Gi by default) against the cluster's **default StorageClass**. If the
   cluster has no default StorageClass, the NATS pod stays `Pending` forever and `helm install
@@ -77,6 +79,8 @@ helm install my-platform deploy/helm/timadorus-platform \
 | `web.config.oidc.*` | `""` (required) | OIDC issuer/client/redirect settings baked into the served `config.json` (design spec §9) — never into the JS bundle itself |
 | `projector.image.*` | (mirrors `commandApi.*`) | projector has no `route.hostname` — no public API |
 | `projector.replicas` | `1` | **must stay `1`** — the projector holds an exclusive NATS JetStream durable-consumer binding per read-model projection, so a second replica would simply fail to bind and crash-loop; this is not a normal scaling knob |
+| `timadorusEngine.image.*` | (mirrors `commandApi.*`) | timadorus-engine has no `route.hostname` — no public API |
+| `timadorusEngine.replicas` | `1` | **must stay `1`** — same reason as `projector.replicas`: timadorus-engine holds an exclusive NATS JetStream durable-consumer binding, so more than one replica would double-process/race rather than scale |
 | `migration.image.*` | `timadorus/migrate` / ... | image used by the pre-install/pre-upgrade migration Job |
 | `postgres.existingSecret` | `""` (required) | name of a pre-existing Secret holding `DATABASE_URL` |
 | `postgres.secretKey` | `DATABASE_URL` | key within that Secret |

@@ -139,15 +139,16 @@ this up in a real deployment (see `internal/auth`). Stop with `docker compose do
 
 ## Configuration
 
-All three binaries are configured entirely via environment variables (`internal/config`):
+All four binaries are configured entirely via environment variables (`internal/config`):
 
 | Variable | Used by | Default |
 |---|---|---|
 | `DATABASE_URL` | all | `postgres://timadorus:timadorus@localhost:5432/timadorus?sslmode=disable` |
-| `NATS_URL` | command-api, projector | `nats://localhost:4222` |
+| `NATS_URL` | command-api, projector, timadorus-engine | `nats://localhost:4222` |
 | `COMMAND_API_ADDR` | command-api | `:8081` |
 | `QUERY_API_ADDR` | query-api | `:8082` |
 | `PROJECTOR_ADDR` | projector (health/readiness/metrics only — no public API) | `:8083` |
+| `TIMADORUS_ENGINE_ADDR` | timadorus-engine (health/readiness/metrics only — no public API) | `:8084` |
 | `JWT_JWKS_URL` | command-api, query-api | unset — fetches verification keys from an IdP |
 | `JWT_HMAC_SECRET` | command-api, query-api | unset — static HS256 secret, dev/test only |
 | `JWT_HMAC_KEY_ID` | command-api, query-api | `dev` — must match the `kid` on HMAC-signed test tokens |
@@ -155,7 +156,7 @@ All three binaries are configured entirely via environment variables (`internal/
 
 ## Operational endpoints
 
-All three binaries expose (unauthenticated, exempt from OpenAPI schema validation):
+All four binaries expose (unauthenticated, exempt from OpenAPI schema validation):
 
 - `GET /healthz` — liveness
 - `GET /readyz` — readiness (pings the Postgres pool)
@@ -192,10 +193,11 @@ without regenerating).
 One Dockerfile per binary at the repo root (multi-stage, distroless runtime image):
 
 ```sh
-docker build -f Dockerfile.command-api -t timadorus/command-api .
-docker build -f Dockerfile.projector   -t timadorus/projector .
-docker build -f Dockerfile.query-api   -t timadorus/query-api .
-docker build -f Dockerfile.web         -t timadorus/web .
+docker build -f Dockerfile.command-api      -t timadorus/command-api .
+docker build -f Dockerfile.projector        -t timadorus/projector .
+docker build -f Dockerfile.query-api        -t timadorus/query-api .
+docker build -f Dockerfile.timadorus-engine -t timadorus/timadorus-engine .
+docker build -f Dockerfile.web              -t timadorus/web .
 ```
 
 ## Project status
