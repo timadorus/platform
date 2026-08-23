@@ -117,6 +117,17 @@ func (s *Service) Archive(ctx context.Context, id uuid.UUID) error {
 	return s.characters.Save(ctx, c)
 }
 
+func (s *Service) SetInfo(ctx context.Context, id uuid.UUID, info string) error {
+	c, err := s.characters.Load(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := c.SetInfo(info); err != nil {
+		return err
+	}
+	return s.characters.Save(ctx, c)
+}
+
 func (s *Service) SetPlayer(ctx context.Context, id, userID uuid.UUID) error {
 	playerAgg, err := s.users.Load(ctx, userID)
 	if err != nil {

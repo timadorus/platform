@@ -87,6 +87,19 @@ func registerCharacterCommands(a *App) {
 		},
 	})
 
+	a.setCmd.AddCommand(&cobra.Command{
+		Use:   "info <characterId> <info>",
+		Short: `Replace a Character's info (an opaque JSON string, not parsed or validated).`,
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, _, err := a.client()
+			if err != nil {
+				return err
+			}
+			return client.Command("PATCH", "/characters/"+args[0]+"/info", map[string]any{"info": args[1]})
+		},
+	})
+
 	listCharacterCmd := &cobra.Command{
 		Use:   "character",
 		Short: "List non-archived Characters under a Campaign",

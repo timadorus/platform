@@ -54,6 +54,13 @@ func (p *Projector) Handle(ctx context.Context, tx pgx.Tx, env bus.Envelope) err
 		}
 		_, err := tx.Exec(ctx, `UPDATE characters_read_model SET player_user_id = $2, updated_at = $3 WHERE id = $1`, env.AggregateID, e.NewPlayerUserID, e.OccurredAt)
 		return err
+	case events.TypeInfoChanged:
+		var e events.InfoChanged
+		if err := json.Unmarshal(env.Payload, &e); err != nil {
+			return fmt.Errorf("character projector: unmarshal %s: %w", env.EventType, err)
+		}
+		_, err := tx.Exec(ctx, `UPDATE characters_read_model SET info = $2, updated_at = $3 WHERE id = $1`, env.AggregateID, e.Info, e.OccurredAt)
+		return err
 	case events.TypeCharacterArchived:
 		var e events.CharacterArchived
 		if err := json.Unmarshal(env.Payload, &e); err != nil {

@@ -404,6 +404,28 @@ paths:
         "422":
           $ref: "#/components/responses/UnprocessableEntity"
 
+  /characters/{characterId}/info:
+    patch:
+      operationId: setCharacterInfo
+      summary: Replace a Character's info (an opaque JSON string the backend never parses or validates).
+      parameters:
+        - $ref: "#/components/parameters/CharacterId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetCharacterInfoRequest"
+      responses:
+        "204":
+          description: Updated.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
   /universes/{universeId}/objects:
     post:
       operationId: createObject
@@ -709,6 +731,13 @@ components:
         userId:
           type: string
           format: uuid
+
+    SetCharacterInfoRequest:
+      type: object
+      required: [info]
+      properties:
+        info:
+          type: string
 
     CreateEntityRequest:
       type: object

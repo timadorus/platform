@@ -34,8 +34,8 @@ func (c *Character) CampaignID() uuid.UUID   { return c.campaignID }
 func (c *Character) EntityID() uuid.UUID     { return c.entityID }
 func (c *Character) PlayerUserID() uuid.UUID { return c.playerUserID }
 
-// Info is an opaque JSON-string payload with no command surface — see
-// events.CharacterCreated's doc comment for why it is always "" today.
+// Info is an opaque JSON-string payload (the backend never parses or validates it) — see
+// SetInfo for the only command that changes it.
 func (c *Character) Info() string     { return c.info }
 func (c *Character) IsArchived() bool { return c.archived }
 
@@ -94,6 +94,17 @@ func (c *Character) SetPlayer(userID uuid.UUID) error {
 	return nil
 }
 
+// SetInfo replaces the Character's opaque info string wholesale (same "replace, don't merge"
+// shape as ruleset.Ruleset.SetDescription/SetReferences — no minimum-content invariant to
+// protect, so unlike Rename/SetPlayer there's no dedupe-if-unchanged short-circuit).
+func (c *Character) SetInfo(info string) error {
+	if c.archived {
+		return ErrArchived
+	}
+	c.raise(&events.InfoChanged{Info: info, OccurredAt: time.Now().UTC()})
+	return nil
+}
+
 // Archive is idempotent — see universe.Universe.Archive's doc comment for why.
 func (c *Character) Archive() error {
 	if c.archived {
@@ -116,6 +127,8 @@ func (c *Character) Apply(event eventsourcing.Event) {
 		c.name = e.Name
 	case *events.PlayerChanged:
 		c.playerUserID = e.NewPlayerUserID
+	case *events.InfoChanged:
+		c.info = e.Info
 	case *events.CharacterArchived:
 		c.archived = true
 	}

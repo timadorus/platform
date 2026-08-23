@@ -40,9 +40,34 @@ func TestNew(t *testing.T) {
 			t.Fatalf("got playerUserID %s, want %s", c.PlayerUserID(), playerID)
 		}
 		if c.Info() != "" {
-			t.Fatalf("got info %q, want empty — Info has no command surface, must default empty", c.Info())
+			t.Fatalf("got info %q, want empty — CreateCharacterRequest has no info field", c.Info())
 		}
 	})
+}
+
+func TestSetInfo(t *testing.T) {
+	c, err := character.New(uuid.New(), uuid.New(), uuid.New(), "Elminster")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	c.ClearPending()
+
+	if err := c.SetInfo(`{"alignment":"chaotic good"}`); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := c.Info(); got != `{"alignment":"chaotic good"}` {
+		t.Fatalf("got info %q", got)
+	}
+	if got := len(c.Pending()); got != 1 {
+		t.Fatalf("got %d pending events, want 1", got)
+	}
+
+	if err := c.SetInfo(""); err != nil {
+		t.Fatalf("unexpected error setting info back to empty: %v", err)
+	}
+	if c.Info() != "" {
+		t.Fatalf("got info %q, want empty", c.Info())
+	}
 }
 
 func TestSetPlayer(t *testing.T) {
@@ -90,6 +115,9 @@ func TestArchive(t *testing.T) {
 		t.Fatalf("got %v, want ErrArchived", err)
 	}
 	if err := c.SetPlayer(uuid.New()); err != character.ErrArchived {
+		t.Fatalf("got %v, want ErrArchived", err)
+	}
+	if err := c.SetInfo("{}"); err != character.ErrArchived {
 		t.Fatalf("got %v, want ErrArchived", err)
 	}
 }

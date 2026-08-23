@@ -100,6 +100,11 @@ type RulesetCreatedResponse struct {
 	Id openapi_types.UUID `json:"id"`
 }
 
+// SetCharacterInfoRequest defines model for SetCharacterInfoRequest.
+type SetCharacterInfoRequest struct {
+	Info string `json:"info"`
+}
+
 // SetPlayerRequest defines model for SetPlayerRequest.
 type SetPlayerRequest struct {
 	UserId openapi_types.UUID `json:"userId"`
@@ -167,6 +172,9 @@ type CreateCharacterJSONRequestBody = CreateCharacterRequest
 // RenameCharacterJSONRequestBody defines body for RenameCharacter for application/json ContentType.
 type RenameCharacterJSONRequestBody = RenameRequest
 
+// SetCharacterInfoJSONRequestBody defines body for SetCharacterInfo for application/json ContentType.
+type SetCharacterInfoJSONRequestBody = SetCharacterInfoRequest
+
 // SetCharacterPlayerJSONRequestBody defines body for SetCharacterPlayer for application/json ContentType.
 type SetCharacterPlayerJSONRequestBody = SetPlayerRequest
 
@@ -232,6 +240,9 @@ type ServerInterface interface {
 	// ArchiveCharacter Archive a Character. Idempotent.
 	// (POST /characters/{characterId}/archive)
 	ArchiveCharacter(w http.ResponseWriter, r *http.Request, characterId CharacterId)
+	// SetCharacterInfo Replace a Character's info (an opaque JSON string the backend never parses or validates).
+	// (PATCH /characters/{characterId}/info)
+	SetCharacterInfo(w http.ResponseWriter, r *http.Request, characterId CharacterId)
 	// SetCharacterPlayer Reassign a Character's Player. There is no "unset" — a Character always has exactly one Player.
 	// (PUT /characters/{characterId}/player)
 	SetCharacterPlayer(w http.ResponseWriter, r *http.Request, characterId CharacterId)
@@ -497,6 +508,32 @@ func (siw *ServerInterfaceWrapper) ArchiveCharacter(w http.ResponseWriter, r *ht
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ArchiveCharacter(w, r, characterId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetCharacterInfo operation middleware
+func (siw *ServerInterfaceWrapper) SetCharacterInfo(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "characterId" -------------
+	var characterId CharacterId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "characterId", mux.Vars(r)["characterId"], &characterId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "characterId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetCharacterInfo(w, r, characterId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1187,6 +1224,8 @@ func HandlerWithOptions(si ServerInterface, options GorillaServerOptions) http.H
 
 	r.HandleFunc(options.BaseURL+"/characters/{characterId}/player", wrapper.SetCharacterPlayer).Methods(http.MethodPut)
 
+	r.HandleFunc(options.BaseURL+"/characters/{characterId}/info", wrapper.SetCharacterInfo).Methods(http.MethodPatch)
+
 	r.HandleFunc(options.BaseURL+"/universes/{universeId}/objects", wrapper.CreateObject).Methods(http.MethodPost)
 
 	r.HandleFunc(options.BaseURL+"/objects/{objectId}", wrapper.RenameObject).Methods(http.MethodPatch)
@@ -1621,6 +1660,71 @@ func (response ArchiveCharacter404ApplicationProblemPlusJSONResponse) VisitArchi
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetCharacterInfoRequestObject struct {
+	CharacterId CharacterId `json:"characterId"`
+	Body        *SetCharacterInfoJSONRequestBody
+}
+
+type SetCharacterInfoResponseObject interface {
+	VisitSetCharacterInfoResponse(w http.ResponseWriter) error
+}
+
+type SetCharacterInfo204Response struct {
+}
+
+func (response SetCharacterInfo204Response) VisitSetCharacterInfoResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type SetCharacterInfo400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response SetCharacterInfo400ApplicationProblemPlusJSONResponse) VisitSetCharacterInfoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetCharacterInfo404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response SetCharacterInfo404ApplicationProblemPlusJSONResponse) VisitSetCharacterInfoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetCharacterInfo409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response SetCharacterInfo409ApplicationProblemPlusJSONResponse) VisitSetCharacterInfoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -2945,6 +3049,9 @@ type StrictServerInterface interface {
 	// ArchiveCharacter Archive a Character. Idempotent.
 	// (POST /characters/{characterId}/archive)
 	ArchiveCharacter(ctx context.Context, request ArchiveCharacterRequestObject) (ArchiveCharacterResponseObject, error)
+	// SetCharacterInfo Replace a Character's info (an opaque JSON string the backend never parses or validates).
+	// (PATCH /characters/{characterId}/info)
+	SetCharacterInfo(ctx context.Context, request SetCharacterInfoRequestObject) (SetCharacterInfoResponseObject, error)
 	// SetCharacterPlayer Reassign a Character's Player. There is no "unset" — a Character always has exactly one Player.
 	// (PUT /characters/{characterId}/player)
 	SetCharacterPlayer(ctx context.Context, request SetCharacterPlayerRequestObject) (SetCharacterPlayerResponseObject, error)
@@ -3247,6 +3354,39 @@ func (sh *strictHandler) ArchiveCharacter(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ArchiveCharacterResponseObject); ok {
 		if err := validResponse.VisitArchiveCharacterResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetCharacterInfo operation middleware
+func (sh *strictHandler) SetCharacterInfo(w http.ResponseWriter, r *http.Request, characterId CharacterId) {
+	var request SetCharacterInfoRequestObject
+
+	request.CharacterId = characterId
+
+	var body SetCharacterInfoJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetCharacterInfo(ctx, request.(SetCharacterInfoRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetCharacterInfo")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetCharacterInfoResponseObject); ok {
+		if err := validResponse.VisitSetCharacterInfoResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -3899,41 +4039,42 @@ func (sh *strictHandler) ArchiveUser(w http.ResponseWriter, r *http.Request, use
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

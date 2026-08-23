@@ -524,6 +524,35 @@ func (s *Server) SetCharacterPlayer(ctx context.Context, request gen.SetCharacte
 	return gen.SetCharacterPlayer204Response{}, nil
 }
 
+func (s *Server) SetCharacterInfo(ctx context.Context, request gen.SetCharacterInfoRequestObject) (gen.SetCharacterInfoResponseObject, error) {
+	if request.Body == nil {
+		return gen.SetCharacterInfo400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse: gen.BadRequestApplicationProblemPlusJSONResponse(problem(400, "bad_request", errMissingBody)),
+		}, nil
+	}
+
+	if err := s.character.SetInfo(ctx, request.CharacterId, request.Body.Info); err != nil {
+		status, title := classify(err)
+		p := problem(status, title, err)
+		switch status {
+		case 404:
+			return gen.SetCharacterInfo404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse: gen.NotFoundApplicationProblemPlusJSONResponse(p),
+			}, nil
+		case 409:
+			return gen.SetCharacterInfo409ApplicationProblemPlusJSONResponse{
+				ConflictApplicationProblemPlusJSONResponse: gen.ConflictApplicationProblemPlusJSONResponse(p),
+			}, nil
+		default:
+			return gen.SetCharacterInfo400ApplicationProblemPlusJSONResponse{
+				BadRequestApplicationProblemPlusJSONResponse: gen.BadRequestApplicationProblemPlusJSONResponse(p),
+			}, nil
+		}
+	}
+
+	return gen.SetCharacterInfo204Response{}, nil
+}
+
 func (s *Server) CreateObject(ctx context.Context, request gen.CreateObjectRequestObject) (gen.CreateObjectResponseObject, error) {
 	if request.Body == nil {
 		return gen.CreateObject400ApplicationProblemPlusJSONResponse{

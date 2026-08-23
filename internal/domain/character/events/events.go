@@ -18,15 +18,15 @@ const (
 	TypeCharacterCreated  = "character.created.v1"
 	TypeCharacterRenamed  = "character.renamed.v1"
 	TypePlayerChanged     = "character.player_changed.v1"
+	TypeInfoChanged       = "character.info_changed.v1"
 	TypeCharacterArchived = "character.archived.v1"
 )
 
 // CharacterCreated carries CampaignID (immutable parent), EntityID (the auto-created paired
 // Entity — plan §4.4), and PlayerUserID, none of which are derivable from the envelope,
 // which only identifies the Character itself (plan §4.5). Info is an opaque JSON-string
-// payload with no command surface at all — no command sets it (not even Create), so it is
-// always the zero value ("") today; the field exists so the event schema already carries it
-// for whenever a future command is added to populate it, without another event-schema change.
+// payload — CreateCharacterRequest has no info field, so this is always "" at creation; it's
+// only ever set afterward via SetInfo/InfoChanged below.
 type CharacterCreated struct {
 	ID           uuid.UUID `json:"id"`
 	Name         string    `json:"name"`
@@ -53,6 +53,15 @@ type PlayerChanged struct {
 
 func (PlayerChanged) EventType() string { return TypePlayerChanged }
 
+// InfoChanged carries the Character's new info wholesale (replace, not merge — same shape as
+// domain/ruleset's DescriptionChanged/ReferencesChanged).
+type InfoChanged struct {
+	Info       string    `json:"info"`
+	OccurredAt time.Time `json:"occurredAt"`
+}
+
+func (InfoChanged) EventType() string { return TypeInfoChanged }
+
 type CharacterArchived struct {
 	OccurredAt time.Time `json:"occurredAt"`
 }
@@ -65,5 +74,6 @@ func Register(reg *eventsourcing.Registry) {
 	reg.Register(TypeCharacterCreated, func() eventsourcing.Event { return &CharacterCreated{} })
 	reg.Register(TypeCharacterRenamed, func() eventsourcing.Event { return &CharacterRenamed{} })
 	reg.Register(TypePlayerChanged, func() eventsourcing.Event { return &PlayerChanged{} })
+	reg.Register(TypeInfoChanged, func() eventsourcing.Event { return &InfoChanged{} })
 	reg.Register(TypeCharacterArchived, func() eventsourcing.Event { return &CharacterArchived{} })
 }
