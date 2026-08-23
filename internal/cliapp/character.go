@@ -96,7 +96,7 @@ func registerCharacterCommands(a *App) {
 			if err != nil {
 				return err
 			}
-			return client.Command("PATCH", "/characters/"+args[0]+"/info", map[string]any{"info": args[1]})
+			return client.Command("PUT", "/characters/"+args[0]+"/info", map[string]any{"info": args[1]})
 		},
 	})
 

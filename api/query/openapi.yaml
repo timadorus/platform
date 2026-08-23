@@ -378,7 +378,7 @@ components:
           type: string
           format: uuid
         # info is an opaque JSON-string payload, never parsed or validated by the backend.
-        # Settable only via PATCH /characters/{characterId}/info (api/command/openapi.yaml) —
+        # Settable only via PUT /characters/{characterId}/info (api/command/openapi.yaml) —
         # not at creation, and not by any other command.
         info:
           type: string

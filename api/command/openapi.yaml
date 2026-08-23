@@ -405,7 +405,7 @@ paths:
           $ref: "#/components/responses/UnprocessableEntity"
 
   /characters/{characterId}/info:
-    patch:
+    put:
       operationId: setCharacterInfo
       summary: Replace a Character's info (an opaque JSON string the backend never parses or validates).
       parameters:

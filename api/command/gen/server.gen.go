@@ -241,7 +241,7 @@ type ServerInterface interface {
 	// (POST /characters/{characterId}/archive)
 	ArchiveCharacter(w http.ResponseWriter, r *http.Request, characterId CharacterId)
 	// SetCharacterInfo Replace a Character's info (an opaque JSON string the backend never parses or validates).
-	// (PATCH /characters/{characterId}/info)
+	// (PUT /characters/{characterId}/info)
 	SetCharacterInfo(w http.ResponseWriter, r *http.Request, characterId CharacterId)
 	// SetCharacterPlayer Reassign a Character's Player. There is no "unset" — a Character always has exactly one Player.
 	// (PUT /characters/{characterId}/player)
@@ -1224,7 +1224,7 @@ func HandlerWithOptions(si ServerInterface, options GorillaServerOptions) http.H
 
 	r.HandleFunc(options.BaseURL+"/characters/{characterId}/player", wrapper.SetCharacterPlayer).Methods(http.MethodPut)
 
-	r.HandleFunc(options.BaseURL+"/characters/{characterId}/info", wrapper.SetCharacterInfo).Methods(http.MethodPatch)
+	r.HandleFunc(options.BaseURL+"/characters/{characterId}/info", wrapper.SetCharacterInfo).Methods(http.MethodPut)
 
 	r.HandleFunc(options.BaseURL+"/universes/{universeId}/objects", wrapper.CreateObject).Methods(http.MethodPost)
 
@@ -3050,7 +3050,7 @@ type StrictServerInterface interface {
 	// (POST /characters/{characterId}/archive)
 	ArchiveCharacter(ctx context.Context, request ArchiveCharacterRequestObject) (ArchiveCharacterResponseObject, error)
 	// SetCharacterInfo Replace a Character's info (an opaque JSON string the backend never parses or validates).
-	// (PATCH /characters/{characterId}/info)
+	// (PUT /characters/{characterId}/info)
 	SetCharacterInfo(ctx context.Context, request SetCharacterInfoRequestObject) (SetCharacterInfoResponseObject, error)
 	// SetCharacterPlayer Reassign a Character's Player. There is no "unset" — a Character always has exactly one Player.
 	// (PUT /characters/{characterId}/player)
@@ -4063,18 +4063,18 @@ var swaggerSpec = []string{
 	"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",
-	"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",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,
