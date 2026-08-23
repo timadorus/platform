@@ -19,6 +19,7 @@ const (
 	TypeCharacterRenamed  = "character.renamed.v1"
 	TypePlayerChanged     = "character.player_changed.v1"
 	TypeInfoChanged       = "character.info_changed.v1"
+	TypeActionRequested   = "character.action_requested.v1"
 	TypeCharacterArchived = "character.archived.v1"
 )
 
@@ -62,6 +63,18 @@ type InfoChanged struct {
 
 func (InfoChanged) EventType() string { return TypeInfoChanged }
 
+// ActionRequested is a pure trigger: raised by Character.RequestAction, applied as a no-op
+// (see Character.Apply), with the actual effect, if any, decided later and asynchronously by
+// timadorus-engine (internal/engine/timadorus) — never by the Character aggregate itself.
+// Payload is the PUT /characters/{id}/action request body, re-marshaled to a canonical JSON
+// string (same opaque-string representation Info already uses), unused by any command here.
+type ActionRequested struct {
+	Payload    string    `json:"payload"`
+	OccurredAt time.Time `json:"occurredAt"`
+}
+
+func (ActionRequested) EventType() string { return TypeActionRequested }
+
 type CharacterArchived struct {
 	OccurredAt time.Time `json:"occurredAt"`
 }
@@ -75,5 +88,6 @@ func Register(reg *eventsourcing.Registry) {
 	reg.Register(TypeCharacterRenamed, func() eventsourcing.Event { return &CharacterRenamed{} })
 	reg.Register(TypePlayerChanged, func() eventsourcing.Event { return &PlayerChanged{} })
 	reg.Register(TypeInfoChanged, func() eventsourcing.Event { return &InfoChanged{} })
+	reg.Register(TypeActionRequested, func() eventsourcing.Event { return &ActionRequested{} })
 	reg.Register(TypeCharacterArchived, func() eventsourcing.Event { return &CharacterArchived{} })
 }

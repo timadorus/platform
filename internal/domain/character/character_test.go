@@ -120,4 +120,28 @@ func TestArchive(t *testing.T) {
 	if err := c.SetInfo("{}"); err != character.ErrArchived {
 		t.Fatalf("got %v, want ErrArchived", err)
 	}
+	if err := c.RequestAction("{}"); err != character.ErrArchived {
+		t.Fatalf("got %v, want ErrArchived", err)
+	}
+}
+
+func TestRequestAction(t *testing.T) {
+	c, err := character.New(uuid.New(), uuid.New(), uuid.New(), "Elminster")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	c.ClearPending()
+
+	nameBefore, campaignBefore, entityBefore, playerBefore, infoBefore := c.Name(), c.CampaignID(), c.EntityID(), c.PlayerUserID(), c.Info()
+
+	if err := c.RequestAction(`{"foo":"bar"}`); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := len(c.Pending()); got != 1 {
+		t.Fatalf("got %d pending events, want 1", got)
+	}
+	if c.Name() != nameBefore || c.CampaignID() != campaignBefore || c.EntityID() != entityBefore ||
+		c.PlayerUserID() != playerBefore || c.Info() != infoBefore {
+		t.Fatalf("RequestAction must not mutate any field, but at least one changed")
+	}
 }

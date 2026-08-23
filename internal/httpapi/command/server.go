@@ -2,6 +2,7 @@ package command
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 
 	"github.com/timadorus/platform/api/command/gen"
@@ -551,6 +552,42 @@ func (s *Server) SetCharacterInfo(ctx context.Context, request gen.SetCharacterI
 	}
 
 	return gen.SetCharacterInfo204Response{}, nil
+}
+
+func (s *Server) RequestCharacterAction(ctx context.Context, request gen.RequestCharacterActionRequestObject) (gen.RequestCharacterActionResponseObject, error) {
+	if request.Body == nil {
+		return gen.RequestCharacterAction400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse: gen.BadRequestApplicationProblemPlusJSONResponse(problem(400, "bad_request", errMissingBody)),
+		}, nil
+	}
+
+	payload, err := json.Marshal(*request.Body)
+	if err != nil {
+		return gen.RequestCharacterAction400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse: gen.BadRequestApplicationProblemPlusJSONResponse(problem(400, "bad_request", err)),
+		}, nil
+	}
+
+	if err := s.character.RequestAction(ctx, request.CharacterId, string(payload)); err != nil {
+		status, title := classify(err)
+		p := problem(status, title, err)
+		switch status {
+		case 404:
+			return gen.RequestCharacterAction404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse: gen.NotFoundApplicationProblemPlusJSONResponse(p),
+			}, nil
+		case 409:
+			return gen.RequestCharacterAction409ApplicationProblemPlusJSONResponse{
+				ConflictApplicationProblemPlusJSONResponse: gen.ConflictApplicationProblemPlusJSONResponse(p),
+			}, nil
+		default:
+			return gen.RequestCharacterAction400ApplicationProblemPlusJSONResponse{
+				BadRequestApplicationProblemPlusJSONResponse: gen.BadRequestApplicationProblemPlusJSONResponse(p),
+			}, nil
+		}
+	}
+
+	return gen.RequestCharacterAction204Response{}, nil
 }
 
 func (s *Server) CreateObject(ctx context.Context, request gen.CreateObjectRequestObject) (gen.CreateObjectResponseObject, error) {

@@ -105,6 +105,19 @@ func (c *Character) SetInfo(info string) error {
 	return nil
 }
 
+// RequestAction raises ActionRequested without mutating any aggregate field (see Apply below) —
+// the actual effect, if any, happens later and asynchronously in timadorus-engine, and only
+// conditionally on the Character's Campaign's Ruleset (see that package's own docs). Guarded by
+// the same archived check every other mutating command uses, since a request against an
+// archived Character shouldn't be accepted even though it has no direct effect here.
+func (c *Character) RequestAction(payload string) error {
+	if c.archived {
+		return ErrArchived
+	}
+	c.raise(&events.ActionRequested{Payload: payload, OccurredAt: time.Now().UTC()})
+	return nil
+}
+
 // Archive is idempotent — see universe.Universe.Archive's doc comment for why.
 func (c *Character) Archive() error {
 	if c.archived {
@@ -129,6 +142,10 @@ func (c *Character) Apply(event eventsourcing.Event) {
 		c.playerUserID = e.NewPlayerUserID
 	case *events.InfoChanged:
 		c.info = e.Info
+	case *events.ActionRequested:
+		// Intentionally a no-op — see RequestAction's doc comment. An explicit case (rather
+		// than falling through to no case at all) keeps this switch exhaustive and
+		// self-documenting: a future reader shouldn't have to wonder whether it was forgotten.
 	case *events.CharacterArchived:
 		c.archived = true
 	}

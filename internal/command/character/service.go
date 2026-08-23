@@ -146,3 +146,14 @@ func (s *Service) SetPlayer(ctx context.Context, id, userID uuid.UUID) error {
 	}
 	return s.characters.Save(ctx, c)
 }
+
+func (s *Service) RequestAction(ctx context.Context, id uuid.UUID, payload string) error {
+	c, err := s.characters.Load(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := c.RequestAction(payload); err != nil {
+		return err
+	}
+	return s.characters.Save(ctx, c)
+}

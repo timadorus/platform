@@ -426,6 +426,30 @@ paths:
         "409":
           $ref: "#/components/responses/Conflict"
 
+  /characters/{characterId}/action:
+    put:
+      operationId: requestCharacterAction
+      summary: >
+        Request an action on a Character. Does not change the Character directly — raises an
+        ActionRequested event that timadorus-engine may or may not act on, asynchronously.
+      parameters:
+        - $ref: "#/components/parameters/CharacterId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "204":
+          description: Action requested.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
   /universes/{universeId}/objects:
     post:
       operationId: createObject

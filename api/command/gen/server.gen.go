@@ -163,6 +163,9 @@ type NotFound = Problem
 // UnprocessableEntity RFC 7807 problem+json error body.
 type UnprocessableEntity = Problem
 
+// RequestCharacterActionJSONBody defines parameters for RequestCharacterAction.
+type RequestCharacterActionJSONBody = map[string]interface{}
+
 // RenameCampaignJSONRequestBody defines body for RenameCampaign for application/json ContentType.
 type RenameCampaignJSONRequestBody = RenameRequest
 
@@ -171,6 +174,9 @@ type CreateCharacterJSONRequestBody = CreateCharacterRequest
 
 // RenameCharacterJSONRequestBody defines body for RenameCharacter for application/json ContentType.
 type RenameCharacterJSONRequestBody = RenameRequest
+
+// RequestCharacterActionJSONRequestBody defines body for RequestCharacterAction for application/json ContentType.
+type RequestCharacterActionJSONRequestBody = RequestCharacterActionJSONBody
 
 // SetCharacterInfoJSONRequestBody defines body for SetCharacterInfo for application/json ContentType.
 type SetCharacterInfoJSONRequestBody = SetCharacterInfoRequest
@@ -237,6 +243,9 @@ type ServerInterface interface {
 	// RenameCharacter Rename a Character.
 	// (PATCH /characters/{characterId})
 	RenameCharacter(w http.ResponseWriter, r *http.Request, characterId CharacterId)
+	// RequestCharacterAction Request an action on a Character. Does not change the Character directly — raises an ActionRequested event that timadorus-engine may or may not act on, asynchronously.
+	// (PUT /characters/{characterId}/action)
+	RequestCharacterAction(w http.ResponseWriter, r *http.Request, characterId CharacterId)
 	// ArchiveCharacter Archive a Character. Idempotent.
 	// (POST /characters/{characterId}/archive)
 	ArchiveCharacter(w http.ResponseWriter, r *http.Request, characterId CharacterId)
@@ -482,6 +491,32 @@ func (siw *ServerInterfaceWrapper) RenameCharacter(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RenameCharacter(w, r, characterId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RequestCharacterAction operation middleware
+func (siw *ServerInterfaceWrapper) RequestCharacterAction(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "characterId" -------------
+	var characterId CharacterId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "characterId", mux.Vars(r)["characterId"], &characterId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "characterId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RequestCharacterAction(w, r, characterId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1226,6 +1261,8 @@ func HandlerWithOptions(si ServerInterface, options GorillaServerOptions) http.H
 
 	r.HandleFunc(options.BaseURL+"/characters/{characterId}/info", wrapper.SetCharacterInfo).Methods(http.MethodPut)
 
+	r.HandleFunc(options.BaseURL+"/characters/{characterId}/action", wrapper.RequestCharacterAction).Methods(http.MethodPut)
+
 	r.HandleFunc(options.BaseURL+"/universes/{universeId}/objects", wrapper.CreateObject).Methods(http.MethodPost)
 
 	r.HandleFunc(options.BaseURL+"/objects/{objectId}", wrapper.RenameObject).Methods(http.MethodPatch)
@@ -1628,6 +1665,71 @@ func (response RenameCharacter422ApplicationProblemPlusJSONResponse) VisitRename
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RequestCharacterActionRequestObject struct {
+	CharacterId CharacterId `json:"characterId"`
+	Body        *RequestCharacterActionJSONRequestBody
+}
+
+type RequestCharacterActionResponseObject interface {
+	VisitRequestCharacterActionResponse(w http.ResponseWriter) error
+}
+
+type RequestCharacterAction204Response struct {
+}
+
+func (response RequestCharacterAction204Response) VisitRequestCharacterActionResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RequestCharacterAction400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response RequestCharacterAction400ApplicationProblemPlusJSONResponse) VisitRequestCharacterActionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RequestCharacterAction404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response RequestCharacterAction404ApplicationProblemPlusJSONResponse) VisitRequestCharacterActionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RequestCharacterAction409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response RequestCharacterAction409ApplicationProblemPlusJSONResponse) VisitRequestCharacterActionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -3046,6 +3148,9 @@ type StrictServerInterface interface {
 	// RenameCharacter Rename a Character.
 	// (PATCH /characters/{characterId})
 	RenameCharacter(ctx context.Context, request RenameCharacterRequestObject) (RenameCharacterResponseObject, error)
+	// RequestCharacterAction Request an action on a Character. Does not change the Character directly — raises an ActionRequested event that timadorus-engine may or may not act on, asynchronously.
+	// (PUT /characters/{characterId}/action)
+	RequestCharacterAction(ctx context.Context, request RequestCharacterActionRequestObject) (RequestCharacterActionResponseObject, error)
 	// ArchiveCharacter Archive a Character. Idempotent.
 	// (POST /characters/{characterId}/archive)
 	ArchiveCharacter(ctx context.Context, request ArchiveCharacterRequestObject) (ArchiveCharacterResponseObject, error)
@@ -3328,6 +3433,39 @@ func (sh *strictHandler) RenameCharacter(w http.ResponseWriter, r *http.Request,
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RenameCharacterResponseObject); ok {
 		if err := validResponse.VisitRenameCharacterResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RequestCharacterAction operation middleware
+func (sh *strictHandler) RequestCharacterAction(w http.ResponseWriter, r *http.Request, characterId CharacterId) {
+	var request RequestCharacterActionRequestObject
+
+	request.CharacterId = characterId
+
+	var body RequestCharacterActionJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RequestCharacterAction(ctx, request.(RequestCharacterActionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RequestCharacterAction")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RequestCharacterActionResponseObject); ok {
+		if err := validResponse.VisitRequestCharacterActionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -4039,42 +4177,44 @@ func (sh *strictHandler) ArchiveUser(w http.ResponseWriter, r *http.Request, use
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

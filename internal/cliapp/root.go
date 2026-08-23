@@ -20,6 +20,7 @@ type App struct {
 	setCmd     *cobra.Command
 	getCmd     *cobra.Command
 	listCmd    *cobra.Command
+	actionCmd  *cobra.Command
 }
 
 // version is overridable via -ldflags "-X github.com/timadorus/platform/internal/cliapp.version=...".
@@ -68,9 +69,13 @@ func newApp() *App {
 			Use:   "list",
 			Short: "List a collection, scoped to a parent or bare for User/Universe/Ruleset",
 		},
+		actionCmd: &cobra.Command{
+			Use:   "action",
+			Short: "Request an action on an aggregate (PUT .../action) — effect, if any, is asynchronous",
+		},
 	}
 
-	root.AddCommand(a.createCmd, a.renameCmd, a.archiveCmd, a.addCmd, a.deleteCmd, a.setCmd, a.getCmd, a.listCmd)
+	root.AddCommand(a.createCmd, a.renameCmd, a.archiveCmd, a.addCmd, a.deleteCmd, a.setCmd, a.getCmd, a.listCmd, a.actionCmd)
 	return a
 }
 

@@ -1,6 +1,7 @@
 package cliapp
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -97,6 +98,23 @@ func registerCharacterCommands(a *App) {
 				return err
 			}
 			return client.Command("PUT", "/characters/"+args[0]+"/info", map[string]any{"info": args[1]})
+		},
+	})
+
+	a.actionCmd.AddCommand(&cobra.Command{
+		Use:   "character <characterId> <jsonPayload>",
+		Short: "Request an action on a Character",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, _, err := a.client()
+			if err != nil {
+				return err
+			}
+			var payload map[string]any
+			if err := json.Unmarshal([]byte(args[1]), &payload); err != nil {
+				return fmt.Errorf("invalid JSON payload: %w", err)
+			}
+			return client.Command("PUT", "/characters/"+args[0]+"/action", payload)
 		},
 	})
 
