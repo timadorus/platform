@@ -1655,7 +1655,8 @@ propagation) and a cross-processor test proving the shared cache is
 actually shared."
 ```
 
-- [ ] **Step 13: Live end-to-end verification against the dev cluster**
+- [x] **Step 13: Live end-to-end verification against the dev cluster** — done; see "Live
+  end-to-end verification record" after this step for what was confirmed and when.
 
 Run `make dev-up` from the repo root (rebuilds/reloads the `timadorus-engine` image with both
 processors now registered, redeploys via `helm upgrade` — no new image/Dockerfile/Helm template
@@ -1687,8 +1688,50 @@ Traefik):
 If any step fails, this is real product behavior to debug and fix — not an environment issue to
 explain away.
 
+### Live end-to-end verification record
+
+Run once, live, against a real kind cluster after Task 2 merged (`make dev-up`, no teardown of
+the pre-existing cluster). Full transcript originally lived in this plan's now-deleted
+`.superpowers/sdd/` workspace (`task-2-report.md`); recorded here in git history because that
+workspace does not survive past this branch's review process.
+
+- `timadorus-engine` pod restarted cleanly (`1/1 Running`) with `processors=2` in its startup
+  log: `time=2026-08-23T20:31:20.801Z level=INFO msg="timadorus-engine: starting" processors=2`.
+  No errors or dead-letters appeared in the pod's logs across any of the 5 scenarios below.
+- **(a) Direct set** — `PUT /api/command/campaigns/{id}/configuration` with
+  `{"configuration":"{\"difficulty\":\"hard\"}"}` against "Bahamut"
+  (`7758eb48-c84f-437d-ad5c-0fd84f3e4df0`, Ruleset "Timadorus") returned `204`; `GET
+  .../campaigns/{id}` reflected `{"difficulty":"hard"}` after a brief (~1s) projection lag.
+  PASS.
+- **(b) Matching-ruleset trigger, called twice** — `PUT .../campaigns/{id}/configure` (`{}`) on
+  the same Bahamut campaign returned `204` both times; `configuration` progressed to
+  `{"configs":["2026-08-23T20:33:02.784173667Z"],"difficulty":"hard"}` then to
+  `{"configs":["2026-08-23T20:33:02.784173667Z","2026-08-23T20:33:21.499786773Z"],"difficulty":"hard"}`
+  — two RFC3339Nano timestamps appended under `"configs"`, with the pre-existing
+  `"difficulty":"hard"` key from (a) preserved (merge, not overwrite). PASS.
+- **(c) Non-matching-ruleset trigger** — `configure` on "NonMatchCampaign"
+  (`20dcc04a-98a9-4409-8388-e49f4544861a`, Ruleset "NotTimadorus") returned `204`, but
+  `configuration` stayed `""` after a 6s wait. PASS.
+- **(d) Archived guard** — a fresh Campaign under Ruleset "Timadorus", archived, then
+  `configure`'d: the command endpoint itself returned `409` immediately (the
+  `RequestConfiguration` archived-check, distinct from the engine-side archived-race no-op
+  covered by Task 2's own tests). PASS.
+- **(e) No regression on Character** — `PUT .../characters/{id}/action` on the pre-existing
+  "Elminster" Character under Bahamut still returned `204` and `info` gained a new `"actions"`
+  timestamp alongside its pre-existing `"verb":"put"` key — confirming the
+  `Processor`→`CharacterProcessor` rename and the now-shared `RulesetCache` didn't regress the
+  already-shipped Character `action`/`info` behavior. PASS.
+
+Lightly re-confirmed after the final-review fix pass (2026-08-23): the same cluster was still up
+(`timadorus-dev` namespace, `timadorus-engine` pod `1/1 Running`), and `kubectl logs ... | grep
+-i processors` still showed `processors=2`. Zitadel-issued API credentials from the original
+verification session were not readily available in the fix-pass session, so scenarios (a)-(e)
+were not re-run live at that time; the pod health/log check above was the extent of the
+re-confirmation.
+
 ## Final Verification
 
 - `go build ./... && go vet ./... && go test ./...` clean from the repo root.
 - `make dev-up` succeeds; `timadorus-engine`'s pod log shows `processors=2`.
-- All 5 live-verification scenarios in Task 2 Step 13 pass against the real cluster.
+- All 5 live-verification scenarios in Task 2 Step 13 pass against the real cluster — see "Live
+  end-to-end verification record" above.
