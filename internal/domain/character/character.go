@@ -25,6 +25,7 @@ type Character struct {
 	campaignID   uuid.UUID
 	entityID     uuid.UUID
 	playerUserID uuid.UUID
+	info         string
 	archived     bool
 }
 
@@ -32,7 +33,11 @@ func (c *Character) Name() string            { return c.name }
 func (c *Character) CampaignID() uuid.UUID   { return c.campaignID }
 func (c *Character) EntityID() uuid.UUID     { return c.entityID }
 func (c *Character) PlayerUserID() uuid.UUID { return c.playerUserID }
-func (c *Character) IsArchived() bool        { return c.archived }
+
+// Info is an opaque JSON-string payload with no command surface — see
+// events.CharacterCreated's doc comment for why it is always "" today.
+func (c *Character) Info() string     { return c.info }
+func (c *Character) IsArchived() bool { return c.archived }
 
 // New constructs and creates a new Character under campaignID, paired with the Entity
 // identified by entityID. The caller (internal/command/character.Service) is responsible
@@ -106,6 +111,7 @@ func (c *Character) Apply(event eventsourcing.Event) {
 		c.campaignID = e.CampaignID
 		c.entityID = e.EntityID
 		c.playerUserID = e.PlayerUserID
+		c.info = e.Info
 	case *events.CharacterRenamed:
 		c.name = e.Name
 	case *events.PlayerChanged:

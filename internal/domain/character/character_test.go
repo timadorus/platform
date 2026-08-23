@@ -39,6 +39,9 @@ func TestNew(t *testing.T) {
 		if c.PlayerUserID() != playerID {
 			t.Fatalf("got playerUserID %s, want %s", c.PlayerUserID(), playerID)
 		}
+		if c.Info() != "" {
+			t.Fatalf("got info %q, want empty — Info has no command surface, must default empty", c.Info())
+		}
 	})
 }
 

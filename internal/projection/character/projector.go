@@ -34,10 +34,10 @@ func (p *Projector) Handle(ctx context.Context, tx pgx.Tx, env bus.Envelope) err
 			return fmt.Errorf("character projector: unmarshal %s: %w", env.EventType, err)
 		}
 		_, err := tx.Exec(ctx,
-			`INSERT INTO characters_read_model (id, name, campaign_id, entity_id, player_user_id, is_archived, updated_at)
-			 VALUES ($1, $2, $3, $4, $5, false, $6)
+			`INSERT INTO characters_read_model (id, name, campaign_id, entity_id, player_user_id, info, is_archived, updated_at)
+			 VALUES ($1, $2, $3, $4, $5, $6, false, $7)
 			 ON CONFLICT (id) DO NOTHING`,
-			env.AggregateID, e.Name, e.CampaignID, e.EntityID, e.PlayerUserID, e.OccurredAt,
+			env.AggregateID, e.Name, e.CampaignID, e.EntityID, e.PlayerUserID, e.Info, e.OccurredAt,
 		)
 		return err
 	case events.TypeCharacterRenamed:

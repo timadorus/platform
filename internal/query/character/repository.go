@@ -20,6 +20,7 @@ type Character struct {
 	CampaignID   uuid.UUID
 	EntityID     uuid.UUID
 	PlayerUserID uuid.UUID
+	Info         string
 	IsArchived   bool
 }
 
@@ -34,8 +35,8 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 func (r *Repository) Get(ctx context.Context, id uuid.UUID) (Character, error) {
 	var c Character
 	err := r.pool.QueryRow(ctx,
-		`SELECT id, name, campaign_id, entity_id, player_user_id, is_archived FROM characters_read_model WHERE id = $1`, id,
-	).Scan(&c.ID, &c.Name, &c.CampaignID, &c.EntityID, &c.PlayerUserID, &c.IsArchived)
+		`SELECT id, name, campaign_id, entity_id, player_user_id, info, is_archived FROM characters_read_model WHERE id = $1`, id,
+	).Scan(&c.ID, &c.Name, &c.CampaignID, &c.EntityID, &c.PlayerUserID, &c.Info, &c.IsArchived)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Character{}, ErrNotFound
 	}
@@ -48,7 +49,7 @@ func (r *Repository) Get(ctx context.Context, id uuid.UUID) (Character, error) {
 // ListByCampaign returns non-archived Characters under campaignID, ordered by name.
 func (r *Repository) ListByCampaign(ctx context.Context, campaignID uuid.UUID) ([]Character, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT id, name, campaign_id, entity_id, player_user_id, is_archived FROM characters_read_model
+		`SELECT id, name, campaign_id, entity_id, player_user_id, info, is_archived FROM characters_read_model
 		 WHERE campaign_id = $1 AND is_archived = false
 		 ORDER BY name`,
 		campaignID,
@@ -61,7 +62,7 @@ func (r *Repository) ListByCampaign(ctx context.Context, campaignID uuid.UUID) (
 	var characters []Character
 	for rows.Next() {
 		var c Character
-		if err := rows.Scan(&c.ID, &c.Name, &c.CampaignID, &c.EntityID, &c.PlayerUserID, &c.IsArchived); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.CampaignID, &c.EntityID, &c.PlayerUserID, &c.Info, &c.IsArchived); err != nil {
 			return nil, fmt.Errorf("query/character: scan row: %w", err)
 		}
 		characters = append(characters, c)

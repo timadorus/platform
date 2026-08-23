@@ -23,13 +23,17 @@ const (
 
 // CharacterCreated carries CampaignID (immutable parent), EntityID (the auto-created paired
 // Entity — plan §4.4), and PlayerUserID, none of which are derivable from the envelope,
-// which only identifies the Character itself (plan §4.5).
+// which only identifies the Character itself (plan §4.5). Info is an opaque JSON-string
+// payload with no command surface at all — no command sets it (not even Create), so it is
+// always the zero value ("") today; the field exists so the event schema already carries it
+// for whenever a future command is added to populate it, without another event-schema change.
 type CharacterCreated struct {
 	ID           uuid.UUID `json:"id"`
 	Name         string    `json:"name"`
 	CampaignID   uuid.UUID `json:"campaignId"`
 	EntityID     uuid.UUID `json:"entityId"`
 	PlayerUserID uuid.UUID `json:"playerUserId"`
+	Info         string    `json:"info"`
 	OccurredAt   time.Time `json:"occurredAt"`
 }
 

@@ -142,6 +142,7 @@ func (s *Server) GetCharacter(ctx context.Context, request gen.GetCharacterReque
 		CampaignId:   c.CampaignID,
 		EntityId:     c.EntityID,
 		PlayerUserId: c.PlayerUserID,
+		Info:         c.Info,
 		IsArchived:   c.IsArchived,
 	}, nil
 }
@@ -220,6 +221,7 @@ func (s *Server) ListCharactersByCampaign(ctx context.Context, request gen.ListC
 			CampaignId:   c.CampaignID,
 			EntityId:     c.EntityID,
 			PlayerUserId: c.PlayerUserID,
+			Info:         c.Info,
 			IsArchived:   c.IsArchived,
 		}
 	}
