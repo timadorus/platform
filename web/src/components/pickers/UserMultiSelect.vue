@@ -1,11 +1,27 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
 import { useUsers } from '@/composables/useUsers'
+import { useAuthStore } from '@/stores/auth'
 
 const modelValue = defineModel<string[]>({ required: true })
 const { users, loading, list } = useUsers()
+const auth = useAuthStore()
 
-onMounted(list)
+onMounted(async () => {
+  await list()
+  // Pre-select the current user by default (only when nothing is selected yet, so this never
+  // overrides an existing selection). Matched by name against the OIDC email claim — the only
+  // identity link available, since no platform User row is actually linked to the OIDC identity
+  // that logged in (see auth store's `email` getter for why this is email, not
+  // preferred_username or displayName). Silently does nothing if there's no matching User or
+  // nobody is logged in; the checkbox stays a normal, uncheckable-again checkbox either way.
+  if (modelValue.value.length === 0 && auth.email) {
+    const currentUser = users.value.find((u) => u.name === auth.email)
+    if (currentUser) {
+      modelValue.value = [currentUser.id]
+    }
+  }
+})
 
 function toggle(id: string) {
   if (modelValue.value.includes(id)) {

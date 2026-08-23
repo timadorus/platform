@@ -23,6 +23,15 @@ export const useAuthStore = defineStore('auth', {
     // (design spec §5).
     subject: (state) => state.oidcUser?.profile.sub ?? null,
     displayName: (state) => state.oidcUser?.profile.name ?? state.oidcUser?.profile.preferred_username ?? null,
+    // email is a purpose-built identity key for matching against a platform User's name
+    // (UserMultiSelect uses this to pre-select "the current user"), distinct from displayName
+    // above (which is for on-screen labels, not matching). NOT profile.preferred_username: that
+    // claim is Zitadel's own login-name/org-domain convention (confirmed live, e.g.
+    // "devuser@zitadel.localhost" for a user whose actual email is "devuser@timadorus.local") —
+    // it does not match the platform User names devcluster seeds (which use the Human's Email
+    // address, see test/e2e/internal/zitadel.go's ZitadelBootstrap.TestLoginName). email requires
+    // both the "email" scope below and loadUserInfo below — the ID token alone never carries it.
+    email: (state) => state.oidcUser?.profile.email ?? null,
   },
   actions: {
     init(cfg: RuntimeConfig) {
@@ -32,8 +41,16 @@ export const useAuthStore = defineStore('auth', {
         redirect_uri: cfg.oidc.redirectUri,
         post_logout_redirect_uri: cfg.oidc.postLogoutRedirectUri,
         response_type: 'code',
-        scope: 'openid profile',
+        // "email" is required for the email getter above — Zitadel only returns it via the
+        // userinfo endpoint (see loadUserInfo below), never in the ID token itself.
+        scope: 'openid profile email',
         automaticSilentRenew: true,
+        // oidc-client-ts defaults loadUserInfo to false, i.e. it never calls the IdP's userinfo
+        // endpoint — profile then contains only the ID token's bare technical claims (sub, aud,
+        // exp, ...), with no name/preferred_username/email at all (confirmed live: displayName
+        // rendered blank in AppHeader for every session before this was set). true fetches
+        // userinfo once per sign-in and merges its claims into profile.
+        loadUserInfo: true,
         // oidc-client-ts needs its own storage to survive the PKCE redirect round-trip and
         // drive silent renew — sessionStorage, not localStorage (Global Constraints). The
         // app's own code never reads this storage directly, only the getters above.
