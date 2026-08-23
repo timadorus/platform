@@ -97,7 +97,7 @@ func (s *Server) GetCampaign(ctx context.Context, request gen.GetCampaignRequest
 		}
 		return nil, err
 	}
-	return gen.GetCampaign200JSONResponse{Id: c.ID, Name: c.Name, UniverseId: c.UniverseID, RulesetId: c.RulesetID, IsArchived: c.IsArchived}, nil
+	return gen.GetCampaign200JSONResponse{Id: c.ID, Name: c.Name, UniverseId: c.UniverseID, RulesetId: c.RulesetID, Configuration: c.Configuration, IsArchived: c.IsArchived}, nil
 }
 
 func (s *Server) ListCampaignGamemasters(ctx context.Context, request gen.ListCampaignGamemastersRequestObject) (gen.ListCampaignGamemastersResponseObject, error) {
@@ -167,7 +167,7 @@ func (s *Server) ListCampaignsByUniverse(ctx context.Context, request gen.ListCa
 	}
 	out := make([]gen.Campaign, len(campaigns))
 	for i, c := range campaigns {
-		out[i] = gen.Campaign{Id: c.ID, Name: c.Name, UniverseId: c.UniverseID, RulesetId: c.RulesetID, IsArchived: c.IsArchived}
+		out[i] = gen.Campaign{Id: c.ID, Name: c.Name, UniverseId: c.UniverseID, RulesetId: c.RulesetID, Configuration: c.Configuration, IsArchived: c.IsArchived}
 	}
 	return gen.ListCampaignsByUniverse200JSONResponse(out), nil
 }

@@ -1,6 +1,7 @@
 package cliapp
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -76,6 +77,36 @@ func registerCampaignCommands(a *App) {
 				return err
 			}
 			return client.Query("/campaigns/" + args[0])
+		},
+	})
+
+	a.setCmd.AddCommand(&cobra.Command{
+		Use:   "configuration <campaignId> <value>",
+		Short: "Replace a Campaign's configuration (an opaque JSON string, not parsed or validated)",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, _, err := a.client()
+			if err != nil {
+				return err
+			}
+			return client.Command("PUT", "/campaigns/"+args[0]+"/configuration", map[string]any{"configuration": args[1]})
+		},
+	})
+
+	a.actionCmd.AddCommand(&cobra.Command{
+		Use:   "campaign <campaignId> <jsonPayload>",
+		Short: "Request configuration of a Campaign",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client, _, err := a.client()
+			if err != nil {
+				return err
+			}
+			var payload map[string]any
+			if err := json.Unmarshal([]byte(args[1]), &payload); err != nil {
+				return fmt.Errorf("invalid JSON payload: %w", err)
+			}
+			return client.Command("PUT", "/campaigns/"+args[0]+"/configure", payload)
 		},
 	})
 

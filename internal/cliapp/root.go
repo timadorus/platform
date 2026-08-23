@@ -71,7 +71,7 @@ func newApp() *App {
 		},
 		actionCmd: &cobra.Command{
 			Use:   "action",
-			Short: "Request an action on an aggregate (PUT .../action) — effect, if any, is asynchronous",
+			Short: "Request an action/configuration on an aggregate — effect, if any, is asynchronous",
 		},
 	}
 

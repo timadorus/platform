@@ -402,7 +402,7 @@ components:
 
     Campaign:
       type: object
-      required: [id, name, universeId, rulesetId, isArchived]
+      required: [id, name, universeId, rulesetId, configuration, isArchived]
       properties:
         id:
           type: string
@@ -415,6 +415,12 @@ components:
         rulesetId:
           type: string
           format: uuid
+        # configuration is an opaque JSON-string payload, never parsed or validated by the
+        # backend. Settable directly via PUT /campaigns/{campaignId}/configuration, or
+        # indirectly (as a {"configs":[...]} timestamp list) by timadorus-engine reacting to
+        # PUT /campaigns/{campaignId}/configure — see api/command/openapi.yaml.
+        configuration:
+          type: string
         isArchived:
           type: boolean
 

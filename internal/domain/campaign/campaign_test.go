@@ -83,4 +83,49 @@ func TestArchive(t *testing.T) {
 	if err := c.AddGamemaster(uuid.New()); err != campaign.ErrArchived {
 		t.Fatalf("got %v, want ErrArchived", err)
 	}
+	if err := c.SetConfiguration("{}"); err != campaign.ErrArchived {
+		t.Fatalf("got %v, want ErrArchived", err)
+	}
+	if err := c.RequestConfiguration("{}"); err != campaign.ErrArchived {
+		t.Fatalf("got %v, want ErrArchived", err)
+	}
+}
+
+func TestSetConfiguration(t *testing.T) {
+	c, err := campaign.New(uuid.New(), uuid.New(), "Curse of Strahd", []uuid.UUID{uuid.New()})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	c.ClearPending()
+
+	if err := c.SetConfiguration(`{"difficulty":"hard"}`); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := c.Configuration(); got != `{"difficulty":"hard"}` {
+		t.Fatalf("got configuration %q", got)
+	}
+	if got := len(c.Pending()); got != 1 {
+		t.Fatalf("got %d pending events, want 1", got)
+	}
+}
+
+func TestRequestConfiguration(t *testing.T) {
+	c, err := campaign.New(uuid.New(), uuid.New(), "Curse of Strahd", []uuid.UUID{uuid.New()})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	c.ClearPending()
+
+	nameBefore, universeBefore, rulesetBefore, configBefore := c.Name(), c.UniverseID(), c.RulesetID(), c.Configuration()
+
+	if err := c.RequestConfiguration(`{"foo":"bar"}`); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := len(c.Pending()); got != 1 {
+		t.Fatalf("got %d pending events, want 1", got)
+	}
+	if c.Name() != nameBefore || c.UniverseID() != universeBefore || c.RulesetID() != rulesetBefore ||
+		c.Configuration() != configBefore {
+		t.Fatalf("RequestConfiguration must not mutate any field, but at least one changed")
+	}
 }

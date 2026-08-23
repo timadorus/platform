@@ -334,6 +334,71 @@ func (s *Server) RemoveCampaignGamemaster(ctx context.Context, request gen.Remov
 	return gen.RemoveCampaignGamemaster204Response{}, nil
 }
 
+func (s *Server) SetCampaignConfiguration(ctx context.Context, request gen.SetCampaignConfigurationRequestObject) (gen.SetCampaignConfigurationResponseObject, error) {
+	if request.Body == nil {
+		return gen.SetCampaignConfiguration400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse: gen.BadRequestApplicationProblemPlusJSONResponse(problem(400, "bad_request", errMissingBody)),
+		}, nil
+	}
+
+	if err := s.campaign.SetConfiguration(ctx, request.CampaignId, request.Body.Configuration); err != nil {
+		status, title := classify(err)
+		p := problem(status, title, err)
+		switch status {
+		case 404:
+			return gen.SetCampaignConfiguration404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse: gen.NotFoundApplicationProblemPlusJSONResponse(p),
+			}, nil
+		case 409:
+			return gen.SetCampaignConfiguration409ApplicationProblemPlusJSONResponse{
+				ConflictApplicationProblemPlusJSONResponse: gen.ConflictApplicationProblemPlusJSONResponse(p),
+			}, nil
+		default:
+			return gen.SetCampaignConfiguration400ApplicationProblemPlusJSONResponse{
+				BadRequestApplicationProblemPlusJSONResponse: gen.BadRequestApplicationProblemPlusJSONResponse(p),
+			}, nil
+		}
+	}
+
+	return gen.SetCampaignConfiguration204Response{}, nil
+}
+
+func (s *Server) RequestCampaignConfiguration(ctx context.Context, request gen.RequestCampaignConfigurationRequestObject) (gen.RequestCampaignConfigurationResponseObject, error) {
+	if request.Body == nil {
+		return gen.RequestCampaignConfiguration400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse: gen.BadRequestApplicationProblemPlusJSONResponse(problem(400, "bad_request", errMissingBody)),
+		}, nil
+	}
+
+	payload, err := json.Marshal(*request.Body)
+	if err != nil {
+		return gen.RequestCampaignConfiguration400ApplicationProblemPlusJSONResponse{
+			BadRequestApplicationProblemPlusJSONResponse: gen.BadRequestApplicationProblemPlusJSONResponse(problem(400, "bad_request", err)),
+		}, nil
+	}
+
+	if err := s.campaign.RequestConfiguration(ctx, request.CampaignId, string(payload)); err != nil {
+		status, title := classify(err)
+		p := problem(status, title, err)
+		switch status {
+		case 404:
+			return gen.RequestCampaignConfiguration404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse: gen.NotFoundApplicationProblemPlusJSONResponse(p),
+			}, nil
+		case 409:
+			return gen.RequestCampaignConfiguration409ApplicationProblemPlusJSONResponse{
+				ConflictApplicationProblemPlusJSONResponse: gen.ConflictApplicationProblemPlusJSONResponse(p),
+			}, nil
+		default:
+			return gen.RequestCampaignConfiguration400ApplicationProblemPlusJSONResponse{
+				BadRequestApplicationProblemPlusJSONResponse: gen.BadRequestApplicationProblemPlusJSONResponse(p),
+			}, nil
+		}
+	}
+
+	return gen.RequestCampaignConfiguration204Response{}, nil
+}
+
 func (s *Server) CreateEntity(ctx context.Context, request gen.CreateEntityRequestObject) (gen.CreateEntityResponseObject, error) {
 	if request.Body == nil {
 		return gen.CreateEntity400ApplicationProblemPlusJSONResponse{

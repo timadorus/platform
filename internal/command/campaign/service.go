@@ -129,3 +129,25 @@ func (s *Service) RemoveGamemaster(ctx context.Context, id, userID uuid.UUID) er
 	}
 	return s.campaigns.Save(ctx, c)
 }
+
+func (s *Service) SetConfiguration(ctx context.Context, id uuid.UUID, value string) error {
+	c, err := s.campaigns.Load(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := c.SetConfiguration(value); err != nil {
+		return err
+	}
+	return s.campaigns.Save(ctx, c)
+}
+
+func (s *Service) RequestConfiguration(ctx context.Context, id uuid.UUID, payload string) error {
+	c, err := s.campaigns.Load(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := c.RequestConfiguration(payload); err != nil {
+		return err
+	}
+	return s.campaigns.Save(ctx, c)
+}

@@ -19,11 +19,12 @@ const AggregateType = events.AggregateType
 type Campaign struct {
 	eventsourcing.Base
 
-	name        string
-	universeID  uuid.UUID
-	rulesetID   uuid.UUID
-	gamemasters map[uuid.UUID]struct{}
-	archived    bool
+	name          string
+	universeID    uuid.UUID
+	rulesetID     uuid.UUID
+	gamemasters   map[uuid.UUID]struct{}
+	configuration string
+	archived      bool
 }
 
 func (c *Campaign) Name() string          { return c.name }
@@ -34,6 +35,11 @@ func (c *Campaign) HasGamemaster(id uuid.UUID) bool {
 	_, ok := c.gamemasters[id]
 	return ok
 }
+
+// Configuration is an opaque JSON-string payload (the backend never parses or validates it) —
+// see SetConfiguration for the only command that changes it directly, and RequestConfiguration
+// for the trigger that changes it indirectly via timadorus-engine.
+func (c *Campaign) Configuration() string { return c.configuration }
 
 // New constructs and creates a new Campaign under universeID, referencing rulesetID
 // immutably (plan §2 — a Campaign's Ruleset can never change; a new Campaign must be created
@@ -101,6 +107,30 @@ func (c *Campaign) RemoveGamemaster(userID uuid.UUID) error {
 	return nil
 }
 
+// SetConfiguration replaces the Campaign's opaque configuration string wholesale (same
+// "replace, don't merge" shape as character.Character.SetInfo — no minimum-content invariant to
+// protect, so no dedupe-if-unchanged short-circuit).
+func (c *Campaign) SetConfiguration(value string) error {
+	if c.archived {
+		return ErrArchived
+	}
+	c.raise(&events.ConfigurationChanged{Configuration: value, OccurredAt: time.Now().UTC()})
+	return nil
+}
+
+// RequestConfiguration raises ConfigurationRequested without mutating any aggregate field (see
+// Apply below) — the actual effect, if any, happens later and asynchronously in
+// timadorus-engine's CampaignProcessor, and only conditionally on this Campaign's own Ruleset
+// (see that package's own docs). Guarded by the same archived check every other mutating
+// command uses.
+func (c *Campaign) RequestConfiguration(payload string) error {
+	if c.archived {
+		return ErrArchived
+	}
+	c.raise(&events.ConfigurationRequested{Payload: payload, OccurredAt: time.Now().UTC()})
+	return nil
+}
+
 // Archive is idempotent — see universe.Universe.Archive's doc comment for why.
 func (c *Campaign) Archive() error {
 	if c.archived {
@@ -124,6 +154,12 @@ func (c *Campaign) Apply(event eventsourcing.Event) {
 		c.gamemasters[e.UserID] = struct{}{}
 	case *events.GamemasterRemoved:
 		delete(c.gamemasters, e.UserID)
+	case *events.ConfigurationChanged:
+		c.configuration = e.Configuration
+	case *events.ConfigurationRequested:
+		// Intentionally a no-op — see RequestConfiguration's doc comment. An explicit case
+		// (rather than falling through to no case at all) keeps this switch exhaustive and
+		// self-documenting.
 	case *events.CampaignArchived:
 		c.archived = true
 	}

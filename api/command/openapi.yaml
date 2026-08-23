@@ -249,6 +249,52 @@ paths:
         "409":
           $ref: "#/components/responses/Conflict"
 
+  /campaigns/{campaignId}/configuration:
+    put:
+      operationId: setCampaignConfiguration
+      summary: Replace a Campaign's configuration (an opaque JSON string the backend never parses or validates).
+      parameters:
+        - $ref: "#/components/parameters/CampaignId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetCampaignConfigurationRequest"
+      responses:
+        "204":
+          description: Updated.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /campaigns/{campaignId}/configure:
+    put:
+      operationId: requestCampaignConfiguration
+      summary: >
+        Request configuration of a Campaign. Does not change the Campaign directly — raises a
+        ConfigurationRequested event that timadorus-engine may or may not act on, asynchronously.
+      parameters:
+        - $ref: "#/components/parameters/CampaignId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "204":
+          description: Configuration requested.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
   /universes/{universeId}/entities:
     post:
       operationId: createEntity
@@ -801,6 +847,13 @@ components:
         id:
           type: string
           format: uuid
+
+    SetCampaignConfigurationRequest:
+      type: object
+      required: [configuration]
+      properties:
+        configuration:
+          type: string
 
     CreateUserRequest:
       type: object

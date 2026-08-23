@@ -33,6 +33,8 @@ func (p *Projector) Handle(ctx context.Context, tx pgx.Tx, env bus.Envelope) err
 		return p.handleGamemasterAdded(ctx, tx, env)
 	case events.TypeGamemasterRemove:
 		return p.handleGamemasterRemoved(ctx, tx, env)
+	case events.TypeConfigurationChanged:
+		return p.handleConfigurationChanged(ctx, tx, env)
 	case events.TypeCampaignArchived:
 		return p.handleArchived(ctx, tx, env)
 	default:
@@ -100,6 +102,18 @@ func (p *Projector) handleGamemasterRemoved(ctx context.Context, tx pgx.Tx, env 
 		return err
 	}
 	_, err := tx.Exec(ctx, `UPDATE campaigns_read_model SET updated_at = $2 WHERE id = $1`, env.AggregateID, e.OccurredAt)
+	return err
+}
+
+func (p *Projector) handleConfigurationChanged(ctx context.Context, tx pgx.Tx, env bus.Envelope) error {
+	var e events.ConfigurationChanged
+	if err := json.Unmarshal(env.Payload, &e); err != nil {
+		return fmt.Errorf("campaign projector: unmarshal %s: %w", env.EventType, err)
+	}
+	_, err := tx.Exec(ctx,
+		`UPDATE campaigns_read_model SET configuration = $2, updated_at = $3 WHERE id = $1`,
+		env.AggregateID, e.Configuration, e.OccurredAt,
+	)
 	return err
 }
 

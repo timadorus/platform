@@ -100,6 +100,11 @@ type RulesetCreatedResponse struct {
 	Id openapi_types.UUID `json:"id"`
 }
 
+// SetCampaignConfigurationRequest defines model for SetCampaignConfigurationRequest.
+type SetCampaignConfigurationRequest struct {
+	Configuration string `json:"configuration"`
+}
+
 // SetCharacterInfoRequest defines model for SetCharacterInfoRequest.
 type SetCharacterInfoRequest struct {
 	Info string `json:"info"`
@@ -163,6 +168,9 @@ type NotFound = Problem
 // UnprocessableEntity RFC 7807 problem+json error body.
 type UnprocessableEntity = Problem
 
+// RequestCampaignConfigurationJSONBody defines parameters for RequestCampaignConfiguration.
+type RequestCampaignConfigurationJSONBody = map[string]interface{}
+
 // RequestCharacterActionJSONBody defines parameters for RequestCharacterAction.
 type RequestCharacterActionJSONBody = map[string]interface{}
 
@@ -171,6 +179,12 @@ type RenameCampaignJSONRequestBody = RenameRequest
 
 // CreateCharacterJSONRequestBody defines body for CreateCharacter for application/json ContentType.
 type CreateCharacterJSONRequestBody = CreateCharacterRequest
+
+// SetCampaignConfigurationJSONRequestBody defines body for SetCampaignConfiguration for application/json ContentType.
+type SetCampaignConfigurationJSONRequestBody = SetCampaignConfigurationRequest
+
+// RequestCampaignConfigurationJSONRequestBody defines body for RequestCampaignConfiguration for application/json ContentType.
+type RequestCampaignConfigurationJSONRequestBody = RequestCampaignConfigurationJSONBody
 
 // RenameCharacterJSONRequestBody defines body for RenameCharacter for application/json ContentType.
 type RenameCharacterJSONRequestBody = RenameRequest
@@ -234,6 +248,12 @@ type ServerInterface interface {
 	// CreateCharacter Create a new Character under a Campaign, atomically creating its paired Entity (plan §4.4). The response includes both ids since the Entity was created implicitly and the client has no other way to learn its id.
 	// (POST /campaigns/{campaignId}/characters)
 	CreateCharacter(w http.ResponseWriter, r *http.Request, campaignId CampaignId)
+	// SetCampaignConfiguration Replace a Campaign's configuration (an opaque JSON string the backend never parses or validates).
+	// (PUT /campaigns/{campaignId}/configuration)
+	SetCampaignConfiguration(w http.ResponseWriter, r *http.Request, campaignId CampaignId)
+	// RequestCampaignConfiguration Request configuration of a Campaign. Does not change the Campaign directly — raises a ConfigurationRequested event that timadorus-engine may or may not act on, asynchronously.
+	// (PUT /campaigns/{campaignId}/configure)
+	RequestCampaignConfiguration(w http.ResponseWriter, r *http.Request, campaignId CampaignId)
 	// RemoveCampaignGamemaster Remove a Gamemaster from a Campaign. Rejected if this is the last Gamemaster.
 	// (DELETE /campaigns/{campaignId}/gamemasters/{userId})
 	RemoveCampaignGamemaster(w http.ResponseWriter, r *http.Request, campaignId CampaignId, userId UserId)
@@ -395,6 +415,58 @@ func (siw *ServerInterfaceWrapper) CreateCharacter(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreateCharacter(w, r, campaignId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetCampaignConfiguration operation middleware
+func (siw *ServerInterfaceWrapper) SetCampaignConfiguration(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "campaignId" -------------
+	var campaignId CampaignId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "campaignId", mux.Vars(r)["campaignId"], &campaignId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "campaignId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetCampaignConfiguration(w, r, campaignId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RequestCampaignConfiguration operation middleware
+func (siw *ServerInterfaceWrapper) RequestCampaignConfiguration(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "campaignId" -------------
+	var campaignId CampaignId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "campaignId", mux.Vars(r)["campaignId"], &campaignId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "campaignId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RequestCampaignConfiguration(w, r, campaignId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1245,6 +1317,10 @@ func HandlerWithOptions(si ServerInterface, options GorillaServerOptions) http.H
 
 	r.HandleFunc(options.BaseURL+"/campaigns/{campaignId}/gamemasters/{userId}", wrapper.AddCampaignGamemaster).Methods(http.MethodPost)
 
+	r.HandleFunc(options.BaseURL+"/campaigns/{campaignId}/configuration", wrapper.SetCampaignConfiguration).Methods(http.MethodPut)
+
+	r.HandleFunc(options.BaseURL+"/campaigns/{campaignId}/configure", wrapper.RequestCampaignConfiguration).Methods(http.MethodPut)
+
 	r.HandleFunc(options.BaseURL+"/universes/{universeId}/entities", wrapper.CreateEntity).Methods(http.MethodPost)
 
 	r.HandleFunc(options.BaseURL+"/entities/{entityId}", wrapper.RenameEntity).Methods(http.MethodPatch)
@@ -1486,6 +1562,136 @@ func (response CreateCharacter422ApplicationProblemPlusJSONResponse) VisitCreate
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetCampaignConfigurationRequestObject struct {
+	CampaignId CampaignId `json:"campaignId"`
+	Body       *SetCampaignConfigurationJSONRequestBody
+}
+
+type SetCampaignConfigurationResponseObject interface {
+	VisitSetCampaignConfigurationResponse(w http.ResponseWriter) error
+}
+
+type SetCampaignConfiguration204Response struct {
+}
+
+func (response SetCampaignConfiguration204Response) VisitSetCampaignConfigurationResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type SetCampaignConfiguration400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response SetCampaignConfiguration400ApplicationProblemPlusJSONResponse) VisitSetCampaignConfigurationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetCampaignConfiguration404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response SetCampaignConfiguration404ApplicationProblemPlusJSONResponse) VisitSetCampaignConfigurationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetCampaignConfiguration409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response SetCampaignConfiguration409ApplicationProblemPlusJSONResponse) VisitSetCampaignConfigurationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RequestCampaignConfigurationRequestObject struct {
+	CampaignId CampaignId `json:"campaignId"`
+	Body       *RequestCampaignConfigurationJSONRequestBody
+}
+
+type RequestCampaignConfigurationResponseObject interface {
+	VisitRequestCampaignConfigurationResponse(w http.ResponseWriter) error
+}
+
+type RequestCampaignConfiguration204Response struct {
+}
+
+func (response RequestCampaignConfiguration204Response) VisitRequestCampaignConfigurationResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RequestCampaignConfiguration400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response RequestCampaignConfiguration400ApplicationProblemPlusJSONResponse) VisitRequestCampaignConfigurationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RequestCampaignConfiguration404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response RequestCampaignConfiguration404ApplicationProblemPlusJSONResponse) VisitRequestCampaignConfigurationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RequestCampaignConfiguration409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response RequestCampaignConfiguration409ApplicationProblemPlusJSONResponse) VisitRequestCampaignConfigurationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -3139,6 +3345,12 @@ type StrictServerInterface interface {
 	// CreateCharacter Create a new Character under a Campaign, atomically creating its paired Entity (plan §4.4). The response includes both ids since the Entity was created implicitly and the client has no other way to learn its id.
 	// (POST /campaigns/{campaignId}/characters)
 	CreateCharacter(ctx context.Context, request CreateCharacterRequestObject) (CreateCharacterResponseObject, error)
+	// SetCampaignConfiguration Replace a Campaign's configuration (an opaque JSON string the backend never parses or validates).
+	// (PUT /campaigns/{campaignId}/configuration)
+	SetCampaignConfiguration(ctx context.Context, request SetCampaignConfigurationRequestObject) (SetCampaignConfigurationResponseObject, error)
+	// RequestCampaignConfiguration Request configuration of a Campaign. Does not change the Campaign directly — raises a ConfigurationRequested event that timadorus-engine may or may not act on, asynchronously.
+	// (PUT /campaigns/{campaignId}/configure)
+	RequestCampaignConfiguration(ctx context.Context, request RequestCampaignConfigurationRequestObject) (RequestCampaignConfigurationResponseObject, error)
 	// RemoveCampaignGamemaster Remove a Gamemaster from a Campaign. Rejected if this is the last Gamemaster.
 	// (DELETE /campaigns/{campaignId}/gamemasters/{userId})
 	RemoveCampaignGamemaster(ctx context.Context, request RemoveCampaignGamemasterRequestObject) (RemoveCampaignGamemasterResponseObject, error)
@@ -3346,6 +3558,72 @@ func (sh *strictHandler) CreateCharacter(w http.ResponseWriter, r *http.Request,
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CreateCharacterResponseObject); ok {
 		if err := validResponse.VisitCreateCharacterResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetCampaignConfiguration operation middleware
+func (sh *strictHandler) SetCampaignConfiguration(w http.ResponseWriter, r *http.Request, campaignId CampaignId) {
+	var request SetCampaignConfigurationRequestObject
+
+	request.CampaignId = campaignId
+
+	var body SetCampaignConfigurationJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetCampaignConfiguration(ctx, request.(SetCampaignConfigurationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetCampaignConfiguration")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetCampaignConfigurationResponseObject); ok {
+		if err := validResponse.VisitSetCampaignConfigurationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RequestCampaignConfiguration operation middleware
+func (sh *strictHandler) RequestCampaignConfiguration(w http.ResponseWriter, r *http.Request, campaignId CampaignId) {
+	var request RequestCampaignConfigurationRequestObject
+
+	request.CampaignId = campaignId
+
+	var body RequestCampaignConfigurationJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RequestCampaignConfiguration(ctx, request.(RequestCampaignConfigurationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RequestCampaignConfiguration")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RequestCampaignConfigurationResponseObject); ok {
+		if err := validResponse.VisitRequestCampaignConfigurationResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -4177,44 +4455,46 @@ func (sh *strictHandler) ArchiveUser(w http.ResponseWriter, r *http.Request, use
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
+	"IdPoIoqjh88P/wsAAP//",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,
