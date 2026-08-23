@@ -3,6 +3,7 @@ package timadorus
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -16,12 +17,17 @@ import (
 	"github.com/timadorus/platform/internal/domain/character/events"
 	"github.com/timadorus/platform/internal/eventsourcing"
 	"github.com/timadorus/platform/internal/eventstore/postgres"
+	"github.com/timadorus/platform/internal/observability"
 )
 
 // ProcessorName is both the durable JetStream consumer name and the checkpoint table key (see
 // projection.Projector.Name's doc comment). It reuses the shared projection_checkpoints table
 // (internal/projection/checkpoint) — no new migration needed.
 const ProcessorName = "timadorus-engine"
+
+// errPrefix prefixes every error this Processor returns, so a future rename of
+// ProcessorName can't silently leave a stale string behind in error messages.
+const errPrefix = ProcessorName + ": "
 
 // targetRulesetName is matched case-insensitively against each Character's Campaign's Ruleset
 // name (design spec §2) — the one hardcoded piece of business logic this initial version has.
@@ -32,6 +38,18 @@ const targetRulesetName = "timadorus"
 // This is why it lives in its own binary (cmd/timadorus-engine) rather than alongside the
 // read-only projectors in cmd/projector: importing domain/character/eventsourcing/eventstore
 // here would break that binary's documented "never imports domain invariant code" guarantee.
+//
+// Each action rewrites the entire "actions" array into a new event payload (see
+// appendActionTimestamp), so the cost of N actions on one Character is O(N^2) bytes across
+// the event log — a known, accepted consequence of reusing SetInfo rather than a new
+// mutation path, not a bug, but worth flagging for whoever later sizes this feature for
+// heavy use.
+//
+// Unlike every existing (idempotent, upsert-based) projector, this Processor's effect is not
+// naturally idempotent on replay: a checkpoint reset would re-append every historical
+// timestamp rather than converge to the same state. Relatedly, a dead-lettered
+// ActionRequested that's later replayed after the checkpoint has already advanced past it is
+// silently skipped, not reprocessed.
 type Processor struct {
 	characters *eventsourcing.Repository[*character.Character]
 	cache      *rulesetCache
@@ -63,14 +81,14 @@ func (p *Processor) Handle(ctx context.Context, tx pgx.Tx, env bus.Envelope) err
 	}
 	var e events.ActionRequested
 	if err := json.Unmarshal(env.Payload, &e); err != nil {
-		return fmt.Errorf("timadorus-engine: unmarshal %s: %w", env.EventType, err)
+		return fmt.Errorf(errPrefix+"unmarshal %s: %w", env.EventType, err)
 	}
 
 	var campaignID uuid.UUID
 	if err := tx.QueryRow(ctx,
 		`SELECT campaign_id FROM characters_read_model WHERE id = $1`, env.AggregateID,
 	).Scan(&campaignID); err != nil {
-		return fmt.Errorf("timadorus-engine: look up campaign for character %s: %w", env.AggregateID, err)
+		return fmt.Errorf(errPrefix+"look up campaign for character %s: %w", env.AggregateID, err)
 	}
 
 	rulesetName, err := p.rulesetName(ctx, tx, campaignID)
@@ -81,7 +99,7 @@ func (p *Processor) Handle(ctx context.Context, tx pgx.Tx, env bus.Envelope) err
 		return nil // not our ruleset — no-op, still checkpointed as handled
 	}
 
-	return p.appendActionTimestamp(ctx, tx, env.AggregateID, e.OccurredAt)
+	return p.appendActionTimestamp(ctx, tx, env, e.OccurredAt)
 }
 
 func (p *Processor) rulesetName(ctx context.Context, tx pgx.Tx, campaignID uuid.UUID) (string, error) {
@@ -96,25 +114,32 @@ func (p *Processor) rulesetName(ctx context.Context, tx pgx.Tx, campaignID uuid.
 		 WHERE c.id = $1`, campaignID,
 	).Scan(&name)
 	if err != nil {
-		return "", fmt.Errorf("timadorus-engine: look up ruleset for campaign %s: %w", campaignID, err)
+		return "", fmt.Errorf(errPrefix+"look up ruleset for campaign %s: %w", campaignID, err)
 	}
 
 	p.cache.set(campaignID, name)
 	return name, nil
 }
 
-// appendActionTimestamp loads the Character within tx (via postgres.WithTx, so the write
-// commits atomically with the Router's own checkpoint advance — a concurrency conflict here
-// just fails Handle, which the Router already retries via Nack + redelivery, re-Loading the
-// current version), appends occurredAt to info's "actions" list, and saves via the
-// already-existing SetInfo — reusing the whole InfoChanged/projector/read-model pipeline
-// built for that feature, not a new mutation path.
-func (p *Processor) appendActionTimestamp(ctx context.Context, tx pgx.Tx, characterID uuid.UUID, occurredAt time.Time) error {
-	txCtx := postgres.WithTx(ctx, tx)
+// appendActionTimestamp loads the Character — a plain read against committed state via the
+// pool, outside tx (postgres.Store.Load never consults the ambient transaction; only the
+// later Append/Save does), so a save further down can still race a concurrent writer. That's
+// fine: the save goes through postgres.WithTx and is guarded by the aggregate's optimistic
+// concurrency check, so a stale load just fails Handle, which the Router already retries via
+// Nack + redelivery, re-Loading the current version on the next attempt. It appends
+// occurredAt to info's "actions" list and saves via the already-existing SetInfo — reusing
+// the whole InfoChanged/projector/read-model pipeline built for that feature, not a new
+// mutation path.
+func (p *Processor) appendActionTimestamp(ctx context.Context, tx pgx.Tx, env bus.Envelope, occurredAt time.Time) error {
+	characterID := env.AggregateID
+	// Thread the originating request's correlation id through to the InfoChanged event this
+	// appends, so its metadata isn't stamped empty (the Router's own ctx carries none) and the
+	// event log keeps its causal link back to the PUT .../action request that triggered it.
+	txCtx := postgres.WithTx(observability.WithCorrelationID(ctx, env.CorrelationID()), tx)
 
 	c, err := p.characters.Load(txCtx, characterID)
 	if err != nil {
-		return fmt.Errorf("timadorus-engine: load character %s: %w", characterID, err)
+		return fmt.Errorf(errPrefix+"load character %s: %w", characterID, err)
 	}
 
 	// Parse into a generic map, touching only "actions" — never discard other top-level keys a
@@ -127,18 +152,27 @@ func (p *Processor) appendActionTimestamp(ctx context.Context, tx pgx.Tx, charac
 		_ = json.Unmarshal([]byte(raw), &info) // best-effort; info stays {} on failure
 	}
 	actions, _ := info["actions"].([]any)
-	info["actions"] = append(actions, occurredAt.UTC().Format(time.RFC3339))
+	info["actions"] = append(actions, occurredAt.UTC().Format(time.RFC3339Nano))
 
 	newInfo, err := json.Marshal(info)
 	if err != nil {
-		return fmt.Errorf("timadorus-engine: marshal updated info for character %s: %w", characterID, err)
+		return fmt.Errorf(errPrefix+"marshal updated info for character %s: %w", characterID, err)
 	}
 
 	if err := c.SetInfo(string(newInfo)); err != nil {
-		return fmt.Errorf("timadorus-engine: set info for character %s: %w", characterID, err)
+		// A Character archived between the PUT .../action request and this engine processing
+		// the resulting ActionRequested is a legitimate, expected race (archive is immediate;
+		// this engine only catches up later) — not a failure to retry. Retrying can't
+		// un-archive the aggregate, so treating it as an error would get this event
+		// permanently dead-lettered instead of cleanly no-op'd, same rationale as the
+		// malformed-info case above.
+		if errors.Is(err, character.ErrArchived) {
+			return nil
+		}
+		return fmt.Errorf(errPrefix+"set info for character %s: %w", characterID, err)
 	}
 	if err := p.characters.Save(txCtx, c); err != nil {
-		return fmt.Errorf("timadorus-engine: save character %s: %w", characterID, err)
+		return fmt.Errorf(errPrefix+"save character %s: %w", characterID, err)
 	}
 	return nil
 }

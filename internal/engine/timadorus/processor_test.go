@@ -40,6 +40,7 @@ func newTestPool(t *testing.T) *pgxpool.Pool {
 			"../../eventstore/postgres/migrations/0001_events.up.sql",
 			"../../eventstore/postgres/migrations/0002_outbox.up.sql",
 			"../../projection/checkpoint/migrations/0001_projection_checkpoints.up.sql",
+			"../../projection/checkpoint/migrations/0002_projection_dead_letters.up.sql",
 			"../../projection/character/migrations/0001_character_read_model.up.sql",
 			"../../projection/character/migrations/0002_character_info.up.sql",
 			"../../projection/campaign/migrations/0001_campaign_read_model.up.sql",
@@ -121,6 +122,33 @@ func createCharacter(t *testing.T, pool *pgxpool.Pool, campaignID uuid.UUID) uui
 		t.Fatalf("seed characters_read_model: %v", err)
 	}
 	return c.AggregateID()
+}
+
+// archiveCharacter loads characterID through the same repository pattern createCharacter
+// uses, archives it, and saves it back through the real event store — exactly what
+// command-api's own ArchiveCharacter flow does — so the Processor sees a genuinely archived
+// aggregate when it later loads this Character.
+func archiveCharacter(t *testing.T, pool *pgxpool.Pool, characterID uuid.UUID) {
+	t.Helper()
+	ctx := context.Background()
+
+	registry := eventsourcing.NewRegistry()
+	events.Register(registry)
+	store := postgres.NewStore(pool, registry)
+	repo := eventsourcing.NewRepository(store, character.AggregateType, func() *character.Character {
+		return &character.Character{}
+	})
+
+	c, err := repo.Load(ctx, characterID)
+	if err != nil {
+		t.Fatalf("load character: %v", err)
+	}
+	if err := c.Archive(); err != nil {
+		t.Fatalf("archive character: %v", err)
+	}
+	if err := repo.Save(ctx, c); err != nil {
+		t.Fatalf("save archived character: %v", err)
+	}
 }
 
 func runEngine(t *testing.T, pool *pgxpool.Pool) (publish func(env bus.Envelope), wait func()) {
@@ -216,8 +244,8 @@ func TestProcessor_MatchingRuleset_AppendsTimestamp(t *testing.T) {
 	if err := json.Unmarshal([]byte(infoEvent.Info), &decoded); err != nil {
 		t.Fatalf("info %q is not the expected shape: %v", infoEvent.Info, err)
 	}
-	if len(decoded.Actions) != 1 || decoded.Actions[0] != occurredAt.Format(time.RFC3339) {
-		t.Fatalf("got actions %v, want [%q]", decoded.Actions, occurredAt.Format(time.RFC3339))
+	if len(decoded.Actions) != 1 || decoded.Actions[0] != occurredAt.Format(time.RFC3339Nano) {
+		t.Fatalf("got actions %v, want [%q]", decoded.Actions, occurredAt.Format(time.RFC3339Nano))
 	}
 
 	wait()
@@ -256,6 +284,116 @@ func TestProcessor_NonMatchingRuleset_NoOp(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("got %d character.info_changed.v1 events, want 0 (ruleset doesn't match)", count)
+	}
+
+	wait()
+}
+
+// TestProcessor_ArchivedCharacter_NoOp covers final-review finding 1: a Character archived
+// between its PUT .../action request and this engine processing the resulting
+// ActionRequested must be a clean no-op, not a permanent dead-letter — retrying can't
+// un-archive the aggregate, so Handle must swallow character.ErrArchived rather than fail.
+func TestProcessor_ArchivedCharacter_NoOp(t *testing.T) {
+	pool := newTestPool(t)
+
+	campaignID, rulesetID := uuid.New(), uuid.New()
+	seedCampaignAndRuleset(t, pool, campaignID, rulesetID, "timadorus")
+	characterID := createCharacter(t, pool, campaignID)
+	archiveCharacter(t, pool, characterID)
+
+	publish, wait := runEngine(t, pool)
+
+	publish(bus.Envelope{
+		GlobalSeq:     1,
+		AggregateID:   characterID,
+		AggregateType: events.AggregateType,
+		Version:       2,
+		EventType:     events.TypeActionRequested,
+		Payload:       mustMarshal(t, events.ActionRequested{Payload: "{}", OccurredAt: time.Now().UTC()}),
+	})
+
+	// No success signal to wait on for a deliberate no-op, so give the router a moment before
+	// asserting nothing changed.
+	time.Sleep(500 * time.Millisecond)
+
+	// A no-op must never append a character.info_changed.v1 event.
+	var infoChangedCount int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM events WHERE aggregate_id = $1 AND event_type = $2`,
+		characterID, events.TypeInfoChanged,
+	).Scan(&infoChangedCount); err != nil {
+		t.Fatalf("count info_changed events: %v", err)
+	}
+	if infoChangedCount != 0 {
+		t.Fatalf("got %d character.info_changed.v1 events, want 0 (character is archived)", infoChangedCount)
+	}
+
+	// And the router must have kept processing cleanly — no dead-letter row for this event.
+	var deadLetterCount int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM projection_dead_letters WHERE aggregate_id = $1`,
+		characterID,
+	).Scan(&deadLetterCount); err != nil {
+		t.Fatalf("count dead letters: %v", err)
+	}
+	if deadLetterCount != 0 {
+		t.Fatalf("got %d dead-lettered events, want 0 (archived Character should be a clean no-op)", deadLetterCount)
+	}
+
+	wait()
+}
+
+// TestProcessor_PreservesCorrelationID covers final-review finding 2: the derived
+// InfoChanged event must carry forward the correlation id from the originating
+// ActionRequested envelope, not lose it to the Router's own (correlation-less) context.
+func TestProcessor_PreservesCorrelationID(t *testing.T) {
+	pool := newTestPool(t)
+
+	campaignID, rulesetID := uuid.New(), uuid.New()
+	seedCampaignAndRuleset(t, pool, campaignID, rulesetID, "timadorus")
+	characterID := createCharacter(t, pool, campaignID)
+
+	publish, wait := runEngine(t, pool)
+
+	const correlationID = "test-correlation-id-12345"
+	publish(bus.Envelope{
+		GlobalSeq:     1,
+		AggregateID:   characterID,
+		AggregateType: events.AggregateType,
+		Version:       2,
+		EventType:     events.TypeActionRequested,
+		Payload:       mustMarshal(t, events.ActionRequested{Payload: "{}", OccurredAt: time.Now().UTC()}),
+		Metadata:      mustMarshal(t, map[string]string{"correlation_id": correlationID, "causation_id": correlationID}),
+	})
+
+	deadline := time.Now().Add(5 * time.Second)
+	var metadata []byte
+	for time.Now().Before(deadline) {
+		err := pool.QueryRow(context.Background(),
+			`SELECT metadata FROM events WHERE aggregate_id = $1 AND event_type = $2
+			 ORDER BY version DESC LIMIT 1`,
+			characterID, events.TypeInfoChanged,
+		).Scan(&metadata)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			t.Fatalf("query info_changed event: %v", err)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if metadata == nil {
+		t.Fatal("timed out waiting for a character.info_changed.v1 event")
+	}
+
+	var decoded struct {
+		CorrelationID string `json:"correlation_id"`
+	}
+	if err := json.Unmarshal(metadata, &decoded); err != nil {
+		t.Fatalf("metadata %s is not the expected shape: %v", metadata, err)
+	}
+	if decoded.CorrelationID != correlationID {
+		t.Fatalf("got correlation_id %q, want %q", decoded.CorrelationID, correlationID)
 	}
 
 	wait()
