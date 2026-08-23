@@ -20,20 +20,17 @@ import (
 	"github.com/timadorus/platform/internal/observability"
 )
 
-// ProcessorName is both the durable JetStream consumer name and the checkpoint table key (see
-// projection.Projector.Name's doc comment). It reuses the shared projection_checkpoints table
-// (internal/projection/checkpoint) — no new migration needed.
-const ProcessorName = "timadorus-engine"
+// CharacterProcessorName is both the durable JetStream consumer name and the checkpoint table
+// key (see projection.Projector.Name's doc comment). Reuses the shared projection_checkpoints
+// table (internal/projection/checkpoint) — no new migration needed.
+const CharacterProcessorName = "timadorus-engine"
 
-// errPrefix prefixes every error this Processor returns, so a future rename of
-// ProcessorName can't silently leave a stale string behind in error messages.
-const errPrefix = ProcessorName + ": "
-
-// targetRulesetName is matched case-insensitively against each Character's Campaign's Ruleset
-// name (design spec §2) — the one hardcoded piece of business logic this initial version has.
+// targetRulesetName is matched case-insensitively against each triggering aggregate's Campaign's
+// Ruleset name (design spec §2) — the one hardcoded piece of business logic both processors in
+// this package share.
 const targetRulesetName = "timadorus"
 
-// Processor implements projection.Projector unmodified, but — unlike every read-model
+// CharacterProcessor implements projection.Projector unmodified, but — unlike every read-model
 // projector — legitimately re-enters the write side (loads and saves a Character aggregate).
 // This is why it lives in its own binary (cmd/timadorus-engine) rather than alongside the
 // read-only projectors in cmd/projector: importing domain/character/eventsourcing/eventstore
@@ -50,32 +47,33 @@ const targetRulesetName = "timadorus"
 // timestamp rather than converge to the same state. Relatedly, a dead-lettered
 // ActionRequested that's later replayed after the checkpoint has already advanced past it is
 // silently skipped, not reprocessed.
-type Processor struct {
+type CharacterProcessor struct {
 	characters *eventsourcing.Repository[*character.Character]
-	cache      *rulesetCache
+	cache      *RulesetCache
 }
 
-// NewProcessor builds its own Registry scoped to just Character — the only aggregate type this
-// processor ever loads/saves — mirroring cmd/command-api/main.go's construction pattern
-// (registry -> postgres.NewStore(pool, registry) -> eventsourcing.NewRepository(store, ...)).
-func NewProcessor(pool *pgxpool.Pool) *Processor {
+// NewCharacterProcessor builds its own Registry scoped to just Character — the only aggregate
+// type this processor ever loads/saves — mirroring cmd/command-api/main.go's construction
+// pattern (registry -> postgres.NewStore(pool, registry) -> eventsourcing.NewRepository(store,
+// ...)). cache is shared with CampaignProcessor — see RulesetCache's doc comment.
+func NewCharacterProcessor(pool *pgxpool.Pool, cache *RulesetCache) *CharacterProcessor {
 	registry := eventsourcing.NewRegistry()
 	events.Register(registry)
 	store := postgres.NewStore(pool, registry)
 
-	return &Processor{
+	return &CharacterProcessor{
 		characters: eventsourcing.NewRepository(store, character.AggregateType, func() *character.Character {
 			return &character.Character{}
 		}),
-		cache: newRulesetCache(),
+		cache: cache,
 	}
 }
 
-func (p *Processor) Name() string { return ProcessorName }
+func (p *CharacterProcessor) Name() string { return CharacterProcessorName }
 
-func (p *Processor) Subjects() []string { return []string{bus.Subject(events.AggregateType)} }
+func (p *CharacterProcessor) Subjects() []string { return []string{bus.Subject(events.AggregateType)} }
 
-func (p *Processor) Handle(ctx context.Context, tx pgx.Tx, env bus.Envelope) error {
+func (p *CharacterProcessor) Handle(ctx context.Context, tx pgx.Tx, env bus.Envelope) error {
 	if env.EventType != events.TypeActionRequested {
 		return nil
 	}
@@ -91,7 +89,7 @@ func (p *Processor) Handle(ctx context.Context, tx pgx.Tx, env bus.Envelope) err
 		return fmt.Errorf(errPrefix+"look up campaign for character %s: %w", env.AggregateID, err)
 	}
 
-	rulesetName, err := p.rulesetName(ctx, tx, campaignID)
+	rulesetName, err := p.cache.resolve(ctx, tx, campaignID)
 	if err != nil {
 		return err
 	}
@@ -100,25 +98,6 @@ func (p *Processor) Handle(ctx context.Context, tx pgx.Tx, env bus.Envelope) err
 	}
 
 	return p.appendActionTimestamp(ctx, tx, env, e.OccurredAt)
-}
-
-func (p *Processor) rulesetName(ctx context.Context, tx pgx.Tx, campaignID uuid.UUID) (string, error) {
-	if name, ok := p.cache.get(campaignID); ok {
-		return name, nil
-	}
-
-	var name string
-	err := tx.QueryRow(ctx,
-		`SELECT r.name FROM campaigns_read_model c
-		 JOIN rulesets_read_model r ON r.id = c.ruleset_id
-		 WHERE c.id = $1`, campaignID,
-	).Scan(&name)
-	if err != nil {
-		return "", fmt.Errorf(errPrefix+"look up ruleset for campaign %s: %w", campaignID, err)
-	}
-
-	p.cache.set(campaignID, name)
-	return name, nil
 }
 
 // appendActionTimestamp loads the Character — a plain read against committed state via the
@@ -130,7 +109,7 @@ func (p *Processor) rulesetName(ctx context.Context, tx pgx.Tx, campaignID uuid.
 // occurredAt to info's "actions" list and saves via the already-existing SetInfo — reusing
 // the whole InfoChanged/projector/read-model pipeline built for that feature, not a new
 // mutation path.
-func (p *Processor) appendActionTimestamp(ctx context.Context, tx pgx.Tx, env bus.Envelope, occurredAt time.Time) error {
+func (p *CharacterProcessor) appendActionTimestamp(ctx context.Context, tx pgx.Tx, env bus.Envelope, occurredAt time.Time) error {
 	characterID := env.AggregateID
 	// Thread the originating request's correlation id through to the InfoChanged event this
 	// appends, so its metadata isn't stamped empty (the Router's own ctx carries none) and the

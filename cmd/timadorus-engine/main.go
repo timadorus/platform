@@ -1,8 +1,10 @@
-// timadorus-engine subscribes to the Character event stream and reacts to ActionRequested
-// events — see internal/engine/timadorus for the actual logic. Structurally identical to
-// cmd/projector (same Router/checkpoint machinery), but registers exactly one processor, which
-// is why it's a separate binary: unlike every projector, it legitimately imports full
-// write-side packages (domain/character, eventsourcing, eventstore/postgres).
+// timadorus-engine subscribes to the Character and Campaign event streams and reacts to their
+// respective trigger events (ActionRequested, ConfigurationRequested) — see
+// internal/engine/timadorus for the actual logic. Structurally identical to cmd/projector (same
+// Router/checkpoint machinery), but registers two processors sharing one RulesetCache instead
+// of the seven read-model projectors, which is why it's a separate binary: unlike every
+// projector, it legitimately imports full write-side packages (domain/character,
+// domain/campaign, eventsourcing, eventstore/postgres).
 package main
 
 import (
@@ -53,8 +55,10 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	}
 	router := projection.NewRouter(pool, newSubscriber, logger)
 
+	cache := timadorusengine.NewRulesetCache()
 	processors := []projection.Projector{
-		timadorusengine.NewProcessor(pool),
+		timadorusengine.NewCharacterProcessor(pool, cache),
+		timadorusengine.NewCampaignProcessor(pool, cache),
 	}
 
 	mux := http.NewServeMux()

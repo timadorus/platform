@@ -158,7 +158,7 @@ func runEngine(t *testing.T, pool *pgxpool.Pool) (publish func(env bus.Envelope)
 	inMemory := gochannel.NewGoChannel(gochannel.Config{Persistent: true}, watermill.NopLogger{})
 	t.Cleanup(func() { _ = inMemory.Close() })
 
-	p := timadorus.NewProcessor(pool)
+	p := timadorus.NewCharacterProcessor(pool, timadorus.NewRulesetCache())
 	router := projection.NewRouter(pool, func(string) (message.Subscriber, error) {
 		return inMemory, nil
 	}, discardLogger())
@@ -186,7 +186,7 @@ func runEngine(t *testing.T, pool *pgxpool.Pool) (publish func(env bus.Envelope)
 	return publish, wait
 }
 
-func TestProcessor_MatchingRuleset_AppendsTimestamp(t *testing.T) {
+func TestCharacterProcessor_MatchingRuleset_AppendsTimestamp(t *testing.T) {
 	pool := newTestPool(t)
 
 	campaignID, rulesetID := uuid.New(), uuid.New()
@@ -251,7 +251,7 @@ func TestProcessor_MatchingRuleset_AppendsTimestamp(t *testing.T) {
 	wait()
 }
 
-func TestProcessor_NonMatchingRuleset_NoOp(t *testing.T) {
+func TestCharacterProcessor_NonMatchingRuleset_NoOp(t *testing.T) {
 	pool := newTestPool(t)
 
 	campaignID, rulesetID := uuid.New(), uuid.New()
@@ -289,11 +289,11 @@ func TestProcessor_NonMatchingRuleset_NoOp(t *testing.T) {
 	wait()
 }
 
-// TestProcessor_ArchivedCharacter_NoOp covers final-review finding 1: a Character archived
+// TestCharacterProcessor_ArchivedCharacter_NoOp covers final-review finding 1: a Character archived
 // between its PUT .../action request and this engine processing the resulting
 // ActionRequested must be a clean no-op, not a permanent dead-letter — retrying can't
 // un-archive the aggregate, so Handle must swallow character.ErrArchived rather than fail.
-func TestProcessor_ArchivedCharacter_NoOp(t *testing.T) {
+func TestCharacterProcessor_ArchivedCharacter_NoOp(t *testing.T) {
 	pool := newTestPool(t)
 
 	campaignID, rulesetID := uuid.New(), uuid.New()
@@ -343,10 +343,10 @@ func TestProcessor_ArchivedCharacter_NoOp(t *testing.T) {
 	wait()
 }
 
-// TestProcessor_PreservesCorrelationID covers final-review finding 2: the derived
+// TestCharacterProcessor_PreservesCorrelationID covers final-review finding 2: the derived
 // InfoChanged event must carry forward the correlation id from the originating
 // ActionRequested envelope, not lose it to the Router's own (correlation-less) context.
-func TestProcessor_PreservesCorrelationID(t *testing.T) {
+func TestCharacterProcessor_PreservesCorrelationID(t *testing.T) {
 	pool := newTestPool(t)
 
 	campaignID, rulesetID := uuid.New(), uuid.New()

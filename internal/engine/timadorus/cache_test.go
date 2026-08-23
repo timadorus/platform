@@ -7,7 +7,7 @@ import (
 )
 
 func TestRulesetCache(t *testing.T) {
-	c := newRulesetCache()
+	c := NewRulesetCache()
 	campaignID := uuid.New()
 
 	if _, ok := c.get(campaignID); ok {
