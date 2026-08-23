@@ -70,6 +70,22 @@ func LoadProjector() Projector {
 	}
 }
 
+type TimadorusEngine struct {
+	// HTTPAddr serves /healthz, /readyz, /metrics only — same shape as Projector's, see that
+	// type's doc comment.
+	HTTPAddr    string
+	DatabaseURL string
+	NATSURL     string
+}
+
+func LoadTimadorusEngine() TimadorusEngine {
+	return TimadorusEngine{
+		HTTPAddr:    getEnv("TIMADORUS_ENGINE_ADDR", ":8084"),
+		DatabaseURL: getEnv("DATABASE_URL", "postgres://timadorus:timadorus@localhost:5432/timadorus?sslmode=disable"),
+		NATSURL:     getEnv("NATS_URL", "nats://localhost:4222"),
+	}
+}
+
 func loadJWT() JWT {
 	return JWT{
 		JWKSURL:    os.Getenv("JWT_JWKS_URL"),
