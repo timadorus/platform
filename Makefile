@@ -1,4 +1,4 @@
-.PHONY: build build-tools test lint generate migrate-up migrate-down test-e2e dev-up dev-down
+.PHONY: build build-tools test test-race lint generate migrate-up migrate-down test-e2e dev-up dev-down
 
 DATABASE_URL ?= postgres://timadorus:timadorus@localhost:5432/timadorus?sslmode=disable
 BINDIR	     ?= $(CURDIR)/bin

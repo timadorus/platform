@@ -7,6 +7,21 @@ up; don't grow this file into a design doc.
 
 ## `timadorus-engine` (`internal/engine/timadorus`, `cmd/timadorus-engine`)
 
+- [ ] **`TestSharedRulesetCache_ConcurrentAccess` has a real but unreliable race window.**
+  `go test -race` is now wired into CI and `make test-race`, and the test genuinely runs
+  `CampaignProcessor.Handle` and `CharacterProcessor.Handle` concurrently against one
+  `RulesetCache` (released via a shared `close(start)` barrier, not sequenced) — this closed the
+  original "never tested under `-race`" complaint at the wiring level. But a scoped re-review
+  verified the test's actual power by temporarily deleting `RulesetCache.get`/`set`'s mutex calls
+  entirely (the most direct possible regression) and running the test 28 times under `-race`:
+  zero races were caught. `CharacterProcessor.Handle`'s extra `characters_read_model` DB hop before
+  it calls `resolve` appears to reliably let the Campaign path populate the cache first in this
+  environment, so the two goroutines' actual accesses to `RulesetCache.names` rarely truly overlap.
+  Follow-up: a lower-level unit test that calls `RulesetCache.get`/`set` directly from N goroutines
+  with no DB round-trip in the way, if the team wants `-race` to reliably catch a `RulesetCache`
+  locking regression specifically rather than relying on whatever race happens to manifest
+  elsewhere in the suite.
+
 - [ ] **Connection pool headroom.** `cmd/timadorus-engine/main.go`'s `pgxpool.New` has no
   explicit `pool_max_conns` (defaults to `max(4, NumCPU)`). Two processors now share one pool,
   and each in-flight `Handle` can hold up to 2 connections at once (the Router's transaction +
