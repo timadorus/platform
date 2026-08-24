@@ -47,22 +47,12 @@ up; don't grow this file into a design doc.
 
 ## Web SPA (`web/src`)
 
-- [ ] **`CreatingUserModal` has no unmount-cancellation** on its polling loop
-  (`waitForUser` in `useUsers.ts`). Bounded to a 15s timeout, so low impact if the modal is
-  dismissed early, but a stray timer does keep running against an unmounted component until it
-  resolves or times out.
-
-- [ ] **`waitForUser` swallows fetch errors.** It calls `useUsers().list()` in a loop but never
-  inspects the composable's own `error` ref — a hard network/auth failure looks identical to
-  "still waiting for the projector" until the timeout fires, and nothing is surfaced to
-  `CreatingUserModal` to distinguish the two.
-
-- [ ] **Generated API client types are stale.** `web/src/api/query.types.ts` and
-  `command.types.ts` don't reflect the Character `action` endpoint or the Campaign
-  `configuration`/`configure` endpoints — `npm run generate` (the openapi-typescript codegen
-  script) was never re-run after those backend changes shipped. Real, accumulating drift for
-  anyone building UI against these; explicitly wave-through'd as out of scope on each backend
-  branch so far.
+All three items previously listed here are fixed (`e7ad69c`, `e89a5f3`): `waitForUser` now takes
+an `AbortSignal` that `CreatingUserModal` aborts on unmount, stopping the poll instead of letting
+it run in the background; `waitForUser` also bails out immediately on a hard fetch error instead
+of retrying for the full timeout, and the modal shows that error distinctly from an honest
+timeout; and `query.types.ts`/`command.types.ts` are regenerated and current. All three verified
+live with a real headless-Chromium session.
 
 ## Devcluster tooling (`test/e2e/internal`)
 
