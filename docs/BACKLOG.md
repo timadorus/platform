@@ -7,20 +7,6 @@ up; don't grow this file into a design doc.
 
 ## `timadorus-engine` (`internal/engine/timadorus`, `cmd/timadorus-engine`)
 
-- [ ] **No real concurrency test for the shared `RulesetCache`.**
-  `character_processor_test.go` and `campaign_processor_test.go` each define their own Postgres
-  testcontainer setup and duplicate helpers (`mustMarshal`/`mustMarshalCampaign`,
-  `discardLogger`/`discardCampaignLogger`) purely to dodge name collisions in the shared
-  `timadorus_test` package. `TestSharedRulesetCache_ServesBothProcessors` also hand-rolls an
-  inline `CREATE TABLE characters_read_model` instead of reusing the real migration files under
-  `internal/projection/character/migrations/` — that will silently drift from the production
-  schema the next time that table changes. More importantly, that test only proves
-  **key-sharing** (publish one event, wait for it, then publish the second) — it never exercises
-  two goroutines touching the shared cache/connection pool *at the same time*, so the concurrency
-  the cache's mutex exists to protect has never actually been tested under `-race`.
-  Follow-up: one shared test-pool helper across both files, driven by real migrations; add a
-  genuinely concurrent (publish-both-before-waiting, run under `-race`) variant.
-
 - [ ] **Connection pool headroom.** `cmd/timadorus-engine/main.go`'s `pgxpool.New` has no
   explicit `pool_max_conns` (defaults to `max(4, NumCPU)`). Two processors now share one pool,
   and each in-flight `Handle` can hold up to 2 connections at once (the Router's transaction +

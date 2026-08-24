@@ -38,6 +38,13 @@ jobs:
       - name: go test
         run: go test ./... -timeout 5m
 
+      # -race roughly doubles wall time on the testcontainers-backed packages (hence the bumped
+      # timeout) — this is what actually checks the data-race guarantees tests like
+      # internal/engine/timadorus's TestSharedRulesetCache_ConcurrentAccess exist to prove; the
+      # plain run above would pass even if the race detector would have caught something.
+      - name: go test -race
+        run: go test ./... -race -timeout 10m
+
   web-build:
     runs-on: ubuntu-latest
     steps:

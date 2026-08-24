@@ -12,6 +12,11 @@ build-tools: $(BINDIR)
 test:
 	go test ./...
 
+# -race roughly doubles wall time on the testcontainers-backed packages, so it's a separate
+# target rather than folded into `test` — CI runs both (see .github/workflows/ci.yml).
+test-race:
+	go test ./... -race
+
 lint:
 	go vet ./...
 	# Best-effort: no golangci-lint release yet supports analyzing a `go 1.26` module (hard
