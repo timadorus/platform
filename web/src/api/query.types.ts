@@ -298,6 +298,7 @@ export interface components {
             entityId: string;
             /** Format: uuid */
             playerUserId: string;
+            info: string;
             isArchived: boolean;
         };
         Entity: {
@@ -316,6 +317,7 @@ export interface components {
             universeId: string;
             /** Format: uuid */
             rulesetId: string;
+            configuration: string;
             isArchived: boolean;
         };
         Ruleset: {
