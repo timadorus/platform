@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
-	"log/slog"
 	"testing"
 	"time"
 
@@ -15,9 +13,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/testcontainers/testcontainers-go"
-	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
-	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/timadorus/platform/internal/bus"
 	"github.com/timadorus/platform/internal/domain/character"
@@ -27,50 +22,6 @@ import (
 	"github.com/timadorus/platform/internal/eventstore/postgres"
 	"github.com/timadorus/platform/internal/projection"
 )
-
-func newTestPool(t *testing.T) *pgxpool.Pool {
-	t.Helper()
-	ctx := context.Background()
-
-	container, err := tcpostgres.Run(ctx, "postgres:16-alpine",
-		tcpostgres.WithDatabase("timadorus_test"),
-		tcpostgres.WithUsername("timadorus"),
-		tcpostgres.WithPassword("timadorus"),
-		tcpostgres.WithOrderedInitScripts(
-			"../../eventstore/postgres/migrations/0001_events.up.sql",
-			"../../eventstore/postgres/migrations/0002_outbox.up.sql",
-			"../../projection/checkpoint/migrations/0001_projection_checkpoints.up.sql",
-			"../../projection/checkpoint/migrations/0002_projection_dead_letters.up.sql",
-			"../../projection/character/migrations/0001_character_read_model.up.sql",
-			"../../projection/character/migrations/0002_character_info.up.sql",
-			"../../projection/campaign/migrations/0001_campaign_read_model.up.sql",
-			"../../projection/campaign/migrations/0002_campaign_ruleset_id.up.sql",
-			"../../projection/ruleset/migrations/0001_ruleset_read_model.up.sql",
-		),
-		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").WithOccurrence(2),
-		),
-	)
-	if err != nil {
-		t.Fatalf("start postgres container: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := container.Terminate(context.Background()); err != nil {
-			t.Logf("terminate postgres container: %v", err)
-		}
-	})
-
-	connStr, err := container.ConnectionString(ctx, "sslmode=disable")
-	if err != nil {
-		t.Fatalf("connection string: %v", err)
-	}
-	pool, err := pgxpool.New(ctx, connStr)
-	if err != nil {
-		t.Fatalf("new pool: %v", err)
-	}
-	t.Cleanup(pool.Close)
-	return pool
-}
 
 // seedCampaignAndRuleset inserts directly into the read-model tables the Processor reads from
 // — the Processor never touches the Campaign/Ruleset aggregates or their own event streams, so
@@ -397,17 +348,4 @@ func TestCharacterProcessor_PreservesCorrelationID(t *testing.T) {
 	}
 
 	wait()
-}
-
-func mustMarshal(t *testing.T, v any) json.RawMessage {
-	t.Helper()
-	b, err := json.Marshal(v)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	return b
-}
-
-func discardLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
