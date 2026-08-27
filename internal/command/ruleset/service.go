@@ -27,11 +27,15 @@ func NewService(repo *eventsourcing.Repository[*ruleset.Ruleset], pool *pgxpool.
 	return &Service{repo: repo, pool: pool}
 }
 
-// Create enforces Ruleset name uniqueness: within one transaction, it reserves name in
-// ruleset_names (migrations/0001_ruleset_names.up.sql) and saves the new aggregate — both commit
-// or both roll back together. A unique-constraint violation on the reservation means the name is
-// already taken and becomes ruleset.ErrNameAlreadyExists; no aggregate is created and no event is
-// appended. Names are never released, even if the Ruleset is later archived.
+// Create enforces Ruleset name uniqueness on creation only: within one transaction, it reserves
+// name in ruleset_names (migrations/0001_ruleset_names.up.sql) and saves the new aggregate — both
+// commit or both roll back together. A unique-constraint violation on the reservation means the
+// name is already taken and becomes ruleset.ErrNameAlreadyExists; no aggregate is created and no
+// event is appended. Names are never released, even if the Ruleset is later archived. This
+// invariant does not extend to Rename: Rename never touches ruleset_names, so a name freed by
+// renaming a Ruleset away stays reserved (orphaned), and the new name it takes is left
+// unreserved — a later Create can then produce a duplicate of that new name. See docs/BACKLOG.md
+// for the known gap and the fix sketch (reserving the new name in Rename's own transaction).
 func (s *Service) Create(ctx context.Context, name, description string, references []string) (uuid.UUID, error) {
 	r, err := ruleset.New(name, description, references)
 	if err != nil {

@@ -46,6 +46,37 @@ up; don't grow this file into a design doc.
   over a small interface. Two instances of copy-adapt is correct by this codebase's own
   convention; three would earn the abstraction.
 
+- [ ] **No backfill for pre-existing Ruleset names — an in-place cluster upgrade gets a
+  duplicate "Timadorus" Ruleset.** `internal/command/ruleset/migrations/0001_ruleset_names.up.sql`
+  creates the `ruleset_names` reservation table empty. On a cluster that already had a
+  "Timadorus" Ruleset before this table existed (e.g. from the old `test/e2e` seed step), the
+  reservation table starts with no knowledge of it, so `RegisterRuleset`'s next startup reserves
+  "Timadorus" successfully and creates a second, distinct Ruleset aggregate with that name — two
+  identical "Timadorus" entries in `rulesets_read_model` and the SPA's picker. Accepted as a known
+  gap rather than fixed: resetting an existing dev cluster (`make dev-down && make dev-up`)
+  avoids it entirely, so it was judged not worth a backfill for this branch. A real fix would need
+  a backfill migration that derives each existing Ruleset's current name from its
+  `RulesetCreated` event plus the latest `RulesetRenamed` event per aggregate (non-trivial, since
+  the current name isn't stored anywhere but the event stream itself) and inserts it into
+  `ruleset_names` with `ON CONFLICT DO NOTHING`.
+
+- [ ] **`Rename` bypasses the `ruleset_names` reservation entirely, so it and the event store can
+  disagree — including in a way that silently defeats `RegisterRuleset`.**
+  `ruleset.Service.Rename` does a plain `Load` → `Rename` → `Save` and never touches
+  `ruleset_names`, unlike `Create`, which reserves the name in the same transaction as the save.
+  Consequences: (1) renaming a Ruleset from "A" to "B" leaves "A" reserved with no aggregate
+  bearing that name, and leaves "B" completely unreserved, so a later `Create("B")` succeeds and
+  produces a duplicate "B"; (2) renaming the "Timadorus" Ruleset away leaves the "Timadorus"
+  reservation in place, so every future `RegisterRuleset` call gets `ErrNameAlreadyExists` and
+  treats the platform as already registered, even though no Ruleset is actually named
+  "Timadorus" any more. The design spec scoped the uniqueness invariant to `Create` only and
+  never claimed `Rename` coverage, so this is a spec-level gap rather than an implementation bug;
+  `Service.Create`'s and `RegisterRuleset`'s doc comments now say so explicitly instead of
+  overstating the guarantee. Fix sketch for a follow-up branch: make `Rename` reserve the new
+  name in the same transaction as the `RulesetRenamed` event — a near-copy of `Create`'s
+  structure — returning `ruleset.ErrNameAlreadyExists` on conflict, and, ideally, release the old
+  name in that same transaction.
+
 ## Web SPA (`web/src`)
 
 All three items previously listed here are fixed (`e7ad69c`, `e89a5f3`): `waitForUser` now takes

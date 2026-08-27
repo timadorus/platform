@@ -2,7 +2,8 @@
 // with a transactional outbox row written in the same transaction as each event (see
 // migrations/0001_events.sql, 0002_outbox.sql). It also owns the ambient-transaction
 // plumbing (tx.go) and the UnitOfWork helper (unit_of_work.go) used by command services that
-// must create more than one aggregate atomically (e.g. Character + Entity).
+// must commit more than one write atomically (two aggregates' Saves, or one Save plus the
+// service's own raw SQL — see UnitOfWork).
 package postgres
 
 import (

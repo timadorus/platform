@@ -32,6 +32,12 @@ const TargetRulesetName = "Timadorus"
 // (cmd/timadorus-engine/main.go's run()) terminates the process on it, since a Campaign
 // referencing this Ruleset by name has no other way to discover it if registration silently
 // failed.
+//
+// The "already exists" check only ever looks at the ruleset_names reservation, not at whether a
+// Ruleset named TargetRulesetName actually exists right now: ruleset.Service.Rename never
+// releases or re-reserves names (see Service.Create's doc comment), so if the "Timadorus" Ruleset
+// is ever renamed away, this reservation survives and every later startup still treats the
+// platform as registered — even though no Ruleset is actually named TargetRulesetName any more.
 func RegisterRuleset(ctx context.Context, pool *pgxpool.Pool) error {
 	registry := eventsourcing.NewRegistry()
 	rulesetevents.Register(registry)

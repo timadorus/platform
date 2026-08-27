@@ -3,6 +3,7 @@ package timadorus_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/timadorus/platform/internal/domain/ruleset"
@@ -57,5 +58,12 @@ func TestRegisterRuleset_PropagatesRealError(t *testing.T) {
 	}
 	if errors.Is(err, ruleset.ErrNameAlreadyExists) {
 		t.Fatalf("got ErrNameAlreadyExists from a closed pool, want a genuine failure: %v", err)
+	}
+}
+
+func TestTargetRulesetName_MatchesProcessorTarget(t *testing.T) {
+	if !strings.EqualFold(timadorus.TargetRulesetName, "timadorus") {
+		t.Fatalf("TargetRulesetName %q no longer matches the processors' target name",
+			timadorus.TargetRulesetName)
 	}
 }

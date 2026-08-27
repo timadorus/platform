@@ -58,8 +58,9 @@ Helm chart (`deploy/helm/timadorus-platform`) — the same one used in productio
 `test-e2e`'s namespace, though the GatewayClass and NATS JetStream streams are shared
 cluster-wide — see below). The web pod is fully configured with real API and OIDC endpoints in
 this flow, so it's meant for interactive browser use, not just curl — see the login workflow
-below. The cluster also arrives pre-seeded with one User and one Ruleset, so there's something
-to see right after logging in. When it's ready, it prints something like:
+below. The cluster also arrives pre-seeded with one User, and a "Timadorus" Ruleset that
+`timadorus-engine` auto-registers on startup, so there's something to see right after logging
+in. When it's ready, it prints something like:
 
 ```
 Dev cluster ready. Namespace: timadorus-dev
@@ -73,7 +74,8 @@ Log in (another terminal — Zitadel needs its own two port-forwards, see below)
   username: devuser@timadorus.local
   password: <randomly generated>
 
-Pre-seeded: User "devuser@timadorus.local", Ruleset "Timadorus".
+Pre-seeded: User "devuser@timadorus.local".
+Ruleset "Timadorus" is auto-registered by timadorus-engine on startup.
 
 Zitadel (needed for the login redirect above to resolve):
   kubectl port-forward --namespace zitadel svc/zitadel 8084:8080
