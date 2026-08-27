@@ -11,9 +11,12 @@ import (
 	"time"
 )
 
-// SeedRulesetName is the fixed Ruleset name devcluster seeds into a fresh platform — a literal
-// per this tool's own requirement, exported so up.go's printStatus can reference the same
-// constant seed.go seeds with instead of duplicating the string.
+// SeedRulesetName is the fixed Ruleset name timadorus-engine registers into a fresh platform on
+// startup (internal/engine/timadorus.TargetRulesetName) — seed.go no longer creates it itself
+// (the engine's own /readyz gates on that registration succeeding, and InstallPlatform's `helm
+// upgrade --wait` blocks on /readyz before SeedPlatformData ever runs), but this constant is kept
+// exported so up.go's printStatus can reference the same literal instead of duplicating the
+// string.
 const SeedRulesetName = "Timadorus"
 
 // seedResource is the minimal shape shared by every query-api list-of-summaries response
@@ -24,18 +27,18 @@ type seedResource struct {
 	Name string `json:"name"`
 }
 
-// SeedPlatformData creates baseline dev data through the platform's own HTTP APIs, reached via a
-// temporary port-forward to the same shared Traefik Gateway a developer's browser uses (a live
+// SeedPlatformData creates a baseline dev User through the platform's own HTTP APIs, reached via
+// a temporary port-forward to the same shared Traefik Gateway a developer's browser uses (a live
 // smoke test of that routing as a side effect): a User matching zitadel.TestLoginName (i.e.
 // "devuser@timadorus.local" — derived from the same value the login form accepts, not
-// re-hardcoded, so it can never drift from the account a developer actually logs in with) and a
-// Ruleset named SeedRulesetName. That name match is cosmetic convenience only, for a developer
-// eyeballing the seeded data — there is no actual linkage between this platform User row and the
-// Zitadel/OIDC identity a developer logs in as (the web SPA's auth store never maps
-// sub/preferred_username to a domain User). Each is checked against the query-api's own list by
-// name first and skipped if already present — User/Ruleset names carry no uniqueness constraint
-// at the domain level, so an unconditional create would pile up duplicates on every repeated
-// `make dev-up` against an already-seeded cluster. zitadelPort/gatewayPort are reused transiently
+// re-hardcoded, so it can never drift from the account a developer actually logs in with). There
+// is no actual linkage between this platform User row and the Zitadel/OIDC identity a developer
+// logs in as (the web SPA's auth store never maps sub/preferred_username to a domain User). It is
+// checked against the query-api's own list by name first and skipped if already present — User
+// names carry no uniqueness constraint at the domain level, so an unconditional create would pile
+// up duplicates on every repeated `make dev-up` against an already-seeded cluster. (The
+// "Timadorus" Ruleset used to be seeded here too; timadorus-engine now registers it itself at
+// startup — see SeedRulesetName's doc comment.) zitadelPort/gatewayPort are reused transiently
 // (matching InstallZitadel's own reuse of externalPort for its bootstrap port-forward) — nothing
 // else holds either port open during `up` itself.
 func SeedPlatformData(zitadel ZitadelBootstrap, zitadelPort, gatewayPort int) error {
@@ -60,9 +63,6 @@ func SeedPlatformData(zitadel ZitadelBootstrap, zitadelPort, gatewayPort int) er
 	base := fmt.Sprintf("http://localhost:%d", gatewayPort)
 	if err := ensureSeedResource(base, token, "/api/query/users", "/api/command/users", zitadel.TestLoginName); err != nil {
 		return fmt.Errorf("e2eutil: seed user: %w", err)
-	}
-	if err := ensureSeedResource(base, token, "/api/query/rulesets", "/api/command/rulesets", SeedRulesetName); err != nil {
-		return fmt.Errorf("e2eutil: seed ruleset: %w", err)
 	}
 	return nil
 }
@@ -163,10 +163,10 @@ func ensureSeedResource(base, token, listPath, createPath, name string) error {
 	return nil
 }
 
-// seedNameExists reflects only non-archived rows: the query-api list endpoints it queries
-// (/users, /rulesets) are documented as "List non-archived", so if a developer manually archives
-// the seeded User/Ruleset between runs, the next `make dev-up` won't detect it as already present
-// and will create a new same-named one instead.
+// seedNameExists reflects only non-archived rows: the query-api's /users list endpoint (its only
+// remaining caller here) is documented as "List non-archived", so if a developer manually
+// archives the seeded User between runs, the next `make dev-up` won't detect it as already
+// present and will create a new same-named one instead.
 func seedNameExists(base, token, listPath, name string) (bool, error) {
 	client := &http.Client{Timeout: 30 * time.Second}
 	statusCode, body, err := seedHTTPDoWithRetry(client, func() (*http.Request, error) {

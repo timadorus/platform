@@ -223,8 +223,9 @@ func printStatus(zitadel e2eutil.ZitadelBootstrap, seeded bool) {
 	fmt.Printf("  username: %s\n", zitadel.TestLoginName)
 	fmt.Printf("  password: %s\n\n", zitadel.TestPassword)
 	if seeded {
-		fmt.Printf("Pre-seeded: User %q, Ruleset %q.\n\n", zitadel.TestLoginName, e2eutil.SeedRulesetName)
+		fmt.Printf("Pre-seeded: User %q.\n", zitadel.TestLoginName)
 	}
+	fmt.Printf("Ruleset %q is auto-registered by timadorus-engine on startup.\n\n", e2eutil.SeedRulesetName)
 	fmt.Println("Zitadel (needed for the login redirect above to resolve):")
 	fmt.Printf("  kubectl port-forward --namespace %s svc/%s %d:8080\n", e2eutil.ZitadelNamespace, e2eutil.ZitadelServiceName, devZitadelPort)
 	fmt.Printf("  kubectl port-forward --namespace %s svc/%s %d:3000\n\n", e2eutil.ZitadelNamespace, e2eutil.ZitadelLoginServiceName, devZitadelLoginPort)
