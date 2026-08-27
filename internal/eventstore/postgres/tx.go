@@ -15,7 +15,11 @@ func WithTx(ctx context.Context, tx pgx.Tx) context.Context {
 	return context.WithValue(ctx, txKey{}, tx)
 }
 
-func txFromContext(ctx context.Context) (pgx.Tx, bool) {
+// TxFromContext returns the ambient transaction stashed by WithTx, if any. Exported so a
+// command service that already opened a UnitOfWork (e.g. internal/command/ruleset, whose
+// Create needs to run its own raw SQL — the name reservation insert — inside that same
+// transaction, alongside a Repository.Save call made with the same context) can retrieve it.
+func TxFromContext(ctx context.Context) (pgx.Tx, bool) {
 	tx, ok := ctx.Value(txKey{}).(pgx.Tx)
 	return tx, ok
 }

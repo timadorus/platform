@@ -8,11 +8,15 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// UnitOfWork lets an application-layer command service make more than one aggregate's
-// Repository.Save calls commit atomically (e.g. creating a Character and its auto-created
-// Entity together, internal/command/character/service.go). It is deliberately postgres-
-// specific and opt-in: single-aggregate command services never construct one, and
-// Store.Append behaves identically whether or not an ambient transaction is present.
+// UnitOfWork lets an application-layer command service commit more than one write atomically
+// through the same transaction — either more than one aggregate's Repository.Save calls (e.g.
+// creating a Character and its auto-created Entity together,
+// internal/command/character/service.go), or a single Repository.Save alongside the command
+// service's own raw SQL via TxFromContext (e.g. internal/command/ruleset/service.go's Create,
+// which reserves a name in a side table before saving the new aggregate). It is deliberately
+// postgres-specific and opt-in: single-aggregate command services with no cross-cutting
+// invariant to enforce never construct one, and Store.Append behaves identically whether or not
+// an ambient transaction is present.
 type UnitOfWork struct {
 	tx pgx.Tx
 }

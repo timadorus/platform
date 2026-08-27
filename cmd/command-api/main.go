@@ -96,7 +96,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	rulesetRepo := eventsourcing.NewRepository(store, ruleset.AggregateType, func() *ruleset.Ruleset {
 		return &ruleset.Ruleset{}
 	})
-	rulesetService := rulesetcmd.NewService(rulesetRepo)
+	rulesetService := rulesetcmd.NewService(rulesetRepo, pool)
 
 	campaignRepo := eventsourcing.NewRepository(store, campaign.AggregateType, func() *campaign.Campaign {
 		return &campaign.Campaign{}

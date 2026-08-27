@@ -33,6 +33,16 @@ func NewStore(pool *pgxpool.Pool, registry *eventsourcing.Registry) *Store {
 	return &Store{pool: pool, registry: registry}
 }
 
+// IsUniqueViolation reports whether err is a Postgres unique-constraint violation (SQLSTATE
+// 23505) — exported so a command service running its own raw SQL inside a postgres.UnitOfWork
+// (e.g. internal/command/ruleset's name-reservation insert) can distinguish "this name is
+// already taken" from any other failure, the same way this file already does for optimistic-
+// concurrency conflicts above.
+func IsUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == uniqueViolation
+}
+
 // querier is satisfied by both *pgxpool.Pool and pgx.Tx.
 type querier interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
@@ -50,7 +60,7 @@ func (s *Store) Append(ctx context.Context, aggregateType string, id uuid.UUID, 
 		observability.EventAppendDuration.WithLabelValues(aggregateType).Observe(time.Since(start).Seconds())
 	}()
 
-	if tx, ok := txFromContext(ctx); ok {
+	if tx, ok := TxFromContext(ctx); ok {
 		return s.appendWith(ctx, tx, aggregateType, id, expectedVersion, events)
 	}
 
@@ -103,8 +113,7 @@ func (s *Store) appendWith(ctx context.Context, q querier, aggregateType string,
 			id, aggregateType, version, event.EventType(), payload, metadata,
 		).Scan(&globalSeq)
 		if err != nil {
-			var pgErr *pgconn.PgError
-			if errors.As(err, &pgErr) && pgErr.Code == uniqueViolation {
+			if IsUniqueViolation(err) {
 				return eventsourcing.ErrConcurrencyConflict
 			}
 			return fmt.Errorf("postgres: insert event: %w", err)
