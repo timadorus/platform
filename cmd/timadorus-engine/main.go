@@ -57,6 +57,14 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	}
 	defer pool.Close()
 
+	// Registering the Timadorus Ruleset here, before anything else starts, means a registration
+	// failure (anything other than "it already exists") terminates this process via run()'s
+	// existing error return -> main()'s os.Exit(1), before /readyz ever starts listening and
+	// before this binary consumes a single event.
+	if err := timadorusengine.RegisterRuleset(ctx, pool); err != nil {
+		return err
+	}
+
 	newSubscriber := func(durableName string) (message.Subscriber, error) {
 		return bus.NewSubscriber(cfg.NATSURL, durableName, watermill.NewSlogLogger(logger))
 	}
