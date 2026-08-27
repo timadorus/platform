@@ -67,6 +67,8 @@ func classify(err error) (status int, title string) {
 		return 409, "archived"
 	case errors.Is(err, ruleset.ErrNameRequired):
 		return 422, "validation_failed"
+	case errors.Is(err, ruleset.ErrNameAlreadyExists):
+		return 409, "name_already_exists"
 	case errors.Is(err, apperrors.ErrParentNotFound), errors.Is(err, apperrors.ErrReferenceNotFound):
 		return 404, "reference_not_found"
 	case errors.Is(err, apperrors.ErrParentArchived), errors.Is(err, apperrors.ErrReferenceArchived):

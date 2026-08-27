@@ -749,6 +749,10 @@ func (s *Server) CreateRuleset(ctx context.Context, request gen.CreateRulesetReq
 		status, title := classify(err)
 		p := problem(status, title, err)
 		switch status {
+		case 409:
+			return gen.CreateRuleset409ApplicationProblemPlusJSONResponse{
+				ConflictApplicationProblemPlusJSONResponse: gen.ConflictApplicationProblemPlusJSONResponse(p),
+			}, nil
 		case 422:
 			return gen.CreateRuleset422ApplicationProblemPlusJSONResponse{
 				UnprocessableEntityApplicationProblemPlusJSONResponse: gen.UnprocessableEntityApplicationProblemPlusJSONResponse(p),

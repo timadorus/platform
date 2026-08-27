@@ -77,6 +77,11 @@ var _ = Describe("Timadorus platform aggregates", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(resp.StatusCode).To(Equal(http.StatusCreated))
 
+		resp, err = doJSON(http.MethodPost, env.CommandAPIBaseURL+"/rulesets", env.BearerToken,
+			commandgen.CreateRulesetRequest{Name: rulesetName}, nil)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusConflict))
+
 		resp, err = doJSON(http.MethodPut, fmt.Sprintf("%s/rulesets/%s/description", env.CommandAPIBaseURL, rulesetResp.Id), env.BearerToken,
 			commandgen.SetRulesetDescriptionRequest{Description: "an e2e-created ruleset"}, nil)
 		Expect(err).NotTo(HaveOccurred())
