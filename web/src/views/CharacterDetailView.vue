@@ -84,6 +84,7 @@ async function onSubmitReassignPlayer(userId: string) {
     <div v-if="activeTab === 'Stats'" class="flex gap-4">
       <AttributesTable class="flex-1" />
       <BaseInfoTable
+        :key="character.id"
         class="flex-1"
         :name="character.name"
         :player-name="playerName"

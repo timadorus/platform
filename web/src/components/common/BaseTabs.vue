@@ -5,10 +5,13 @@ const emit = defineEmits<{ 'update:modelValue': [tab: string] }>()
 
 <template>
   <div class="border-b border-slate-200">
-    <nav class="-mb-px flex gap-4">
+    <nav class="-mb-px flex gap-4" role="tablist">
       <button
         v-for="tab in tabs"
         :key="tab"
+        type="button"
+        role="tab"
+        :aria-selected="tab === modelValue"
         class="border-b-2 px-1 py-2 text-sm font-medium"
         :class="
           tab === modelValue
