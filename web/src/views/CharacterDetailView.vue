@@ -3,10 +3,11 @@ import { computed, inject, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useCharacters, type CharacterSummary } from '@/composables/useCharacters'
 import { useUsers } from '@/composables/useUsers'
-import BaseButton from '@/components/common/BaseButton.vue'
 import ErrorBanner from '@/components/common/ErrorBanner.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
-import UserPicker from '@/components/pickers/UserPicker.vue'
+import BaseTabs from '@/components/common/BaseTabs.vue'
+import AttributesTable from '@/components/character/AttributesTable.vue'
+import BaseInfoTable from '@/components/character/BaseInfoTable.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -20,10 +21,11 @@ const { users, list: listUsers } = useUsers()
 const bumpSidebarRefresh = inject<() => void>('bumpSidebarRefresh')
 
 const character = ref<CharacterSummary | null>(null)
-const name = ref('')
 const error = ref<string | null>(null)
 const showArchiveConfirm = ref(false)
-const showReassignPlayer = ref(false)
+
+const activeTab = ref('Stats')
+const tabs = ['Stats', 'Skills', 'Equipment', 'Journal']
 
 const playerName = computed(
   () => users.value.find((u) => u.id === character.value?.playerUserId)?.name ?? character.value?.playerUserId ?? '',
@@ -31,18 +33,17 @@ const playerName = computed(
 
 async function load() {
   character.value = await get(characterId.value)
-  if (character.value) name.value = character.value.name
   await listUsers()
 }
 onMounted(load)
 watch(characterId, load)
 
-async function submitRename() {
+async function onSubmitRename(newName: string) {
   if (!character.value) return
   error.value = null
   try {
-    await rename(character.value.id, name.value.trim())
-    character.value.name = name.value.trim()
+    await rename(character.value.id, newName)
+    character.value.name = newName
     bumpSidebarRefresh?.()
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Failed to rename.'
@@ -62,9 +63,8 @@ async function confirmArchive() {
   }
 }
 
-async function onReassignPlayer(userId: string) {
+async function onSubmitReassignPlayer(userId: string) {
   if (!character.value) return
-  showReassignPlayer.value = false
   error.value = null
   try {
     await setPlayer(character.value.id, userId)
@@ -77,25 +77,24 @@ async function onReassignPlayer(userId: string) {
 </script>
 
 <template>
-  <div v-if="character" class="mx-auto max-w-lg p-6">
+  <div v-if="character" class="mx-auto max-w-4xl p-6">
     <ErrorBanner :message="error" @dismiss="error = null" />
-    <div class="mb-4 flex gap-2">
-      <input v-model="name" type="text" class="flex-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
-      <BaseButton @click="submitRename">Rename</BaseButton>
-    </div>
+    <BaseTabs :tabs="tabs" v-model="activeTab" class="mb-4" />
 
-    <div class="mb-4">
-      <p class="mb-1 text-xs font-medium text-slate-600">Player</p>
-      <p class="mb-2 text-sm text-slate-900">{{ playerName }}</p>
-      <button class="text-xs text-indigo-600 hover:underline" @click="showReassignPlayer = !showReassignPlayer">
-        Reassign Player
-      </button>
-      <UserPicker v-if="showReassignPlayer" @select="onReassignPlayer" />
+    <div v-if="activeTab === 'Stats'" class="flex gap-4">
+      <AttributesTable class="flex-1" />
+      <BaseInfoTable
+        class="flex-1"
+        :name="character.name"
+        :player-name="playerName"
+        @submit-rename="onSubmitRename"
+        @submit-reassign-player="onSubmitReassignPlayer"
+        @archive="showArchiveConfirm = true"
+      />
     </div>
-
-    <div class="border-t border-slate-100 pt-3">
-      <BaseButton variant="danger" @click="showArchiveConfirm = true">Archive Character</BaseButton>
-    </div>
+    <div v-else-if="activeTab === 'Skills'" class="text-sm text-slate-500">Skills coming soon.</div>
+    <div v-else-if="activeTab === 'Equipment'" class="text-sm text-slate-500">Equipment coming soon.</div>
+    <div v-else-if="activeTab === 'Journal'" class="text-sm text-slate-500">Journal coming soon.</div>
 
     <ConfirmDialog
       v-if="showArchiveConfirm"
