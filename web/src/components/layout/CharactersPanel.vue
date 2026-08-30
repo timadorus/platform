@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, inject, onMounted, ref, watch, type Ref } from 'vue'
+import { computed, inject, onMounted, onUnmounted, ref, watch, type Ref } from 'vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import { useRoute, useRouter } from 'vue-router'
 import { useCharacters } from '@/composables/useCharacters'
@@ -40,6 +40,10 @@ if (sidebarRefreshSignal) {
 }
 const pendingEntityId = inject<Ref<string | null>>('pendingEntityId')
 
+// Holds the AbortController for the current onCreated background poll (if any), so it can be
+// aborted on unmount — mirrors CreatingUserModal.vue's pattern for waitForUser.
+let createdCharacterController: AbortController | null = null
+
 // playerLabel implements the NPC display rule: a Character whose Player is one of the
 // Campaign's Gamemasters is shown as "(NPC)" instead of a player name (design spec §7).
 function playerLabel(playerUserId: string): string {
@@ -57,13 +61,18 @@ function onCreated(characterId: string, entityId: string) {
   // Poll this panel's own list in the background until the new Character actually appears —
   // list() reassigns `characters` reactively as a side effect, which the template already
   // renders, so nothing further needs to happen once this resolves. Not awaited: this is a
-  // fire-and-forget background retry, not something the caller needs to wait on.
-  waitForCharacterInList(props.campaignId, characterId)
+  // fire-and-forget background retry, not something the caller needs to wait on. The signal is
+  // aborted on unmount (below) so the poll doesn't keep hitting the backend after the user
+  // navigates away.
+  createdCharacterController = new AbortController()
+  waitForCharacterInList(props.campaignId, characterId, { signal: createdCharacterController.signal })
   // The auto-created Entity lives in a sibling panel (EntitiesPanel) — tell it which id to wait
   // for via the shared pendingEntityId ref (WorkspaceView.vue), rather than the generic
   // sidebarRefreshSignal (which only fires once, with no retry).
   if (pendingEntityId) pendingEntityId.value = entityId
 }
+
+onUnmounted(() => createdCharacterController?.abort())
 </script>
 
 <template>

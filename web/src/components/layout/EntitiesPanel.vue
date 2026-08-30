@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { inject, onMounted, ref, watch, type Ref } from 'vue'
+import { inject, onMounted, onUnmounted, ref, watch, type Ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useEntities } from '@/composables/useEntities'
 import SearchableAggregatePanel from './SearchableAggregatePanel.vue'
@@ -14,9 +14,16 @@ const { entities, loading, search, waitForEntityInList } = useEntities()
 const showCreate = ref(false)
 const showAdvanced = ref(false)
 const currentQuery = ref('')
+// Holds the AbortController for the current pendingEntityId poll (if any), so it can be aborted
+// both on unmount and as soon as the user starts typing a search (see onSearch below) — mirrors
+// CreatingUserModal.vue's pattern for waitForUser.
+let pendingEntityController: AbortController | null = null
 
 function onSearch(query: string) {
   currentQuery.value = query
+  // The user has taken over the search box — stop the background poll from clobbering their
+  // filter with an unfiltered search every 750ms; let their search win.
+  if (query) pendingEntityController?.abort()
   search(props.universeId, query)
 }
 function select(id: string) {
@@ -43,10 +50,13 @@ const pendingEntityId = inject<Ref<string | null>>('pendingEntityId')
 if (pendingEntityId) {
   watch(pendingEntityId, async (id) => {
     if (!id) return
-    await waitForEntityInList(props.universeId, id)
+    pendingEntityController = new AbortController()
+    await waitForEntityInList(props.universeId, id, { signal: pendingEntityController.signal })
     pendingEntityId.value = null
   })
 }
+
+onUnmounted(() => pendingEntityController?.abort())
 </script>
 
 <template>

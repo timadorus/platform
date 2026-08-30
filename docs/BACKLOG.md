@@ -146,6 +146,54 @@ live with a real headless-Chromium session.
   `data-testid`s to `CreateCharacterModal.vue`/`BaseInfoTable.vue` rather than propagating these
   same patterns.
 
+- [ ] **The poll-with-timeout pattern is now duplicated four times.** `useUsers.ts`'s `waitForUser`,
+  `useCharacters.ts`'s `waitForCharacter` and `waitForCharacterInList`, and `useEntities.ts`'s
+  `waitForEntityInList` all share an identical skeleton — the same 750ms/15000ms defaults, the same
+  `opts` shape, the same `for (;;)` loop, the same pre-await/post-await abort guards, the same
+  deadline check — varying only in which fetch to call and what counts as success. Recommend
+  extracting a shared `pollUntil` helper (e.g. `web/src/composables/usePolling.ts`) once a fifth
+  copy is needed — the design spec for `character-creation-eventual-consistency` already
+  anticipates Universe/Campaign/Object creation having the same latent read-model-lag exposure, and
+  a fifth copy is the trigger to extract, not a requirement to do it now.
+
+- [ ] **`npm run typecheck` is a no-op and has been for some time.** `web/tsconfig.json` is a
+  solution-style config with `"files": []`, so `vue-tsc --noEmit` run against it checks zero files
+  and exits 0 in ~0.2s regardless of real type errors — every past plan's "typecheck must be clean"
+  gate has been vacuous; the actual type coverage has always ridden along inside `npm run build`'s
+  `vue-tsc -b`. Not fixed here because correcting it (e.g. `"typecheck": "vue-tsc -b --noEmit"`)
+  could surface a wave of pre-existing, unrelated type errors across `web/src` that have silently
+  accumulated — a separate, dedicated fix, not a one-liner to fold into an unrelated branch.
+
+- [ ] **The `pendingEntityId` provide/inject pair has a two-way-coupling wart.**
+  `CharactersPanel.vue` writes it (sets the new Entity's id); `EntitiesPanel.vue` also writes to it
+  (clears it back to `null` once its poll resolves) — both panels have write access to a ref
+  neither owns. Harmless today (only one producer/consumer pair exists), but if a second
+  `pendingXId`-shaped need ever arises, that's the signal to replace this narrow one-off with a
+  single richer shared signal payload (e.g. `sidebarEvent: Ref<{ kind: string; id: string } | null>`)
+  rather than accumulating more one-off refs on `WorkspaceView.vue`.
+
+- [ ] **Creating a Character no longer refreshes `CharactersPanel`'s own `users`/`gamemasterIds`.**
+  The old `bumpSidebarRefresh()` call ran the panel's full `refresh()` (`list` + `listUsers` +
+  `listGamemasters`); the new `waitForCharacterInList` only calls `list()`. `playerLabel()` reads
+  `users.value`/`gamemasterIds.value`, both loaded once at mount — so a Character assigned to a
+  User created after this panel mounted will show the raw `playerUserId` UUID in the sidebar until
+  some unrelated refresh fires. Narrow, cosmetic, and self-healing.
+
+- [ ] **Three independent 750ms polls now fire after one Character creation** (the Characters
+  sidebar, the Entities sidebar, and the main pane), each with no shared coordination — roughly
+  tripling the SPA's request rate against a lagging backend for up to 15 seconds, precisely when it
+  is already struggling. Acceptable at this scale and an inherent consequence of the current design
+  (three independent consumers), not a defect to fix now — just a property worth knowing about if
+  this polling pattern is reused elsewhere.
+
+- [ ] **A genuinely nonexistent Character id takes the full 15 seconds to report as such.**
+  Navigating to a stale bookmark or a hand-typed bad `characterId` shows "Loading…" for the full
+  timeout before the Retry/Back-to-Campaign UI appears, since `waitForCharacter` cannot distinguish
+  "not yet projected" from "will never exist" (both 404 identically). This is an accepted,
+  documented trade-off from the `character-creation-eventual-consistency` design spec, not an
+  oversight — recorded here so the cost is visible in one place alongside the rest of this
+  feature's known limitations.
+
 ## Devcluster tooling (`test/e2e/internal`)
 
 - [ ] **No `TraefikServiceName` exported constant.** `seed.go` and `up.go` both hardcode the

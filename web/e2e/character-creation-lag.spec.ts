@@ -33,9 +33,10 @@ test('sidebar lists and the main pane eventually reflect a newly created Charact
 }) => {
   const base = baseURL!
   const authority = `${base}/oidc`
-  // ~2 poll intervals (waitForCharacter/waitForCharacterInList/waitForEntityInList all default
-  // to a 750ms interval) — long enough to prove the retry actually happens, short enough to keep
-  // this test fast.
+  // waitForCharacter/waitForCharacterInList/waitForEntityInList all default to a 750ms interval,
+  // with the first poll firing at t≈0 — so 1600ms is long enough that the first three poll
+  // attempts miss (t≈0, 750, 1500) and the fourth (t≈2250) succeeds, proving the retry actually
+  // happens, while keeping this test fast.
   const state = seedState({ createVisibilityDelayMs: 1600 })
   await seedAuth(context, { baseURL: base, authority, clientId: CLIENT_ID })
   await installMockBackend(page, state, { baseURL: base, authority, clientId: CLIENT_ID })

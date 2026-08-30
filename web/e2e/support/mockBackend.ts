@@ -56,9 +56,9 @@ export interface MockState {
   gamemasterIds: string[]
   nextId: number
   // createVisibilityDelayMs, when set, makes the create-Character command's new Character and
-  // Entity invisible to every query route for this many milliseconds after creation — simulating
-  // an async projector that hasn't caught up yet. Unset (the default) means immediately visible,
-  // matching every existing test's expectations.
+  // Entity invisible to every query route that checks `visibleAt` for this many milliseconds
+  // after creation — simulating an async projector that hasn't caught up yet. Unset (the
+  // default) means immediately visible, matching every existing test's expectations.
   createVisibilityDelayMs?: number
 }
 
