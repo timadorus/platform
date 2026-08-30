@@ -10,7 +10,7 @@ const props = defineProps<{ universeId: string }>()
 const route = useRoute()
 const router = useRouter()
 
-const { entities, loading, search } = useEntities()
+const { entities, loading, search, waitForEntityInList } = useEntities()
 const showCreate = ref(false)
 const showAdvanced = ref(false)
 const currentQuery = ref('')
@@ -33,6 +33,18 @@ const sidebarRefreshSignal = inject<Ref<number>>('sidebarRefreshSignal')
 if (sidebarRefreshSignal) {
   watch(sidebarRefreshSignal, () => {
     search(props.universeId, currentQuery.value)
+  })
+}
+
+// pendingEntityId (WorkspaceView.vue) names an Entity that was just auto-created elsewhere (via
+// Character creation) and might not be visible yet — poll for it specifically, rather than
+// relying on the generic sidebarRefreshSignal above, which only re-searches once with no retry.
+const pendingEntityId = inject<Ref<string | null>>('pendingEntityId')
+if (pendingEntityId) {
+  watch(pendingEntityId, async (id) => {
+    if (!id) return
+    await waitForEntityInList(props.universeId, id)
+    pendingEntityId.value = null
   })
 }
 </script>

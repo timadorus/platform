@@ -12,7 +12,7 @@ const props = defineProps<{ campaignId: string }>()
 const route = useRoute()
 const router = useRouter()
 
-const { characters, list } = useCharacters()
+const { characters, list, waitForCharacterInList } = useCharacters()
 const { listGamemasters } = useCampaigns()
 const { users, list: listUsers } = useUsers()
 const gamemasterIds = ref<string[]>([])
@@ -38,7 +38,7 @@ const sidebarRefreshSignal = inject<Ref<number>>('sidebarRefreshSignal')
 if (sidebarRefreshSignal) {
   watch(sidebarRefreshSignal, refresh)
 }
-const bumpSidebarRefresh = inject<() => void>('bumpSidebarRefresh')
+const pendingEntityId = inject<Ref<string | null>>('pendingEntityId')
 
 // playerLabel implements the NPC display rule: a Character whose Player is one of the
 // Campaign's Gamemasters is shown as "(NPC)" instead of a player name (design spec §7).
@@ -51,13 +51,18 @@ function select(characterId: string) {
   router.push({ name: 'character-detail', params: { ...route.params, characterId } })
 }
 
-function onCreated(characterId: string) {
+function onCreated(characterId: string, entityId: string) {
   showCreate.value = false
-  // Creating a Character also auto-creates its paired Entity (plan §4.4) — bumping the shared
-  // signal (rather than calling refresh() directly) updates this panel's own list via its own
-  // watcher above *and* EntitiesPanel's, so the new Entity shows up in the sidebar too.
-  bumpSidebarRefresh?.()
   select(characterId)
+  // Poll this panel's own list in the background until the new Character actually appears —
+  // list() reassigns `characters` reactively as a side effect, which the template already
+  // renders, so nothing further needs to happen once this resolves. Not awaited: this is a
+  // fire-and-forget background retry, not something the caller needs to wait on.
+  waitForCharacterInList(props.campaignId, characterId)
+  // The auto-created Entity lives in a sibling panel (EntitiesPanel) — tell it which id to wait
+  // for via the shared pendingEntityId ref (WorkspaceView.vue), rather than the generic
+  // sidebarRefreshSignal (which only fires once, with no retry).
+  if (pendingEntityId) pendingEntityId.value = entityId
 }
 </script>
 

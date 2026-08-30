@@ -65,5 +65,29 @@ export function useEntities() {
     if (apiError) throw new Error(problemMessage(apiError) ?? 'Failed to archive Entity.')
   }
 
-  return { entities, loading, error, search, get, create, rename, archive }
+  // waitForEntityInList polls search(universeId, '') — deliberately unfiltered, regardless of
+  // any search term the caller might otherwise be using, so a new Entity is guaranteed findable
+  // rather than potentially excluded by an unrelated in-progress filter — until entityId appears
+  // or timeoutMs elapses. Mirrors useUsers.ts's waitForUser / useCharacters.ts's
+  // waitForCharacterInList.
+  async function waitForEntityInList(
+    universeId: string,
+    entityId: string,
+    opts: { intervalMs?: number; timeoutMs?: number; signal?: AbortSignal } = {},
+  ): Promise<boolean> {
+    const intervalMs = opts.intervalMs ?? 750
+    const timeoutMs = opts.timeoutMs ?? 15000
+    const deadline = Date.now() + timeoutMs
+    for (;;) {
+      if (opts.signal?.aborted) return false
+      await search(universeId, '')
+      if (opts.signal?.aborted) return false
+      if (error.value) return false
+      if (entities.value.some((e) => e.id === entityId)) return true
+      if (Date.now() >= deadline) return false
+      await new Promise((resolve) => setTimeout(resolve, intervalMs))
+    }
+  }
+
+  return { entities, loading, error, search, get, create, rename, archive, waitForEntityInList }
 }

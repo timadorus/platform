@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, inject, onMounted, ref, watch } from 'vue'
+import { computed, inject, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useCharacters, type CharacterSummary } from '@/composables/useCharacters'
 import { useUsers } from '@/composables/useUsers'
+import BaseButton from '@/components/common/BaseButton.vue'
 import ErrorBanner from '@/components/common/ErrorBanner.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import BaseTabs from '@/components/common/BaseTabs.vue'
@@ -16,13 +17,14 @@ const router = useRouter()
 // sidebar while already viewing one) — a plain const captured once at setup would go stale.
 const characterId = computed(() => route.params.characterId as string)
 
-const { get, rename, archive, setPlayer } = useCharacters()
+const { get, rename, archive, setPlayer, waitForCharacter } = useCharacters()
 const { users, list: listUsers } = useUsers()
 const bumpSidebarRefresh = inject<() => void>('bumpSidebarRefresh')
 
 const character = ref<CharacterSummary | null>(null)
 const error = ref<string | null>(null)
 const showArchiveConfirm = ref(false)
+const loadTimedOut = ref(false)
 
 const activeTab = ref('Stats')
 const tabs = ['Stats', 'Skills', 'Equipment', 'Journal']
@@ -31,12 +33,33 @@ const playerName = computed(
   () => users.value.find((u) => u.id === character.value?.playerUserId)?.name ?? character.value?.playerUserId ?? '',
 )
 
+// loadController is aborted both on unmount and at the start of every new load() call — the
+// latter matters because vue-router reuses this component instance across param-only route
+// changes (see characterId's own comment above): switching to a different Character mid-poll
+// must not let a slow response for the *previous* one land after navigation and overwrite the
+// page with the wrong data.
+let loadController: AbortController | null = null
+
 async function load() {
-  character.value = await get(characterId.value)
+  loadController?.abort()
+  const controller = new AbortController()
+  loadController = controller
+  loadTimedOut.value = false
+  character.value = null
+
+  const found = await waitForCharacter(characterId.value, { signal: controller.signal })
+  if (controller.signal.aborted) return
   await listUsers()
+  if (controller.signal.aborted) return
+  if (found) {
+    character.value = found
+  } else {
+    loadTimedOut.value = true
+  }
 }
 onMounted(load)
 watch(characterId, load)
+onUnmounted(() => loadController?.abort())
 
 async function onSubmitRename(newName: string) {
   if (!character.value) return
@@ -105,6 +128,21 @@ async function onSubmitReassignPlayer(userId: string) {
       @confirm="confirmArchive"
       @cancel="showArchiveConfirm = false"
     />
+  </div>
+  <div v-else-if="loadTimedOut" class="p-6">
+    <p class="mb-4 text-sm text-slate-600">
+      Couldn't load this Character — it may not exist, or may still be taking longer than
+      expected to appear.
+    </p>
+    <div class="flex gap-2">
+      <BaseButton @click="load">Retry</BaseButton>
+      <router-link
+        :to="{ name: 'campaign-overview', params: { universeId: route.params.universeId, campaignId: route.params.campaignId } }"
+        class="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+      >
+        Back to Campaign
+      </router-link>
+    </div>
   </div>
   <div v-else class="p-6 text-sm text-slate-500">Loading…</div>
 </template>

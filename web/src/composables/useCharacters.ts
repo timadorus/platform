@@ -72,5 +72,62 @@ export function useCharacters() {
     if (apiError) throw new Error(problemMessage(apiError) ?? 'Failed to reassign Player.')
   }
 
-  return { characters, loading, error, list, get, create, rename, archive, setPlayer }
+  // waitForCharacter polls get(id) until it succeeds or timeoutMs elapses. Unlike waitForUser
+  // (useUsers.ts), this cannot distinguish "the projector hasn't caught up yet" from "this id
+  // doesn't exist" — get() 404s identically either way — so every failed attempt is treated the
+  // same and retried until the deadline; callers should show one honest "couldn't load" message
+  // on timeout, not a distinct error state.
+  async function waitForCharacter(
+    id: string,
+    opts: { intervalMs?: number; timeoutMs?: number; signal?: AbortSignal } = {},
+  ): Promise<CharacterSummary | null> {
+    const intervalMs = opts.intervalMs ?? 750
+    const timeoutMs = opts.timeoutMs ?? 15000
+    const deadline = Date.now() + timeoutMs
+    for (;;) {
+      if (opts.signal?.aborted) return null
+      const found = await get(id)
+      if (opts.signal?.aborted) return null
+      if (found) return found
+      if (Date.now() >= deadline) return null
+      await new Promise((resolve) => setTimeout(resolve, intervalMs))
+    }
+  }
+
+  // waitForCharacterInList polls list(campaignId) until characterId appears in the result or
+  // timeoutMs elapses — mirrors waitForUser exactly (list() sets error.value on a real failure,
+  // distinct from "not in the list yet", so a hard error bails out immediately instead of
+  // retrying pointlessly for the full timeout).
+  async function waitForCharacterInList(
+    campaignId: string,
+    characterId: string,
+    opts: { intervalMs?: number; timeoutMs?: number; signal?: AbortSignal } = {},
+  ): Promise<boolean> {
+    const intervalMs = opts.intervalMs ?? 750
+    const timeoutMs = opts.timeoutMs ?? 15000
+    const deadline = Date.now() + timeoutMs
+    for (;;) {
+      if (opts.signal?.aborted) return false
+      await list(campaignId)
+      if (opts.signal?.aborted) return false
+      if (error.value) return false
+      if (characters.value.some((c) => c.id === characterId)) return true
+      if (Date.now() >= deadline) return false
+      await new Promise((resolve) => setTimeout(resolve, intervalMs))
+    }
+  }
+
+  return {
+    characters,
+    loading,
+    error,
+    list,
+    get,
+    create,
+    rename,
+    archive,
+    setPlayer,
+    waitForCharacter,
+    waitForCharacterInList,
+  }
 }

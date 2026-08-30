@@ -32,6 +32,13 @@ provide('bumpSidebarRefresh', () => {
   sidebarRefreshSignal.value++
 })
 
+// pendingEntityId lets CharactersPanel tell EntitiesPanel "a new Entity with this id was just
+// auto-created (via Character creation) — poll for it specifically" without overloading the
+// generic sidebarRefreshSignal above (which fires for rename/archive/reassign flows that don't
+// need retrying). CharactersPanel sets it; EntitiesPanel watches it, polls, and clears it.
+const pendingEntityId = ref<string | null>(null)
+provide('pendingEntityId', pendingEntityId)
+
 async function load() {
   universe.value = await getUniverse(universeId.value)
   campaign.value = await getCampaign(campaignId.value)
