@@ -121,6 +121,31 @@ live with a real headless-Chromium session.
   Matches the spec's markup verbatim; noted because `BaseTabs` and the two tables are otherwise
   responsive-friendly.
 
+- [ ] **`web/e2e`'s mock backend covers only the campaign-workspace page tree and Character
+  creation — a new test needs new route arms.** `installMockBackend`'s state shape
+  (`createMockState`) is genuinely general-purpose (arrays, `Partial` overrides, no hardcoded ids),
+  but its route table is scenario-shaped: no `GET /universes` (list), no
+  `GET /universes/{id}/campaigns`, no `GET /rulesets` (list), no single-entity/object GETs, and no
+  command other than create-Character — all now honestly documented in the function's own doc
+  comment rather than overstated. A future test exercising the Universe/Campaign picker screens, or
+  any other command, needs to add the matching `matchPath` arm(s) first — each is a small, additive
+  change (~5 lines) following the existing pattern, not a rewrite. Unmocked GETs return `[]`
+  (by design); unmocked commands now fail loudly with a `501` (fixed in the final-review fix wave)
+  rather than silently succeeding, so a missing arm surfaces immediately at the actual gap.
+
+- [ ] **`web/e2e/character-creation.spec.ts`'s selectors will need hardening before a second test
+  is added.** Several selectors work today only because of incidental page state, flagged by a
+  final review as exactly what the "minimal additive change" allowance (e.g. a missing
+  `aria-label`) was meant for, deliberately not touched to avoid churning a passing test: (1)
+  `page.locator('form')` is unscoped to the modal — correct only because exactly one `<form>` is
+  ever mounted at a time; (2) `modalForm.locator('input[type="text"]').first()` picks the Name
+  field positionally — correct only because it happens to precede `UserPicker`'s own text input in
+  DOM order; (3) the player-selection button lookup is page-scoped rather than scoped to the
+  picker; (4) the Base Info card is located via a Tailwind utility class (`div.rounded-md`) rather
+  than a stable hook. Before writing the harness's second test, add `aria-label`s or
+  `data-testid`s to `CreateCharacterModal.vue`/`BaseInfoTable.vue` rather than propagating these
+  same patterns.
+
 ## Devcluster tooling (`test/e2e/internal`)
 
 - [ ] **No `TraefikServiceName` exported constant.** `seed.go` and `up.go` both hardcode the
