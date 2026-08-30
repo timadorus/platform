@@ -6,7 +6,6 @@ import { useCampaigns, type CampaignSummary } from '@/composables/useCampaigns'
 import AppHeader from '@/components/layout/AppHeader.vue'
 import AppSidebar from '@/components/layout/AppSidebar.vue'
 import ManageUniverseModal from '@/components/modals/ManageUniverseModal.vue'
-import ManageCampaignModal from '@/components/modals/ManageCampaignModal.vue'
 import CharactersPanel from '@/components/layout/CharactersPanel.vue'
 import EntitiesPanel from '@/components/layout/EntitiesPanel.vue'
 import ObjectsPanel from '@/components/layout/ObjectsPanel.vue'
@@ -24,7 +23,6 @@ const { get: getCampaign } = useCampaigns()
 const universe = ref<UniverseSummary | null>(null)
 const campaign = ref<CampaignSummary | null>(null)
 const showManageUniverse = ref(false)
-const showManageCampaign = ref(false)
 
 const sidebarRefreshSignal = ref(0)
 provide('sidebarRefreshSignal', sidebarRefreshSignal)
@@ -46,6 +44,11 @@ async function load() {
 
 onMounted(load)
 watch([universeId, campaignId], load)
+// Campaign rename/archive now happen inside CampaignOverviewPanel.vue (the workspace route's
+// default child), not a modal owned here — it bumps the same shared signal
+// CharactersPanel/EntitiesPanel already react to, so re-running load() here keeps the header's
+// campaign name in sync the same way.
+watch(sidebarRefreshSignal, load)
 
 function onUniverseRenamed(newName: string) {
   if (universe.value) universe.value.name = newName
@@ -55,13 +58,8 @@ function onUniverseArchived() {
   showManageUniverse.value = false
   router.push({ name: 'universe-picker' })
 }
-function onCampaignRenamed(newName: string) {
-  if (campaign.value) campaign.value.name = newName
-  showManageCampaign.value = false
-}
-function onCampaignArchived() {
-  showManageCampaign.value = false
-  router.push({ name: 'campaign-picker', params: { universeId: universeId.value } })
+function goToCampaignOverview() {
+  router.push({ name: 'campaign-overview', params: { universeId: universeId.value, campaignId: campaignId.value } })
 }
 </script>
 
@@ -71,7 +69,7 @@ function onCampaignArchived() {
       :universe-name="universe?.name ?? null"
       :campaign-name="campaign?.name ?? null"
       @click-universe-badge="showManageUniverse = true"
-      @click-campaign-badge="showManageCampaign = true"
+      @click-campaign-badge="goToCampaignOverview"
     />
     <div class="flex flex-1 overflow-hidden">
       <AppSidebar>
@@ -97,14 +95,6 @@ function onCampaignArchived() {
       @close="showManageUniverse = false"
       @renamed="onUniverseRenamed"
       @archived="onUniverseArchived"
-    />
-    <ManageCampaignModal
-      v-if="showManageCampaign && campaign"
-      :campaign-id="campaignId"
-      :campaign-name="campaign.name"
-      @close="showManageCampaign = false"
-      @renamed="onCampaignRenamed"
-      @archived="onCampaignArchived"
     />
   </div>
 </template>
