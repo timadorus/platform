@@ -59,6 +59,14 @@ jobs:
         working-directory: web
         run: npm ci
 
+      - name: install Playwright browser
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+
+      - name: e2e tests
+        working-directory: web
+        run: npm run test:e2e
+
       - name: verify generated API clients are up to date
         working-directory: web
         run: |
