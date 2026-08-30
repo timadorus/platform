@@ -107,6 +107,16 @@ export interface MockAuthConfig {
 // general-purpose (arrays, matched-by-pattern routes) rather than scenario-specific, so a later
 // test can reuse it with its own seed data without touching this file. Returns the observed
 // `METHOD /path` call log for tests that want to assert a specific request was (or wasn't) sent.
+//
+// Actual route coverage today: the campaign-workspace page tree (`WorkspaceView` and everything
+// it mounts — `CampaignOverviewPanel`, `CharactersPanel`, `EntitiesPanel`, `ObjectsPanel`,
+// `CreateCharacterModal`, `CharacterDetailView`) plus Character creation. It does NOT cover the
+// universe/campaign *list* views (`GET /universes`, `GET /universes/{id}/campaigns`), the Ruleset
+// list, single-entity/object GETs, or any command other than create-Character. Adding a new
+// page/flow to this harness is meant to be a small, additive change here — a new `matchPath` arm
+// following the existing pattern, not a rewrite — but it does need to happen before a test
+// exercising that page can pass: unmocked GETs now silently return `[]` (by design, see below),
+// and unmocked commands now fail loudly with a 501 (see the fallback below).
 export async function installMockBackend(page: Page, state: MockState, auth: MockAuthConfig): Promise<string[]> {
   const apiCalls: string[] = []
   const { baseURL, authority, clientId } = auth
@@ -213,8 +223,15 @@ export async function installMockBackend(page: Page, state: MockState, auth: Moc
       return json(route, { characterId, entityId }, 201)
     }
 
-    console.warn(`[mockBackend] unhandled ${method} ${p} -> []`)
-    return json(route, [])
+    if (method === 'GET') {
+      console.warn(`[mockBackend] unhandled ${method} ${p} -> []`)
+      return json(route, [])
+    }
+    // Non-GET (command) requests fail loudly instead of silently succeeding: a future test
+    // hitting an unmocked command should fail at the actual gap (a missing matchPath arm), not
+    // several confusing steps later with an undefined id or similar.
+    console.warn(`[mockBackend] unhandled ${method} ${p} -> 501`)
+    return json(route, { error: `mockBackend: no handler for ${method} ${p}` }, 501)
   })
 
   return apiCalls
