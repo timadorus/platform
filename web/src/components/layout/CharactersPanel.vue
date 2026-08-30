@@ -38,6 +38,7 @@ const sidebarRefreshSignal = inject<Ref<number>>('sidebarRefreshSignal')
 if (sidebarRefreshSignal) {
   watch(sidebarRefreshSignal, refresh)
 }
+const bumpSidebarRefresh = inject<() => void>('bumpSidebarRefresh')
 
 // playerLabel implements the NPC display rule: a Character whose Player is one of the
 // Campaign's Gamemasters is shown as "(NPC)" instead of a player name (design spec §7).
@@ -52,7 +53,10 @@ function select(characterId: string) {
 
 function onCreated(characterId: string) {
   showCreate.value = false
-  refresh()
+  // Creating a Character also auto-creates its paired Entity (plan §4.4) — bumping the shared
+  // signal (rather than calling refresh() directly) updates this panel's own list via its own
+  // watcher above *and* EntitiesPanel's, so the new Entity shows up in the sidebar too.
+  bumpSidebarRefresh?.()
   select(characterId)
 }
 </script>
