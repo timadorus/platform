@@ -12,6 +12,10 @@ export interface MockCampaign {
   name: string
   rulesetId: string
   isArchived: boolean
+  // Optional so existing seeds (character-creation.spec.ts, character-creation-lag.spec.ts)
+  // don't need to change — ConfigurationPanel.vue already renders "No configuration set yet"
+  // when this is absent.
+  configuration?: string
 }
 
 export interface MockUser {
@@ -220,6 +224,13 @@ export async function installMockBackend(page: Page, state: MockState, auth: Moc
     }
 
     // ---- command API ----
+    if (method === 'PATCH' && (m = matchPath('/api/command/campaigns/:campaignId', p))) {
+      const body = JSON.parse(req.postData() || '{}') as { name: string }
+      const campaign = state.campaigns.find((c) => c.id === m!.params.campaignId)
+      if (campaign) campaign.name = body.name
+      return route.fulfill({ status: 204, body: '' })
+    }
+
     if (method === 'POST' && (m = matchPath('/api/command/campaigns/:campaignId/characters', p))) {
       const body = JSON.parse(req.postData() || '{}') as { name: string; playerUserId: string }
       const characterId = newId(state, 'character')
