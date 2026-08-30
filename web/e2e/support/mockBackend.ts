@@ -27,6 +27,10 @@ export interface MockCharacter {
   entityId: string
   playerUserId: string
   isArchived: boolean
+  // visibleAt (epoch ms) simulates read-model lag: unset means "always visible" (the default,
+  // matching every existing test's expectations); set means query routes hide this record until
+  // Date.now() reaches it, even though it already exists in `state`.
+  visibleAt?: number
 }
 
 export interface MockEntity {
@@ -34,6 +38,7 @@ export interface MockEntity {
   name: string
   universeId: string
   isArchived: boolean
+  visibleAt?: number
 }
 
 export interface MockRuleset {
@@ -50,6 +55,11 @@ export interface MockState {
   rulesets: MockRuleset[]
   gamemasterIds: string[]
   nextId: number
+  // createVisibilityDelayMs, when set, makes the create-Character command's new Character and
+  // Entity invisible to every query route for this many milliseconds after creation — simulating
+  // an async projector that hasn't caught up yet. Unset (the default) means immediately visible,
+  // matching every existing test's expectations.
+  createVisibilityDelayMs?: number
 }
 
 // createMockState seeds a fresh, per-test state object — arrays, not module-level globals, so
@@ -174,16 +184,27 @@ export async function installMockBackend(page: Page, state: MockState, auth: Moc
       return json(route, state.gamemasterIds)
     }
     if (method === 'GET' && (m = matchPath('/api/query/campaigns/:campaignId/characters', p))) {
-      return json(route, state.characters.filter((c) => c.campaignId === m!.params.campaignId && !c.isArchived))
+      const visible = state.characters.filter(
+        (c) =>
+          c.campaignId === m!.params.campaignId &&
+          !c.isArchived &&
+          (c.visibleAt === undefined || c.visibleAt <= Date.now()),
+      )
+      return json(route, visible)
     }
     if (method === 'GET' && (m = matchPath('/api/query/characters/:characterId', p))) {
       const character = state.characters.find((c) => c.id === m!.params.characterId)
-      return character ? json(route, character) : json(route, { title: 'not found' }, 404)
+      const visible = character && (character.visibleAt === undefined || character.visibleAt <= Date.now())
+      return visible ? json(route, character) : json(route, { title: 'not found' }, 404)
     }
     if (method === 'GET' && (m = matchPath('/api/query/universes/:universeId/entities', p))) {
       const name = query.get('name')?.toLowerCase() ?? ''
       const matches = state.entities.filter(
-        (e) => e.universeId === m!.params.universeId && !e.isArchived && (!name || e.name.toLowerCase().includes(name)),
+        (e) =>
+          e.universeId === m!.params.universeId &&
+          !e.isArchived &&
+          (!name || e.name.toLowerCase().includes(name)) &&
+          (e.visibleAt === undefined || e.visibleAt <= Date.now()),
       )
       return json(route, matches)
     }
@@ -204,6 +225,11 @@ export async function installMockBackend(page: Page, state: MockState, auth: Moc
       const characterId = newId(state, 'character')
       const entityId = newId(state, 'entity')
       const campaign = state.campaigns.find((c) => c.id === m!.params.campaignId)
+      // visibleAt simulates real read-model lag: when createVisibilityDelayMs is configured, the
+      // new Character/Entity exist in `state` immediately (matching the real backend's write-side
+      // truth) but don't appear through any query route until that many milliseconds have passed
+      // — exactly what a slow projector looks like from the SPA's perspective.
+      const visibleAt = state.createVisibilityDelayMs !== undefined ? Date.now() + state.createVisibilityDelayMs : undefined
       state.characters.push({
         id: characterId,
         name: body.name,
@@ -211,6 +237,7 @@ export async function installMockBackend(page: Page, state: MockState, auth: Moc
         entityId,
         playerUserId: body.playerUserId,
         isArchived: false,
+        visibleAt,
       })
       // Mirrors internal/command/character/service.go's real cross-aggregate CreateCharacter:
       // the auto-created Entity gets the same name as the Character.
@@ -219,6 +246,7 @@ export async function installMockBackend(page: Page, state: MockState, auth: Moc
         name: body.name,
         universeId: campaign?.universeId ?? '',
         isArchived: false,
+        visibleAt,
       })
       return json(route, { characterId, entityId }, 201)
     }
