@@ -7,6 +7,7 @@ export interface CampaignSummary {
   name: string
   universeId: string
   rulesetId: string
+  configuration: string
   isArchived: boolean
 }
 
