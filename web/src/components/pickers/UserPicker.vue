@@ -27,6 +27,7 @@ const filtered = computed(() => {
       <button
         v-for="u in filtered"
         :key="u.id"
+        type="button"
         class="block w-full px-2 py-1.5 text-left text-sm hover:bg-slate-50"
         @click="emit('select', u.id)"
       >
