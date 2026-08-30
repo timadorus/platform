@@ -1,0 +1,221 @@
+import type { Page, Route } from '@playwright/test'
+
+export interface MockUniverse {
+  id: string
+  name: string
+  isArchived: boolean
+}
+
+export interface MockCampaign {
+  id: string
+  universeId: string
+  name: string
+  rulesetId: string
+  isArchived: boolean
+}
+
+export interface MockUser {
+  id: string
+  name: string
+  isArchived: boolean
+}
+
+export interface MockCharacter {
+  id: string
+  name: string
+  campaignId: string
+  entityId: string
+  playerUserId: string
+  isArchived: boolean
+}
+
+export interface MockEntity {
+  id: string
+  name: string
+  universeId: string
+  isArchived: boolean
+}
+
+export interface MockRuleset {
+  id: string
+  name: string
+}
+
+export interface MockState {
+  universes: MockUniverse[]
+  campaigns: MockCampaign[]
+  users: MockUser[]
+  characters: MockCharacter[]
+  entities: MockEntity[]
+  rulesets: MockRuleset[]
+  gamemasterIds: string[]
+  nextId: number
+}
+
+// createMockState seeds a fresh, per-test state object — arrays, not module-level globals, so
+// tests never leak data into each other even when run in parallel (playwright.config.ts sets
+// fullyParallel: true).
+export function createMockState(overrides: Partial<MockState> = {}): MockState {
+  return {
+    universes: [],
+    campaigns: [],
+    users: [],
+    characters: [],
+    entities: [],
+    rulesets: [],
+    gamemasterIds: [],
+    nextId: 1,
+    ...overrides,
+  }
+}
+
+function newId(state: MockState, prefix: string): string {
+  return `${prefix}-${state.nextId++}`
+}
+
+interface RouteMatch {
+  params: Record<string, string>
+}
+
+// matchPath is a tiny path-template matcher (":id" segments only) — enough for this harness's
+// flat REST-ish paths, not a general router.
+function matchPath(pattern: string, path: string): RouteMatch | null {
+  const patternParts = pattern.split('/').filter(Boolean)
+  const pathParts = path.split('/').filter(Boolean)
+  if (patternParts.length !== pathParts.length) return null
+  const params: Record<string, string> = {}
+  for (let i = 0; i < patternParts.length; i++) {
+    const part = patternParts[i]
+    if (part.startsWith(':')) {
+      params[part.slice(1)] = decodeURIComponent(pathParts[i])
+    } else if (part !== pathParts[i]) {
+      return null
+    }
+  }
+  return { params }
+}
+
+export interface MockAuthConfig {
+  baseURL: string
+  authority: string
+  clientId: string
+}
+
+// installMockBackend intercepts /config.json, the OIDC well-known endpoint, and every
+// command/query API call this harness's page tree can make, answering from `state` — a mutable
+// object the caller seeds before navigating and can inspect afterward. Deliberately
+// general-purpose (arrays, matched-by-pattern routes) rather than scenario-specific, so a later
+// test can reuse it with its own seed data without touching this file. Returns the observed
+// `METHOD /path` call log for tests that want to assert a specific request was (or wasn't) sent.
+export async function installMockBackend(page: Page, state: MockState, auth: MockAuthConfig): Promise<string[]> {
+  const apiCalls: string[] = []
+  const { baseURL, authority, clientId } = auth
+
+  function json(route: Route, body: unknown, status = 200) {
+    return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
+  }
+
+  await page.route('**/*', async (route) => {
+    const req = route.request()
+    const url = new URL(req.url())
+    const p = url.pathname
+    const method = req.method()
+
+    if (p === '/config.json') {
+      return json(route, {
+        commandApiBaseUrl: `${baseURL}/api/command`,
+        queryApiBaseUrl: `${baseURL}/api/query`,
+        oidc: {
+          authority,
+          clientId,
+          redirectUri: `${baseURL}/login`,
+          postLogoutRedirectUri: `${baseURL}/`,
+        },
+      })
+    }
+    if (p === '/oidc/.well-known/openid-configuration') {
+      return json(route, {
+        issuer: authority,
+        authorization_endpoint: `${authority}/authorize`,
+        token_endpoint: `${authority}/token`,
+        userinfo_endpoint: `${authority}/userinfo`,
+        end_session_endpoint: `${authority}/logout`,
+        jwks_uri: `${authority}/keys`,
+      })
+    }
+    if (p.startsWith('/oidc/')) return json(route, {})
+
+    if (!p.startsWith('/api/')) return route.continue()
+
+    apiCalls.push(`${method} ${p}`)
+    const query = url.searchParams
+    let m: RouteMatch | null
+
+    // ---- query API ----
+    if (method === 'GET' && (m = matchPath('/api/query/universes/:universeId', p))) {
+      const universe = state.universes.find((u) => u.id === m!.params.universeId)
+      return universe ? json(route, universe) : json(route, { title: 'not found' }, 404)
+    }
+    if (method === 'GET' && (m = matchPath('/api/query/campaigns/:campaignId', p))) {
+      const campaign = state.campaigns.find((c) => c.id === m!.params.campaignId)
+      return campaign ? json(route, campaign) : json(route, { title: 'not found' }, 404)
+    }
+    if (method === 'GET' && matchPath('/api/query/campaigns/:campaignId/gamemasters', p)) {
+      return json(route, state.gamemasterIds)
+    }
+    if (method === 'GET' && (m = matchPath('/api/query/campaigns/:campaignId/characters', p))) {
+      return json(route, state.characters.filter((c) => c.campaignId === m!.params.campaignId && !c.isArchived))
+    }
+    if (method === 'GET' && (m = matchPath('/api/query/characters/:characterId', p))) {
+      const character = state.characters.find((c) => c.id === m!.params.characterId)
+      return character ? json(route, character) : json(route, { title: 'not found' }, 404)
+    }
+    if (method === 'GET' && (m = matchPath('/api/query/universes/:universeId/entities', p))) {
+      const name = query.get('name')?.toLowerCase() ?? ''
+      const matches = state.entities.filter(
+        (e) => e.universeId === m!.params.universeId && !e.isArchived && (!name || e.name.toLowerCase().includes(name)),
+      )
+      return json(route, matches)
+    }
+    if (method === 'GET' && matchPath('/api/query/universes/:universeId/objects', p)) {
+      return json(route, [])
+    }
+    if (method === 'GET' && p === '/api/query/users') {
+      return json(route, state.users)
+    }
+    if (method === 'GET' && (m = matchPath('/api/query/rulesets/:rulesetId', p))) {
+      const ruleset = state.rulesets.find((r) => r.id === m!.params.rulesetId)
+      return ruleset ? json(route, ruleset) : json(route, { title: 'not found' }, 404)
+    }
+
+    // ---- command API ----
+    if (method === 'POST' && (m = matchPath('/api/command/campaigns/:campaignId/characters', p))) {
+      const body = JSON.parse(req.postData() || '{}') as { name: string; playerUserId: string }
+      const characterId = newId(state, 'character')
+      const entityId = newId(state, 'entity')
+      const campaign = state.campaigns.find((c) => c.id === m!.params.campaignId)
+      state.characters.push({
+        id: characterId,
+        name: body.name,
+        campaignId: m!.params.campaignId,
+        entityId,
+        playerUserId: body.playerUserId,
+        isArchived: false,
+      })
+      // Mirrors internal/command/character/service.go's real cross-aggregate CreateCharacter:
+      // the auto-created Entity gets the same name as the Character.
+      state.entities.push({
+        id: entityId,
+        name: body.name,
+        universeId: campaign?.universeId ?? '',
+        isArchived: false,
+      })
+      return json(route, { characterId, entityId }, 201)
+    }
+
+    console.warn(`[mockBackend] unhandled ${method} ${p} -> []`)
+    return json(route, [])
+  })
+
+  return apiCalls
+}
