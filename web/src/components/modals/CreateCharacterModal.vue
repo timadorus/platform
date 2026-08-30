@@ -8,7 +8,7 @@ import { useCharacters } from '@/composables/useCharacters'
 import { useUsers } from '@/composables/useUsers'
 
 const props = defineProps<{ campaignId: string }>()
-const emit = defineEmits<{ close: []; created: [] }>()
+const emit = defineEmits<{ close: []; created: [characterId: string] }>()
 
 const { create } = useCharacters()
 const { users, list: listUsers } = useUsers()
@@ -29,8 +29,8 @@ async function submit() {
   submitting.value = true
   error.value = null
   try {
-    await create(props.campaignId, name.value.trim(), playerUserId.value)
-    emit('created')
+    const { characterId } = await create(props.campaignId, name.value.trim(), playerUserId.value)
+    emit('created', characterId)
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Failed to create Character.'
   } finally {

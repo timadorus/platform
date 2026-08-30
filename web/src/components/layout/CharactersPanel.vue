@@ -50,9 +50,10 @@ function select(characterId: string) {
   router.push({ name: 'character-detail', params: { ...route.params, characterId } })
 }
 
-function onCreated() {
+function onCreated(characterId: string) {
   showCreate.value = false
   refresh()
+  select(characterId)
 }
 </script>
 
