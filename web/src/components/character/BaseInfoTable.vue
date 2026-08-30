@@ -20,6 +20,7 @@ function startEditName() {
   editingName.value = true
 }
 function saveName() {
+  if (!nameDraft.value.trim()) return
   emit('submit-rename', nameDraft.value.trim())
   editingName.value = false
 }

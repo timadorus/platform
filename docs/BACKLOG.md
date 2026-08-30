@@ -86,20 +86,25 @@ of retrying for the full timeout, and the modal shows that error distinctly from
 timeout; and `query.types.ts`/`command.types.ts` are regenerated and current. All three verified
 live with a real headless-Chromium session.
 
-- [ ] **Character detail page (`character-detail-redesign`): a rejected rename discards the
-  user's typed draft, and an empty rename is sent unguarded.** `BaseInfoTable.vue`'s `saveName()`
-  collapses the inline editor immediately after emitting `submit-rename`, before the parent's
-  `PATCH` call has resolved. Verified live with a mocked `400`: the error banner appears, the
-  display reverts to the old name, and the text the user typed is gone — they must reopen the
-  editor and retype from scratch to retry. Not data-damaging (the old name is never lost server-
-  side), just a retry-ergonomics regression versus the previous always-editable input, which kept
-  the attempted text in the box. Separately, and pre-existing rather than introduced by this
-  branch, `saveName()` has no emptiness guard: clearing the field and clicking Save sends
-  `PATCH {"name":""}` unguarded (verified live); the server rejects it and the banner explains, so
-  nothing breaks, but the gap is now slightly more visible because of the lost-draft issue above.
-  Both are accepted, conscious trade-offs for this branch rather than defects — a fix for the
-  first costs an extra round trip (e.g. a `saving`/`error` prop from the parent, or the emit
-  carrying a callback); a fix for the second is a two-line `v-if` guard in `saveName()`.
+- [ ] **Character detail page (`character-detail-redesign`) and Campaign manage panel
+  (`campaign-tabbed-panel`): a rejected rename discards the user's typed draft.** Both
+  `BaseInfoTable.vue`'s and `ManageCampaignPanel.vue`'s `saveName()` collapse the inline editor
+  immediately after emitting `submit-rename`, before the parent's `PATCH` call has resolved.
+  Verified live with a mocked `400`: the error banner appears, the display reverts to the old
+  name, and the text the user typed is gone — they must reopen the editor and retype from scratch
+  to retry. Not data-damaging (the old name is never lost server-side), just a retry-ergonomics
+  regression versus the previous always-editable input, which kept the attempted text in the box.
+  For Character, this is a pre-existing, accepted trade-off; for Campaign, `campaign-tabbed-panel`
+  introduced it as a genuine regression, not an inherited one — the deleted
+  `ManageCampaignModal.vue` had exactly that always-editable input (`<input v-model="name">` plus
+  a Rename button) and kept the typed text across a rejected rename, while the new click-to-reveal
+  `ManageCampaignPanel.vue` does not. This remains an accepted, conscious trade-off for both
+  components — a fix costs an extra round trip (e.g. a `saving`/`error` prop from the parent, or
+  the emit carrying a callback). Separately, and pre-existing rather than introduced by either
+  branch, `saveName()` used to have no emptiness guard: clearing the field and clicking Save sent
+  `PATCH {"name":""}` unguarded (verified live for Character; the server rejected it and the
+  banner explained, so nothing broke). That gap has now been closed in both components with the
+  two-line `v-if` guard this entry used to price as the cheap half of the fix.
 
 - [ ] **Character detail page: cosmetic table-column jitter in the Base Info card.** At some
   viewport widths (e.g. ~1400px) the table's `auto` layout re-measures column widths per state, so
@@ -155,6 +160,18 @@ live with a real headless-Chromium session.
   copy is needed — the design spec for `character-creation-eventual-consistency` already
   anticipates Universe/Campaign/Object creation having the same latent read-model-lag exposure, and
   a fifth copy is the trigger to extract, not a requirement to do it now.
+
+- [ ] **A freshly created Campaign has no retry/timeout handling for read-model lag, unlike
+  Character creation.** `CampaignPickerView.vue`'s `onCreated(id)` navigates straight to the
+  Campaign workspace, which lands by default on `CampaignOverviewPanel.vue` — so a lagging read
+  model shows the dead-end "Campaign not found." with no Retry, unlike the
+  `character-creation-eventual-consistency` pattern (`waitForCharacter` plus
+  `CharacterDetailView`'s Retry/Back-to-Campaign UI). `WorkspaceView.vue`'s own `getCampaign` call
+  has the identical exposure, which would leave the header badge blank instead. This is unchanged,
+  pre-existing behavior — `campaign-tabbed-panel` did not regress it — and deferring it was a
+  deliberate, reasonable scope decision (the panel "wasn't reported broken"). Recorded here, per
+  the poll-with-timeout entry above, so this specific instance of the latent exposure it already
+  anticipates for Campaign creation does not quietly evaporate as untracked follow-up.
 
 - [ ] **`npm run typecheck` is a no-op and has been for some time.** `web/tsconfig.json` is a
   solution-style config with `"files": []`, so `vue-tsc --noEmit` run against it checks zero files
