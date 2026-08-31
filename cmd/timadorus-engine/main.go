@@ -1,5 +1,5 @@
 // timadorus-engine subscribes to the Character and Campaign event streams and reacts to their
-// respective trigger events (ActionRequested, ConfigurationRequested) — see
+// respective trigger events (ActionRequested, ConfigurationRequested, CampaignCreated) — see
 // internal/engine/timadorus for the actual logic. Structurally identical to cmd/projector (same
 // Router/checkpoint machinery), but registers two processors sharing one RulesetCache instead
 // of the seven read-model projectors, which is why it's a separate binary: unlike every

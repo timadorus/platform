@@ -418,7 +418,10 @@ components:
         # configuration is an opaque JSON-string payload, never parsed or validated by the
         # backend. Settable directly via PUT /campaigns/{campaignId}/configuration, or
         # indirectly (as a {"configs":[...]} timestamp list) by timadorus-engine reacting to
-        # PUT /campaigns/{campaignId}/configure — see api/command/openapi.yaml.
+        # PUT /campaigns/{campaignId}/configure — see api/command/openapi.yaml. Also populated
+        # automatically (as a {"traits":[...]} list, merged in alongside any "configs" list) by
+        # timadorus-engine immediately on Campaign creation, with no client action, for Campaigns
+        # that use the "timadorus" Ruleset.
         configuration:
           type: string
         isArchived:

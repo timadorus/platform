@@ -37,14 +37,27 @@ up; don't grow this file into a design doc.
   pod restarts. Accepted for now; would need invalidation on `RulesetRenamed` if it ever matters
   in practice.
 
-- [ ] **Architecture note for a 3rd aggregate type** (not a defect, just a heads-up): if this
-  trigger-endpoint pattern (`Request*` → `*Requested` event with a no-op `Apply` → an engine
-  processor conditionally mutating the aggregate) gets reused a third time, the ~35-line "parse
-  opaque field → append timestamp under key K → save, swallowing `ErrArchived`" body — currently
-  copy-adapted between `CharacterProcessor.appendActionTimestamp` and
-  `CampaignProcessor.appendConfigurationTimestamp` — should get extracted into a shared helper
-  over a small interface. Two instances of copy-adapt is correct by this codebase's own
-  convention; three would earn the abstraction.
+- [ ] **Architecture note for a 3rd aggregate type** (not a defect, just a heads-up): the
+  extraction has now partially happened within `CampaignProcessor` itself —
+  `CampaignProcessor.mutateConfiguration` is shared between its own two handlers
+  (`handleCampaignCreated`'s "traits" overwrite and `handleConfigurationRequested`'s "configs"
+  append), replacing what used to be a separate `appendConfigurationTimestamp`. The remaining
+  cross-processor duplication is the ~35-line "parse opaque field → mutate under key K → save,
+  swallowing `ErrArchived`" body, still copy-adapted between
+  `CharacterProcessor.appendActionTimestamp` and `CampaignProcessor.mutateConfiguration`. If this
+  trigger-endpoint pattern (`Request*`/creation event → an engine processor conditionally
+  mutating the aggregate) gets reused a third time, these two survivors should get extracted into
+  a shared helper over a small interface. Two instances of copy-adapt is correct by this
+  codebase's own convention; three would earn the abstraction.
+
+- [ ] **No backfill for pre-existing Campaigns — default traits only apply going forward.**
+  Campaigns created before this branch's engine is deployed get no default traits: the merge is
+  triggered by `CampaignCreated`, not by a backfill pass, so only Campaigns created *after* the
+  new engine is running are affected. Resetting `CampaignProcessor`'s checkpoint to force a
+  "replay" is **not** a safe way to backfill existing Campaigns — replaying `CampaignCreated` for
+  a Campaign that has also received `ConfigurationRequested` events since would re-run the
+  non-idempotent "configs" append (see `mutateConfiguration`'s own doc comment) for every one of
+  those historical events too, not just merge in the missing traits.
 
 - [ ] **No backfill for pre-existing Ruleset names — an in-place cluster upgrade gets a
   duplicate "Timadorus" Ruleset.** `internal/command/ruleset/migrations/0001_ruleset_names.up.sql`

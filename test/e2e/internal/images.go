@@ -9,9 +9,9 @@ import (
 // imageComponents lists every image this suite must build, matching the existing
 // Dockerfile.<name> naming convention at the repo root (command-api, query-api, and
 // projector are the platform's public binaries; timadorus-engine reacts to Character
-// `action` events and Campaign `configure`-triggered events — a real container image the
-// chart's Deployment needs, same as the others; migrate is required too — the chart's
-// migration Job can't run without its own
+// `action` events, Campaign `configure`-triggered events, and Campaign creation — a real
+// container image the chart's Deployment needs, same as the others; migrate is required
+// too — the chart's migration Job can't run without its own
 // image, even though it wasn't among the three named services; web is the nginx-served Vue
 // SPA the chart now also deploys, built from Dockerfile.web).
 var imageComponents = []string{"command-api", "query-api", "projector", "timadorus-engine", "migrate", "web"}

@@ -17,6 +17,8 @@ import (
 	"github.com/timadorus/platform/internal/bus"
 	"github.com/timadorus/platform/internal/domain/campaign"
 	"github.com/timadorus/platform/internal/domain/campaign/events"
+	"github.com/timadorus/platform/internal/domain/ruleset"
+	rulesetevents "github.com/timadorus/platform/internal/domain/ruleset/events"
 	"github.com/timadorus/platform/internal/engine/timadorus"
 	"github.com/timadorus/platform/internal/eventsourcing"
 	"github.com/timadorus/platform/internal/eventstore/postgres"
@@ -56,6 +58,33 @@ func createCampaign(t *testing.T, pool *pgxpool.Pool, rulesetID uuid.UUID) uuid.
 		t.Fatalf("seed campaigns_read_model: %v", err)
 	}
 	return c.AggregateID()
+}
+
+func rulesetRepo(pool *pgxpool.Pool) *eventsourcing.Repository[*ruleset.Ruleset] {
+	registry := eventsourcing.NewRegistry()
+	rulesetevents.Register(registry)
+	store := postgres.NewStore(pool, registry)
+	return eventsourcing.NewRepository(store, ruleset.AggregateType, func() *ruleset.Ruleset {
+		return &ruleset.Ruleset{}
+	})
+}
+
+// createRuleset drives a real Ruleset through the real event store (unlike seedRuleset, which
+// only inserts a rulesets_read_model row with no corresponding event) — needed by any test whose
+// CampaignCreated handling now resolves the Ruleset name via the event store rather than the read
+// model. Returns the server-generated id, which the caller passes to campaign.New/createCampaign
+// as rulesetID.
+func createRuleset(t *testing.T, pool *pgxpool.Pool, name string) uuid.UUID {
+	t.Helper()
+	repo := rulesetRepo(pool)
+	rs, err := ruleset.New(name, "", nil)
+	if err != nil {
+		t.Fatalf("ruleset.New: %v", err)
+	}
+	if err := repo.Save(context.Background(), rs); err != nil {
+		t.Fatalf("save ruleset: %v", err)
+	}
+	return rs.AggregateID()
 }
 
 func seedRuleset(t *testing.T, pool *pgxpool.Pool, rulesetID uuid.UUID, name string) {
@@ -315,8 +344,7 @@ func TestCampaignProcessor_PreservesCorrelationID(t *testing.T) {
 func TestCampaignProcessor_CampaignCreated_MatchingRuleset_MergesDefaultTraits(t *testing.T) {
 	pool := newTestPool(t)
 
-	rulesetID := uuid.New()
-	seedRuleset(t, pool, rulesetID, "TIMADORUS") // exact-case mismatch on purpose
+	rulesetID := createRuleset(t, pool, "TIMADORUS") // exact-case mismatch on purpose
 
 	ctx := context.Background()
 	repo := campaignRepo(pool)
@@ -328,8 +356,9 @@ func TestCampaignProcessor_CampaignCreated_MatchingRuleset_MergesDefaultTraits(t
 		t.Fatalf("save campaign: %v", err)
 	}
 	campaignID := c.AggregateID()
-	// Deliberately NOT seeding campaigns_read_model — proves handleCampaignCreated's ruleset
-	// lookup does not depend on that table's row existing yet (the real race this plan fixes).
+	// Deliberately NOT seeding campaigns_read_model or rulesets_read_model — proves
+	// handleCampaignCreated's ruleset lookup does not depend on either table's row existing yet
+	// (the real race this plan fixes), since the Ruleset comes from the event store instead.
 
 	publish, wait := runCampaignEngine(t, pool)
 
@@ -395,8 +424,7 @@ func TestCampaignProcessor_CampaignCreated_MatchingRuleset_MergesDefaultTraits(t
 func TestCampaignProcessor_CampaignCreated_NonMatchingRuleset_NoOp(t *testing.T) {
 	pool := newTestPool(t)
 
-	rulesetID := uuid.New()
-	seedRuleset(t, pool, rulesetID, "SomethingElse")
+	rulesetID := createRuleset(t, pool, "SomethingElse")
 
 	ctx := context.Background()
 	repo := campaignRepo(pool)
@@ -442,7 +470,11 @@ func TestCampaignProcessor_CampaignCreated_NonMatchingRuleset_NoOp(t *testing.T)
 func TestCampaignProcessor_TraitsAndConfigsCoexist(t *testing.T) {
 	pool := newTestPool(t)
 
-	rulesetID := uuid.New()
+	rulesetID := createRuleset(t, pool, "timadorus")
+	// Also seed rulesets_read_model directly (same id, same name): this test's second leg
+	// exercises ConfigurationRequested, whose ruleset resolution (RulesetCache.resolve) still
+	// depends on rulesets_read_model's join, regardless of whether the cache was already warmed
+	// by the first (CampaignCreated) leg.
 	seedRuleset(t, pool, rulesetID, "timadorus")
 	campaignID := createCampaign(t, pool, rulesetID) // seeds campaigns_read_model too, fine here
 
@@ -544,8 +576,7 @@ func TestCampaignProcessor_TraitsAndConfigsCoexist(t *testing.T) {
 func TestCampaignProcessor_CampaignCreated_ArchivedCampaign_NoOp(t *testing.T) {
 	pool := newTestPool(t)
 
-	rulesetID := uuid.New()
-	seedRuleset(t, pool, rulesetID, "timadorus")
+	rulesetID := createRuleset(t, pool, "timadorus")
 	campaignID := createCampaign(t, pool, rulesetID)
 	archiveCampaign(t, pool, campaignID)
 

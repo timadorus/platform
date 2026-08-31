@@ -38,7 +38,8 @@ func (c *Campaign) HasGamemaster(id uuid.UUID) bool {
 
 // Configuration is an opaque JSON-string payload (the backend never parses or validates it) —
 // see SetConfiguration for the only command that changes it directly, and RequestConfiguration
-// for the trigger that changes it indirectly via timadorus-engine.
+// for the trigger that changes it indirectly via timadorus-engine. timadorus-engine also merges
+// in a default set of traits on Campaign creation, for Campaigns that use its target Ruleset.
 func (c *Campaign) Configuration() string { return c.configuration }
 
 // New constructs and creates a new Campaign under universeID, referencing rulesetID

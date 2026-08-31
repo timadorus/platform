@@ -15,6 +15,8 @@ import (
 	"github.com/timadorus/platform/internal/bus"
 	"github.com/timadorus/platform/internal/domain/campaign"
 	"github.com/timadorus/platform/internal/domain/campaign/events"
+	"github.com/timadorus/platform/internal/domain/ruleset"
+	rulesetevents "github.com/timadorus/platform/internal/domain/ruleset/events"
 	"github.com/timadorus/platform/internal/eventsourcing"
 	"github.com/timadorus/platform/internal/eventstore/postgres"
 	"github.com/timadorus/platform/internal/observability"
@@ -31,28 +33,42 @@ const CampaignProcessorName = "timadorus-engine-campaign"
 // traits) and ConfigurationRequested (appending a timestamp) — instead of Character's single
 // ActionRequested. Its ruleset lookup for ConfigurationRequested is simpler than
 // CharacterProcessor's: a Campaign event's own env.AggregateID already is the campaign id, so no
-// characters_read_model hop is needed. CampaignCreated resolves its Ruleset name a third way —
-// directly from the event's own RulesetID, via RulesetCache.resolveByRulesetID — since
-// campaigns_read_model's row for a brand-new Campaign may not exist yet (see that method's doc
-// comment). Not naturally idempotent on replay for the ConfigurationRequested path (the "configs"
-// append), for the same reason CharacterProcessor isn't — see that type's doc comment. The
-// CampaignCreated path (a plain "traits" overwrite) is naturally idempotent on replay by
-// contrast.
+// characters_read_model hop is needed; that lookup goes through RulesetCache.resolve's
+// campaigns_read_model join. CampaignCreated resolves its Ruleset name a different way — loading
+// the Ruleset aggregate directly from the event store via p.rulesets, keyed by the event's own
+// RulesetID — since neither campaigns_read_model nor rulesets_read_model can be relied on to
+// have a row for a brand-new Campaign or its Ruleset yet (see handleCampaignCreated's doc
+// comment for why the event store is race-free here and a read model isn't). Not naturally
+// idempotent on replay for the ConfigurationRequested path (the "configs" append), for the same
+// reason CharacterProcessor isn't — see that type's doc comment. The CampaignCreated path (a
+// plain "traits" overwrite) is naturally idempotent on replay by contrast.
 type CampaignProcessor struct {
 	campaigns *eventsourcing.Repository[*campaign.Campaign]
+	rulesets  *eventsourcing.Repository[*ruleset.Ruleset]
 	cache     *RulesetCache
 }
 
 // NewCampaignProcessor mirrors NewCharacterProcessor's construction, scoped to Campaign. cache
-// is shared with CharacterProcessor — see RulesetCache's doc comment.
+// is shared with CharacterProcessor — see RulesetCache's doc comment. Also builds its own
+// Ruleset repository, scoped to just reading Ruleset aggregates by id (never mutates one) —
+// mirrors register.go's own scoped ruleset registry/store/repo construction. Used by
+// handleCampaignCreated to resolve a Ruleset's name directly from the event store rather than
+// rulesets_read_model — see that method's doc comment for why.
 func NewCampaignProcessor(pool *pgxpool.Pool, cache *RulesetCache) *CampaignProcessor {
 	registry := eventsourcing.NewRegistry()
 	events.Register(registry)
 	store := postgres.NewStore(pool, registry)
 
+	rulesetRegistry := eventsourcing.NewRegistry()
+	rulesetevents.Register(rulesetRegistry)
+	rulesetStore := postgres.NewStore(pool, rulesetRegistry)
+
 	return &CampaignProcessor{
 		campaigns: eventsourcing.NewRepository(store, campaign.AggregateType, func() *campaign.Campaign {
 			return &campaign.Campaign{}
+		}),
+		rulesets: eventsourcing.NewRepository(rulesetStore, ruleset.AggregateType, func() *ruleset.Ruleset {
+			return &ruleset.Ruleset{}
 		}),
 		cache: cache,
 	}
@@ -80,25 +96,41 @@ func (p *CampaignProcessor) Handle(ctx context.Context, tx pgx.Tx, env bus.Envel
 }
 
 // handleCampaignCreated merges defaultTraits into a newly created Campaign's configuration, but
-// only if that Campaign uses the "timadorus" Ruleset. Resolves the Ruleset name directly from
-// RulesetID (carried in the event's own payload) via RulesetCache.resolveByRulesetID — see that
-// method's doc comment for why this path deliberately avoids the campaigns_read_model join
-// handleConfigurationRequested still uses.
+// only if that Campaign uses the "timadorus" Ruleset. Resolves the Ruleset name directly from the
+// event store (via p.rulesets, keyed by the event's own RulesetID) rather than
+// rulesets_read_model: that table is written by a different, independently-racing projector
+// (internal/projection/ruleset, in a separate cmd/projector Deployment) consuming the same
+// RulesetCreated event, with no ordering guarantee relative to this handler's own processing of
+// CampaignCreated. Loading from the event store is race-free by construction instead:
+// command/campaign.Service.Create already validates the referenced Ruleset against the event
+// store (not the read model), so RulesetCreated is always durably committed before any Campaign
+// can reference that id — there is no window where this Load can fail for a legitimately
+// referenced Ruleset. The resolved name is cached under campaignID via the shared RulesetCache,
+// so a ConfigurationRequested arriving for the same campaign shortly after creation gets a fast
+// cache hit instead of its own campaigns_read_model join (see RulesetCache's doc comment).
 func (p *CampaignProcessor) handleCampaignCreated(ctx context.Context, tx pgx.Tx, env bus.Envelope) error {
 	var e events.CampaignCreated
 	if err := json.Unmarshal(env.Payload, &e); err != nil {
 		return fmt.Errorf(errPrefix+"unmarshal %s: %w", env.EventType, err)
 	}
+	campaignID := env.AggregateID
 
-	rulesetName, err := p.cache.resolveByRulesetID(ctx, tx, e.ID, e.RulesetID)
-	if err != nil {
-		return err
+	rulesetName, ok := p.cache.get(campaignID)
+	if !ok {
+		rulesetTxCtx := postgres.WithTx(ctx, tx)
+		rs, err := p.rulesets.Load(rulesetTxCtx, e.RulesetID)
+		if err != nil {
+			return fmt.Errorf(errPrefix+"load ruleset %s for campaign %s: %w", e.RulesetID, campaignID, err)
+		}
+		rulesetName = rs.Name()
+		p.cache.set(campaignID, rulesetName)
 	}
+
 	if !strings.EqualFold(rulesetName, targetRulesetName) {
 		return nil // not our ruleset — no-op, still checkpointed as handled
 	}
 
-	return p.mutateConfiguration(ctx, tx, env, e.ID, func(config map[string]any) {
+	return p.mutateConfiguration(ctx, tx, env, campaignID, func(config map[string]any) {
 		config["traits"] = defaultTraits
 	})
 }
