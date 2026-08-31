@@ -20,6 +20,12 @@ const router = createRouter({
       props: true,
     },
     {
+      path: '/universes/:universeId/manage',
+      name: 'universe-overview',
+      component: () => import('@/views/UniverseOverviewPanel.vue'),
+      props: true,
+    },
+    {
       path: '/universes/:universeId/campaigns/:campaignId',
       name: 'workspace',
       component: () => import('@/views/WorkspaceView.vue'),
