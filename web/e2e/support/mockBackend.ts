@@ -124,15 +124,12 @@ export interface MockAuthConfig {
 // test can reuse it with its own seed data without touching this file. Returns the observed
 // `METHOD /path` call log for tests that want to assert a specific request was (or wasn't) sent.
 //
-// Actual route coverage today: the campaign-workspace page tree (`WorkspaceView` and everything
-// it mounts — `CampaignOverviewPanel`, `CharactersPanel`, `EntitiesPanel`, `ObjectsPanel`,
-// `CreateCharacterModal`, `CharacterDetailView`) plus Character creation. It does NOT cover the
-// universe/campaign *list* views (`GET /universes`, `GET /universes/{id}/campaigns`), the Ruleset
-// list, single-entity/object GETs, or any command other than create-Character. Adding a new
-// page/flow to this harness is meant to be a small, additive change here — a new `matchPath` arm
-// following the existing pattern, not a rewrite — but it does need to happen before a test
-// exercising that page can pass: unmocked GETs now silently return `[]` (by design, see below),
-// and unmocked commands now fail loudly with a 501 (see the fallback below).
+// Route coverage grows with each test that needs a new endpoint; see the `matchPath` arms below
+// for the current inventory rather than trusting an enumeration here to stay in sync with it.
+// Adding a new page/flow to this harness is meant to be a small, additive change — a new
+// `matchPath` arm following the existing pattern, not a rewrite — but it does need to happen
+// before a test exercising that page can pass: unmocked GETs now silently return `[]` (by design,
+// see below), and unmocked commands now fail loudly with a 501 (see the fallback below).
 export async function installMockBackend(page: Page, state: MockState, auth: MockAuthConfig): Promise<string[]> {
   const apiCalls: string[] = []
   const { baseURL, authority, clientId } = auth
@@ -253,6 +250,10 @@ export async function installMockBackend(page: Page, state: MockState, auth: Moc
       return route.fulfill({ status: 204, body: '' })
     }
 
+    // Unlike the real backend, which rejects a blank name or an empty gamemasterUserIds list with
+    // a 422 (ErrNameRequired / ErrGamemastersRequired, see internal/domain/campaign/campaign.go's
+    // New()) and rejects an unknown universe/ruleset/user with a 404, this mock route accepts any
+    // body — do not rely on it as a validation oracle for those cases.
     if (method === 'POST' && (m = matchPath('/api/command/universes/:universeId/campaigns', p))) {
       const body = JSON.parse(req.postData() || '{}') as {
         name: string

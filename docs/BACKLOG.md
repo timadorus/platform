@@ -224,6 +224,50 @@ live with a real headless-Chromium session.
   oversight — recorded here so the cost is visible in one place alongside the rest of this
   feature's known limitations.
 
+- [ ] **`CampaignPickerView.goTo` never records the selected Universe, unlike its sibling
+  `UniverseOverviewPanel.goToCampaign` — a deep link can silently clear a user's restored Campaign
+  selection.** `CampaignPickerView.vue`'s `goTo()` calls only `selection.setCampaign(id)`, while
+  `UniverseOverviewPanel.vue`'s `goToCampaign()` (fixed in an earlier branch) correctly calls
+  `selection.setUniverse(universeId)` first — required ordering, since `setUniverse` nulls the
+  stored `selectedCampaignId` (`web/src/stores/selection.ts`), so campaign-after-universe is the
+  only correct order. In the ordinary flow the two entry points agree, because `campaign-picker` is
+  normally reached via `UniversePickerView.goTo`, which already called `setUniverse`. They diverge
+  on a deep link: land directly on `/universes/u2` while `localStorage` holds
+  `selectedUniverseId: 'u1'`. `CampaignPickerView`'s `onMounted` sees `selection.selectedUniverseId
+  ('u1') !== universeId.value ('u2')` and falls through without recording `u2`; creating a Campaign
+  there then persists the mismatched pair `{universe: u1, campaign: <a u2 campaign>}`. On the next
+  cold boot, `UniversePickerView` restores `u1`, routes to `u1`'s campaign picker, and
+  `CampaignPickerView` tries to load the stored campaign, finds `existing.universeId !==
+  universeId.value`, and clears it — so the user's restored Campaign selection is silently lost.
+  This is pre-existing behavior in an unchanged file, out of scope for the branch
+  (`universe-panel-create-campaign`) that surfaced it, since that branch's own new entry point
+  already does the right thing. Recommended fix: add `selection.setUniverse(universeId.value)` to
+  `CampaignPickerView.goTo` before the existing `setCampaign` call — one line, matching
+  `UniverseOverviewPanel.goToCampaign`'s shape exactly — plus a deep-link regression test. Small
+  follow-up branch.
+
+- [ ] **The mock's `POST /universes/{universeId}/campaigns` route discards `gamemasterUserIds`, so
+  `universe-manage.spec.ts`'s "creating a Campaign" test can only prove the URL changed, not that
+  the right Gamemaster reached the request.** `mockBackend.ts`'s handler destructures
+  `gamemasterUserIds` out of the body and never uses it — the pushed `MockCampaign` has no
+  gamemaster field. The test's `expect(page.getByRole('checkbox').first()).toBeChecked()` proves
+  `UserMultiSelect` ticked the box in the DOM, not that the selected user id reached the request
+  body; the mock would 201 just as happily on `gamemasterUserIds: []`, which the real backend
+  rejects with 422. Optional fix: assert against the mock's recorded state after navigation (e.g.
+  `expect(state.campaigns.at(-1)).toMatchObject({ name: 'New Campaign', rulesetId: 'r1', universeId:
+  'u1' })`), and/or actually store `gamemasterUserIds` on the pushed record and assert it.
+
+- [ ] **`CreateCampaignModal.vue`'s labels have no `for`/`id` pairing with their inputs — a real
+  accessibility gap that has now also forced two separate test-writing passes to route around
+  `page.getByLabel(...)` not working.** Its `<label>` elements are bare, with no `for`, and the
+  `<input>`/`RulesetSelect`/`UserMultiSelect` have no matching `id`, so `getByLabel` cannot locate
+  them; `universe-manage.spec.ts` falls back to `page.locator('form').getByRole(...)` instead,
+  which is unscoped and strict-mode-dependent (works today only because no other `<form>` or
+  input-bearing widget is mounted in that test). Fixing the pairing (plus adding `role="dialog"` to
+  `BaseModal.vue`) would resolve both the accessibility gap and the test brittleness at the source,
+  restoring `getByLabel` for every future test against every modal in the app. Out of scope for
+  `universe-panel-create-campaign` per its plan's Global Constraints.
+
 ## Devcluster tooling (`test/e2e/internal`)
 
 - [ ] **No `TraefikServiceName` exported constant.** `seed.go` and `up.go` both hardcode the
