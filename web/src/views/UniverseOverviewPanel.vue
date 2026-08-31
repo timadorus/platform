@@ -10,6 +10,7 @@ import BaseButton from '@/components/common/BaseButton.vue'
 import ErrorBanner from '@/components/common/ErrorBanner.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import UserPicker from '@/components/pickers/UserPicker.vue'
+import CreateCampaignModal from '@/components/modals/CreateCampaignModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -29,6 +30,7 @@ const editingName = ref(false)
 const nameDraft = ref('')
 const showAddCreator = ref(false)
 const showArchiveConfirm = ref(false)
+const showCreateCampaign = ref(false)
 
 const creators = computed(() =>
   creatorIds.value.map((id) => ({ id, name: users.value.find((u) => u.id === id)?.name ?? id })),
@@ -102,6 +104,11 @@ function goToCampaign(campaignId: string) {
   router.push({ name: 'workspace', params: { universeId: universeId.value, campaignId } })
 }
 
+function onCampaignCreated(id: string) {
+  showCreateCampaign.value = false
+  goToCampaign(id)
+}
+
 function goToUniverseOverview() {
   router.push({ name: 'universe-overview', params: { universeId: universeId.value } })
 }
@@ -147,7 +154,15 @@ function goToUniverseOverview() {
         </li>
       </ul>
       <p v-else class="text-sm text-slate-500">No Campaigns yet.</p>
+      <BaseButton class="mt-2" @click="showCreateCampaign = true">+ Create Campaign</BaseButton>
     </div>
+
+    <CreateCampaignModal
+      v-if="showCreateCampaign"
+      :universe-id="universeId"
+      @close="showCreateCampaign = false"
+      @created="onCampaignCreated"
+    />
 
     <div class="border-t border-slate-100 pt-3">
       <BaseButton variant="danger" @click="showArchiveConfirm = true">Archive Universe</BaseButton>

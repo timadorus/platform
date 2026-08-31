@@ -231,6 +231,9 @@ export async function installMockBackend(page: Page, state: MockState, auth: Moc
       const ruleset = state.rulesets.find((r) => r.id === m!.params.rulesetId)
       return ruleset ? json(route, ruleset) : json(route, { title: 'not found' }, 404)
     }
+    if (method === 'GET' && p === '/api/query/rulesets') {
+      return json(route, state.rulesets)
+    }
 
     // ---- command API ----
     if (method === 'PATCH' && (m = matchPath('/api/command/campaigns/:campaignId', p))) {
@@ -248,6 +251,23 @@ export async function installMockBackend(page: Page, state: MockState, auth: Moc
       const universe = state.universes.find((u) => u.id === m!.params.universeId)
       if (universe) universe.name = body.name
       return route.fulfill({ status: 204, body: '' })
+    }
+
+    if (method === 'POST' && (m = matchPath('/api/command/universes/:universeId/campaigns', p))) {
+      const body = JSON.parse(req.postData() || '{}') as {
+        name: string
+        rulesetId: string
+        gamemasterUserIds: string[]
+      }
+      const campaignId = newId(state, 'campaign')
+      state.campaigns.push({
+        id: campaignId,
+        universeId: m!.params.universeId,
+        name: body.name,
+        rulesetId: body.rulesetId,
+        isArchived: false,
+      })
+      return json(route, { id: campaignId }, 201)
     }
 
     if (method === 'POST' && (m = matchPath('/api/command/campaigns/:campaignId/characters', p))) {

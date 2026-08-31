@@ -86,3 +86,29 @@ test('clicking a Campaign in the Universe panel navigates into its workspace', a
 
   await expect(page).toHaveURL(/\/universes\/u1\/campaigns\/c1$/)
 })
+
+test('creating a Campaign from the Universe panel navigates into its workspace', async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  const base = baseURL!
+  const authority = `${base}/oidc`
+  const state = seedState()
+  await seedAuth(context, { baseURL: base, authority, clientId: CLIENT_ID })
+  await installMockBackend(page, state, { baseURL: base, authority, clientId: CLIENT_ID })
+
+  await page.goto('/universes/u1/manage')
+
+  await page.getByRole('button', { name: '+ Create Campaign' }).click()
+  // CreateCampaignModal.vue's <label> elements have no for/id pairing with their input/select, so
+  // getByLabel does not find them (verified empirically) — use positional/structural locators
+  // scoped to the modal's form instead.
+  const form = page.locator('form')
+  await form.getByRole('textbox').first().fill('New Campaign')
+  await form.getByRole('combobox').selectOption({ label: 'Test Ruleset' })
+  await expect(page.getByRole('checkbox').first()).toBeChecked()
+  await page.getByRole('button', { name: 'Create', exact: true }).click()
+
+  await expect(page).toHaveURL(/\/universes\/u1\/campaigns\/[^/]+$/)
+})
