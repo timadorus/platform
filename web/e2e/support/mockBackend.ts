@@ -240,6 +240,9 @@ export async function installMockBackend(page: Page, state: MockState, auth: Moc
       return route.fulfill({ status: 204, body: '' })
     }
 
+    // Unlike the real backend, which rejects an empty name with a 422 (ErrNameRequired, see
+    // internal/domain/universe/universe.go), this mock route accepts any body including an empty
+    // name — do not rely on it as a validation oracle for that case.
     if (method === 'PATCH' && (m = matchPath('/api/command/universes/:universeId', p))) {
       const body = JSON.parse(req.postData() || '{}') as { name: string }
       const universe = state.universes.find((u) => u.id === m!.params.universeId)

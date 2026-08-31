@@ -58,6 +58,10 @@ test('the universe badge navigates to the Universe panel from the workspace, and
   await expect(page.getByRole('heading', { name: 'Test Universe' })).toBeVisible()
 
   await page.getByRole('button', { name: 'Rename', exact: true }).click()
+  // Unscoped on purpose: safe today only because this fires before UserPicker's own search box
+  // (also type="text") is ever mounted in this test (its "+ Add" toggle is never clicked). A
+  // future test in this file that opens "+ Add" without also being in rename mode would need to
+  // scope this locator instead of relying on .first().
   const nameInput = page.locator('input[type="text"]').first()
   await nameInput.fill('Renamed Universe')
   await page.getByRole('button', { name: 'Save', exact: true }).click()

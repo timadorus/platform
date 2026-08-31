@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUniverses, type UniverseSummary } from '@/composables/useUniverses'
 import { useUsers } from '@/composables/useUsers'
 import { useCampaigns } from '@/composables/useCampaigns'
+import { useSelectionStore } from '@/stores/selection'
 import AppHeader from '@/components/layout/AppHeader.vue'
 import BaseButton from '@/components/common/BaseButton.vue'
 import ErrorBanner from '@/components/common/ErrorBanner.vue'
@@ -12,11 +13,12 @@ import UserPicker from '@/components/pickers/UserPicker.vue'
 
 const route = useRoute()
 const router = useRouter()
+const selection = useSelectionStore()
 const universeId = computed(() => route.params.universeId as string)
 
 const { get: getUniverse, rename, archive, listCreators, addCreator, removeCreator } = useUniverses()
 const { users, list: listUsers } = useUsers()
-const { campaigns, listByUniverse } = useCampaigns()
+const { campaigns, error: campaignsError, listByUniverse } = useCampaigns()
 
 const universe = ref<UniverseSummary | null>(null)
 const creatorIds = ref<string[]>([])
@@ -38,9 +40,11 @@ async function load() {
   await listUsers()
   creatorIds.value = await listCreators(universeId.value)
   await listByUniverse(universeId.value)
+  if (campaignsError.value) error.value = campaignsError.value
   loading.value = false
 }
 onMounted(load)
+watch(universeId, load)
 
 function startEditName() {
   if (!universe.value) return
@@ -48,6 +52,7 @@ function startEditName() {
   editingName.value = true
 }
 async function saveName() {
+  if (!nameDraft.value.trim()) return
   if (!universe.value) return
   error.value = null
   try {
@@ -92,12 +97,18 @@ async function confirmArchive() {
 }
 
 function goToCampaign(campaignId: string) {
+  selection.setUniverse(universeId.value)
+  selection.setCampaign(campaignId)
   router.push({ name: 'workspace', params: { universeId: universeId.value, campaignId } })
+}
+
+function goToUniverseOverview() {
+  router.push({ name: 'universe-overview', params: { universeId: universeId.value } })
 }
 </script>
 
 <template>
-  <AppHeader :universe-name="universe?.name ?? null" :campaign-name="null" />
+  <AppHeader :universe-name="universe?.name ?? null" :campaign-name="null" @click-universe-badge="goToUniverseOverview" />
   <div v-if="loading" class="p-6 text-sm text-slate-500">Loading…</div>
   <div v-else-if="universe" class="mx-auto max-w-2xl p-6">
     <ErrorBanner :message="error" @dismiss="error = null" />
