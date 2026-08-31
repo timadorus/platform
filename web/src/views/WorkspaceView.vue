@@ -5,7 +5,6 @@ import { useUniverses, type UniverseSummary } from '@/composables/useUniverses'
 import { useCampaigns, type CampaignSummary } from '@/composables/useCampaigns'
 import AppHeader from '@/components/layout/AppHeader.vue'
 import AppSidebar from '@/components/layout/AppSidebar.vue'
-import ManageUniverseModal from '@/components/modals/ManageUniverseModal.vue'
 import CharactersPanel from '@/components/layout/CharactersPanel.vue'
 import EntitiesPanel from '@/components/layout/EntitiesPanel.vue'
 import ObjectsPanel from '@/components/layout/ObjectsPanel.vue'
@@ -22,7 +21,6 @@ const { get: getCampaign } = useCampaigns()
 
 const universe = ref<UniverseSummary | null>(null)
 const campaign = ref<CampaignSummary | null>(null)
-const showManageUniverse = ref(false)
 
 const sidebarRefreshSignal = ref(0)
 provide('sidebarRefreshSignal', sidebarRefreshSignal)
@@ -50,16 +48,11 @@ watch([universeId, campaignId], load)
 // campaign name in sync the same way.
 watch(sidebarRefreshSignal, load)
 
-function onUniverseRenamed(newName: string) {
-  if (universe.value) universe.value.name = newName
-  showManageUniverse.value = false
-}
-function onUniverseArchived() {
-  showManageUniverse.value = false
-  router.push({ name: 'universe-picker' })
-}
 function goToCampaignOverview() {
   router.push({ name: 'campaign-overview', params: { universeId: universeId.value, campaignId: campaignId.value } })
+}
+function goToUniverseOverview() {
+  router.push({ name: 'universe-overview', params: { universeId: universeId.value } })
 }
 </script>
 
@@ -68,7 +61,7 @@ function goToCampaignOverview() {
     <AppHeader
       :universe-name="universe?.name ?? null"
       :campaign-name="campaign?.name ?? null"
-      @click-universe-badge="showManageUniverse = true"
+      @click-universe-badge="goToUniverseOverview"
       @click-campaign-badge="goToCampaignOverview"
     />
     <div class="flex flex-1 overflow-hidden">
@@ -87,14 +80,5 @@ function goToCampaignOverview() {
         <router-view />
       </main>
     </div>
-
-    <ManageUniverseModal
-      v-if="showManageUniverse && universe"
-      :universe-id="universeId"
-      :universe-name="universe.name"
-      @close="showManageUniverse = false"
-      @renamed="onUniverseRenamed"
-      @archived="onUniverseArchived"
-    />
   </div>
 </template>

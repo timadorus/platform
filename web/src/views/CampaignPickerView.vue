@@ -26,6 +26,10 @@ function goTo(campaignId: string) {
   router.push({ name: 'workspace', params: { universeId: universeId.value, campaignId } })
 }
 
+function goToUniverseOverview() {
+  router.push({ name: 'universe-overview', params: { universeId: universeId.value } })
+}
+
 onMounted(async () => {
   universe.value = await getUniverse(universeId.value)
   selection.load()
@@ -51,7 +55,7 @@ function onCreated(id: string) {
 </script>
 
 <template>
-  <AppHeader :universe-name="universe?.name ?? null" :campaign-name="null" />
+  <AppHeader :universe-name="universe?.name ?? null" :campaign-name="null" @click-universe-badge="goToUniverseOverview" />
   <div v-if="checkingStoredSelection" class="p-6 text-sm text-slate-500">Loading…</div>
   <div v-else class="mx-auto max-w-2xl p-6">
     <p class="mb-1 text-xs uppercase tracking-wide text-slate-400">🌍 {{ universe?.name }}</p>
