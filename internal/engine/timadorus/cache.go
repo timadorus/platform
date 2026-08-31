@@ -81,3 +81,31 @@ func (c *RulesetCache) resolve(ctx context.Context, tx pgx.Tx, campaignID uuid.U
 	c.set(campaignID, name)
 	return name, nil
 }
+
+// resolveByRulesetID is resolve's sibling for callers that already know the Ruleset id directly
+// (CampaignProcessor's CampaignCreated handling, whose triggering event carries RulesetID) rather
+// than only the campaign id. Unlike resolve, this never joins through campaigns_read_model — that
+// table's row for a freshly created Campaign is written by a different, independently-racing
+// projector consuming the exact same CampaignCreated event this method is called for, with no
+// ordering guarantee between the two. Querying rulesets_read_model directly by its own primary
+// key sidesteps that race entirely: a Ruleset must already exist (and, in practice, has almost
+// certainly been projected already — it was created in an earlier, already-completed request)
+// before any Campaign can reference it. The resolved name is cached under campaignID via the same
+// map resolve uses, so a call to resolve for the same campaign right after this one hits the
+// cache instead of re-running the (racy) join at all.
+func (c *RulesetCache) resolveByRulesetID(ctx context.Context, tx pgx.Tx, campaignID, rulesetID uuid.UUID) (string, error) {
+	if name, ok := c.get(campaignID); ok {
+		return name, nil
+	}
+
+	var name string
+	err := tx.QueryRow(ctx,
+		`SELECT name FROM rulesets_read_model WHERE id = $1`, rulesetID,
+	).Scan(&name)
+	if err != nil {
+		return "", fmt.Errorf(errPrefix+"look up ruleset %s for campaign %s: %w", rulesetID, campaignID, err)
+	}
+
+	c.set(campaignID, name)
+	return name, nil
+}

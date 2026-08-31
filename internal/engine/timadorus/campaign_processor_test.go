@@ -311,3 +311,278 @@ func TestCampaignProcessor_PreservesCorrelationID(t *testing.T) {
 
 	wait()
 }
+
+func TestCampaignProcessor_CampaignCreated_MatchingRuleset_MergesDefaultTraits(t *testing.T) {
+	pool := newTestPool(t)
+
+	rulesetID := uuid.New()
+	seedRuleset(t, pool, rulesetID, "TIMADORUS") // exact-case mismatch on purpose
+
+	ctx := context.Background()
+	repo := campaignRepo(pool)
+	c, err := campaign.New(uuid.New(), rulesetID, "Test Campaign", []uuid.UUID{uuid.New()})
+	if err != nil {
+		t.Fatalf("campaign.New: %v", err)
+	}
+	if err := repo.Save(ctx, c); err != nil {
+		t.Fatalf("save campaign: %v", err)
+	}
+	campaignID := c.AggregateID()
+	// Deliberately NOT seeding campaigns_read_model — proves handleCampaignCreated's ruleset
+	// lookup does not depend on that table's row existing yet (the real race this plan fixes).
+
+	publish, wait := runCampaignEngine(t, pool)
+
+	occurredAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	publish(bus.Envelope{
+		GlobalSeq:     1,
+		AggregateID:   campaignID,
+		AggregateType: events.AggregateType,
+		Version:       1,
+		EventType:     events.TypeCampaignCreated,
+		Payload: mustMarshal(t, events.CampaignCreated{
+			ID: campaignID, Name: "Test Campaign", UniverseID: c.UniverseID(), RulesetID: rulesetID,
+			GamemasterUserIDs: []uuid.UUID{uuid.New()}, OccurredAt: occurredAt,
+		}),
+	})
+
+	deadline := time.Now().Add(5 * time.Second)
+	var payload []byte
+	for time.Now().Before(deadline) {
+		err := pool.QueryRow(context.Background(),
+			`SELECT payload FROM events WHERE aggregate_id = $1 AND event_type = $2
+			 ORDER BY version DESC LIMIT 1`,
+			campaignID, events.TypeConfigurationChanged,
+		).Scan(&payload)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			t.Fatalf("query configuration_changed event: %v", err)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if payload == nil {
+		t.Fatal("timed out waiting for a campaign.configuration_changed.v1 event")
+	}
+
+	var configEvent struct {
+		Configuration string `json:"configuration"`
+	}
+	if err := json.Unmarshal(payload, &configEvent); err != nil {
+		t.Fatalf("configuration_changed payload %s is not the expected shape: %v", payload, err)
+	}
+
+	var decoded struct {
+		Traits []string `json:"traits"`
+	}
+	if err := json.Unmarshal([]byte(configEvent.Configuration), &decoded); err != nil {
+		t.Fatalf("configuration %q is not the expected shape: %v", configEvent.Configuration, err)
+	}
+	want := []string{"strong", "agile", "loyal"}
+	if len(decoded.Traits) != len(want) {
+		t.Fatalf("got traits %v, want %v", decoded.Traits, want)
+	}
+	for i := range want {
+		if decoded.Traits[i] != want[i] {
+			t.Fatalf("got traits %v, want %v", decoded.Traits, want)
+		}
+	}
+
+	wait()
+}
+
+func TestCampaignProcessor_CampaignCreated_NonMatchingRuleset_NoOp(t *testing.T) {
+	pool := newTestPool(t)
+
+	rulesetID := uuid.New()
+	seedRuleset(t, pool, rulesetID, "SomethingElse")
+
+	ctx := context.Background()
+	repo := campaignRepo(pool)
+	c, err := campaign.New(uuid.New(), rulesetID, "Test Campaign", []uuid.UUID{uuid.New()})
+	if err != nil {
+		t.Fatalf("campaign.New: %v", err)
+	}
+	if err := repo.Save(ctx, c); err != nil {
+		t.Fatalf("save campaign: %v", err)
+	}
+	campaignID := c.AggregateID()
+
+	publish, wait := runCampaignEngine(t, pool)
+
+	publish(bus.Envelope{
+		GlobalSeq:     1,
+		AggregateID:   campaignID,
+		AggregateType: events.AggregateType,
+		Version:       1,
+		EventType:     events.TypeCampaignCreated,
+		Payload: mustMarshal(t, events.CampaignCreated{
+			ID: campaignID, Name: "Test Campaign", UniverseID: c.UniverseID(), RulesetID: rulesetID,
+			GamemasterUserIDs: []uuid.UUID{uuid.New()}, OccurredAt: time.Now().UTC(),
+		}),
+	})
+
+	time.Sleep(500 * time.Millisecond)
+
+	var count int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM events WHERE aggregate_id = $1 AND event_type = $2`,
+		campaignID, events.TypeConfigurationChanged,
+	).Scan(&count); err != nil {
+		t.Fatalf("count configuration_changed events: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("got %d campaign.configuration_changed.v1 events, want 0 (ruleset doesn't match)", count)
+	}
+
+	wait()
+}
+
+func TestCampaignProcessor_TraitsAndConfigsCoexist(t *testing.T) {
+	pool := newTestPool(t)
+
+	rulesetID := uuid.New()
+	seedRuleset(t, pool, rulesetID, "timadorus")
+	campaignID := createCampaign(t, pool, rulesetID) // seeds campaigns_read_model too, fine here
+
+	publish, wait := runCampaignEngine(t, pool)
+
+	createdAt := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	publish(bus.Envelope{
+		GlobalSeq: 1, AggregateID: campaignID, AggregateType: events.AggregateType, Version: 1,
+		EventType: events.TypeCampaignCreated,
+		Payload: mustMarshal(t, events.CampaignCreated{
+			ID: campaignID, Name: "Test Campaign", UniverseID: uuid.New(), RulesetID: rulesetID,
+			GamemasterUserIDs: []uuid.UUID{uuid.New()}, OccurredAt: createdAt,
+		}),
+	})
+
+	// Wait for the traits-driven ConfigurationChanged before publishing the second event, so the
+	// two don't race each other for who loads/saves the aggregate first.
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		var count int
+		if err := pool.QueryRow(context.Background(),
+			`SELECT count(*) FROM events WHERE aggregate_id = $1 AND event_type = $2`,
+			campaignID, events.TypeConfigurationChanged,
+		).Scan(&count); err != nil {
+			t.Fatalf("count configuration_changed events: %v", err)
+		} else if count == 1 {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	occurredAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	publish(bus.Envelope{
+		GlobalSeq: 2, AggregateID: campaignID, AggregateType: events.AggregateType, Version: 2,
+		EventType: events.TypeConfigurationRequested,
+		Payload:   mustMarshal(t, events.ConfigurationRequested{Payload: "{}", OccurredAt: occurredAt}),
+	})
+
+	// Wait specifically for the *second* ConfigurationChanged row (count == 2), not merely for
+	// "a row exists" — a row from the first (traits) event already satisfies that weaker check,
+	// which would let this loop return immediately on its very first iteration, before the
+	// second event has actually been processed, and read the stale pre-append payload back.
+	deadline = time.Now().Add(5 * time.Second)
+	var payload []byte
+	for time.Now().Before(deadline) {
+		var count int
+		if err := pool.QueryRow(context.Background(),
+			`SELECT count(*) FROM events WHERE aggregate_id = $1 AND event_type = $2`,
+			campaignID, events.TypeConfigurationChanged,
+		).Scan(&count); err != nil {
+			t.Fatalf("count configuration_changed events: %v", err)
+		}
+		if count >= 2 {
+			if err := pool.QueryRow(context.Background(),
+				`SELECT payload FROM events WHERE aggregate_id = $1 AND event_type = $2
+				 ORDER BY version DESC LIMIT 1`,
+				campaignID, events.TypeConfigurationChanged,
+			).Scan(&payload); err != nil {
+				t.Fatalf("query configuration_changed event: %v", err)
+			}
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if payload == nil {
+		t.Fatal("timed out waiting for the second campaign.configuration_changed.v1 event")
+	}
+
+	var configEvent struct {
+		Configuration string `json:"configuration"`
+	}
+	if err := json.Unmarshal(payload, &configEvent); err != nil {
+		t.Fatalf("configuration_changed payload %s is not the expected shape: %v", payload, err)
+	}
+
+	var decoded struct {
+		Traits  []string `json:"traits"`
+		Configs []string `json:"configs"`
+	}
+	if err := json.Unmarshal([]byte(configEvent.Configuration), &decoded); err != nil {
+		t.Fatalf("configuration %q is not the expected shape: %v", configEvent.Configuration, err)
+	}
+	wantTraits := []string{"strong", "agile", "loyal"}
+	if len(decoded.Traits) != len(wantTraits) {
+		t.Fatalf("got traits %v, want %v (traits should survive the configs append)", decoded.Traits, wantTraits)
+	}
+	for i := range wantTraits {
+		if decoded.Traits[i] != wantTraits[i] {
+			t.Fatalf("got traits %v, want %v (traits should survive the configs append)", decoded.Traits, wantTraits)
+		}
+	}
+	if len(decoded.Configs) != 1 || decoded.Configs[0] != occurredAt.Format(time.RFC3339Nano) {
+		t.Fatalf("got configs %v, want [%q]", decoded.Configs, occurredAt.Format(time.RFC3339Nano))
+	}
+
+	wait()
+}
+
+func TestCampaignProcessor_CampaignCreated_ArchivedCampaign_NoOp(t *testing.T) {
+	pool := newTestPool(t)
+
+	rulesetID := uuid.New()
+	seedRuleset(t, pool, rulesetID, "timadorus")
+	campaignID := createCampaign(t, pool, rulesetID)
+	archiveCampaign(t, pool, campaignID)
+
+	publish, wait := runCampaignEngine(t, pool)
+
+	publish(bus.Envelope{
+		GlobalSeq: 1, AggregateID: campaignID, AggregateType: events.AggregateType, Version: 1,
+		EventType: events.TypeCampaignCreated,
+		Payload: mustMarshal(t, events.CampaignCreated{
+			ID: campaignID, Name: "Test Campaign", UniverseID: uuid.New(), RulesetID: rulesetID,
+			GamemasterUserIDs: []uuid.UUID{uuid.New()}, OccurredAt: time.Now().UTC(),
+		}),
+	})
+
+	time.Sleep(500 * time.Millisecond)
+
+	var configChangedCount int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM events WHERE aggregate_id = $1 AND event_type = $2`,
+		campaignID, events.TypeConfigurationChanged,
+	).Scan(&configChangedCount); err != nil {
+		t.Fatalf("count configuration_changed events: %v", err)
+	}
+	if configChangedCount != 0 {
+		t.Fatalf("got %d campaign.configuration_changed.v1 events, want 0 (campaign is archived)", configChangedCount)
+	}
+
+	var deadLetterCount int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM projection_dead_letters WHERE aggregate_id = $1`,
+		campaignID,
+	).Scan(&deadLetterCount); err != nil {
+		t.Fatalf("count dead letters: %v", err)
+	}
+	if deadLetterCount != 0 {
+		t.Fatalf("got %d dead-lettered events, want 0 (archived Campaign should be a clean no-op)", deadLetterCount)
+	}
+
+	wait()
+}
