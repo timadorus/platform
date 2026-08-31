@@ -58,6 +58,7 @@ export interface MockState {
   entities: MockEntity[]
   rulesets: MockRuleset[]
   gamemasterIds: string[]
+  creatorIds: string[]
   nextId: number
   // createVisibilityDelayMs, when set, makes the create-Character command's new Character and
   // Entity invisible to every query route that checks `visibleAt` for this many milliseconds
@@ -78,6 +79,7 @@ export function createMockState(overrides: Partial<MockState> = {}): MockState {
     entities: [],
     rulesets: [],
     gamemasterIds: [],
+    creatorIds: [],
     nextId: 1,
     ...overrides,
   }
@@ -180,6 +182,13 @@ export async function installMockBackend(page: Page, state: MockState, auth: Moc
       const universe = state.universes.find((u) => u.id === m!.params.universeId)
       return universe ? json(route, universe) : json(route, { title: 'not found' }, 404)
     }
+    if (method === 'GET' && matchPath('/api/query/universes/:universeId/creators', p)) {
+      return json(route, state.creatorIds)
+    }
+    if (method === 'GET' && (m = matchPath('/api/query/universes/:universeId/campaigns', p))) {
+      const matches = state.campaigns.filter((c) => c.universeId === m!.params.universeId && !c.isArchived)
+      return json(route, matches)
+    }
     if (method === 'GET' && (m = matchPath('/api/query/campaigns/:campaignId', p))) {
       const campaign = state.campaigns.find((c) => c.id === m!.params.campaignId)
       return campaign ? json(route, campaign) : json(route, { title: 'not found' }, 404)
@@ -228,6 +237,13 @@ export async function installMockBackend(page: Page, state: MockState, auth: Moc
       const body = JSON.parse(req.postData() || '{}') as { name: string }
       const campaign = state.campaigns.find((c) => c.id === m!.params.campaignId)
       if (campaign) campaign.name = body.name
+      return route.fulfill({ status: 204, body: '' })
+    }
+
+    if (method === 'PATCH' && (m = matchPath('/api/command/universes/:universeId', p))) {
+      const body = JSON.parse(req.postData() || '{}') as { name: string }
+      const universe = state.universes.find((u) => u.id === m!.params.universeId)
+      if (universe) universe.name = body.name
       return route.fulfill({ status: 204, body: '' })
     }
 
