@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/timadorus/platform/internal/domain/ruleset"
 	"github.com/timadorus/platform/internal/engine/timadorus"
 )
@@ -14,8 +16,12 @@ func TestRegisterRuleset_CreatesOnFirstCall(t *testing.T) {
 	pool := newTestPool(t)
 	ctx := context.Background()
 
-	if err := timadorus.RegisterRuleset(ctx, pool); err != nil {
+	id, err := timadorus.RegisterRuleset(ctx, pool)
+	if err != nil {
 		t.Fatalf("register: %v", err)
+	}
+	if id == uuid.Nil {
+		t.Fatal("got nil id")
 	}
 
 	var count int
@@ -31,11 +37,16 @@ func TestRegisterRuleset_NoOpOnSecondCall(t *testing.T) {
 	pool := newTestPool(t)
 	ctx := context.Background()
 
-	if err := timadorus.RegisterRuleset(ctx, pool); err != nil {
+	firstID, err := timadorus.RegisterRuleset(ctx, pool)
+	if err != nil {
 		t.Fatalf("first register: %v", err)
 	}
-	if err := timadorus.RegisterRuleset(ctx, pool); err != nil {
+	secondID, err := timadorus.RegisterRuleset(ctx, pool)
+	if err != nil {
 		t.Fatalf("second register: %v", err)
+	}
+	if secondID != firstID {
+		t.Fatalf("got second-call id %s, want it to match the first call's id %s", secondID, firstID)
 	}
 
 	var count int
@@ -52,7 +63,7 @@ func TestRegisterRuleset_PropagatesRealError(t *testing.T) {
 	ctx := context.Background()
 	pool.Close() // guarantees RegisterRuleset's own pool.Begin fails: a real error, not ErrNameAlreadyExists
 
-	err := timadorus.RegisterRuleset(ctx, pool)
+	_, err := timadorus.RegisterRuleset(ctx, pool)
 	if err == nil {
 		t.Fatal("got nil error from a closed pool, want a real error")
 	}

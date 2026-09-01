@@ -1,0 +1,16 @@
+-- Adds an id column to the name-reservation table so a caller with only the name (e.g.
+-- RegisterRuleset's "already exists" branch) can resolve the aggregate's real id without
+-- depending on rulesets_read_model, which is written by a different, independently-racing
+-- projector consuming the same RulesetCreated event this reservation is paired with (see the
+-- campaign-creation-default-traits branch's final review for the identical class of race in a
+-- sibling read path, fixed there by resolving from the event store instead — this is the same
+-- fix, applied one layer up: the reservation table already lives in the same durable
+-- transaction as Create's aggregate save, so widening it costs no new race).
+--
+-- Nullable, not NOT NULL: any row reserved before this migration ships has no id to backfill
+-- from, the same accepted, documented gap 0001_ruleset_names.up.sql's own comment already makes
+-- for a different column. This platform's only Ruleset today, "Timadorus", is registered
+-- exclusively via the code this migration ships alongside, so a real cluster only hits this in
+-- transition on an in-place upgrade of a pre-existing dev cluster — reset it instead, same as
+-- 0001's own advice.
+ALTER TABLE ruleset_names ADD COLUMN id UUID;

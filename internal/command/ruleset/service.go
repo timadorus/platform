@@ -48,7 +48,7 @@ func (s *Service) Create(ctx context.Context, name, description string, referenc
 	}
 	tx, _ := postgres.TxFromContext(txCtx) // always ok: txCtx was just built by NewUnitOfWork
 
-	if _, err := tx.Exec(ctx, `INSERT INTO ruleset_names (name) VALUES ($1)`, name); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO ruleset_names (name, id) VALUES ($1, $2)`, name, r.AggregateID()); err != nil {
 		_ = uow.Rollback(ctx)
 		if postgres.IsUniqueViolation(err) {
 			return uuid.Nil, ruleset.ErrNameAlreadyExists
@@ -64,6 +64,23 @@ func (s *Service) Create(ctx context.Context, name, description string, referenc
 		return uuid.Nil, err
 	}
 	return r.AggregateID(), nil
+}
+
+// FindIDByName resolves an existing Ruleset's id from its name-reservation row — race-free by
+// construction, since ruleset_names.id is populated in the exact same transaction Create already
+// uses to reserve the name (see Create's own comment, and migrations/0002_ruleset_names_id.up.sql).
+// Returns an error (not a sentinel "not found") both when the name was never reserved at all and
+// when it was reserved by a row created before the id column existed — both are genuine failures
+// a caller should surface loudly, not silently paper over.
+func (s *Service) FindIDByName(ctx context.Context, name string) (uuid.UUID, error) {
+	var id *uuid.UUID
+	if err := s.pool.QueryRow(ctx, `SELECT id FROM ruleset_names WHERE name = $1`, name).Scan(&id); err != nil {
+		return uuid.Nil, fmt.Errorf("ruleset: find id for name %q: %w", name, err)
+	}
+	if id == nil {
+		return uuid.Nil, fmt.Errorf("ruleset: name %q was reserved before the id column existed (pre-migration row)", name)
+	}
+	return *id, nil
 }
 
 func (s *Service) Rename(ctx context.Context, id uuid.UUID, name string) error {

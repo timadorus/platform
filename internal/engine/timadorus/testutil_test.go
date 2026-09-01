@@ -41,6 +41,7 @@ func newTestPool(t *testing.T) *pgxpool.Pool {
 			"../../projection/campaign/migrations/0003_campaign_configuration.up.sql",
 			"../../projection/ruleset/migrations/0001_ruleset_read_model.up.sql",
 			"../../command/ruleset/migrations/0001_ruleset_names.up.sql",
+			"../../command/ruleset/migrations/0002_ruleset_names_id.up.sql",
 		),
 		testcontainers.WithWaitStrategy(
 			wait.ForLog("database system is ready to accept connections").WithOccurrence(2),

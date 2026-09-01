@@ -30,6 +30,7 @@ func newTestPool(t *testing.T) *pgxpool.Pool {
 			"../../eventstore/postgres/migrations/0001_events.up.sql",
 			"../../eventstore/postgres/migrations/0002_outbox.up.sql",
 			"migrations/0001_ruleset_names.up.sql",
+			"migrations/0002_ruleset_names_id.up.sql",
 		),
 		testcontainers.WithWaitStrategy(
 			wait.ForLog("database system is ready to accept connections").WithOccurrence(2),
@@ -131,5 +132,34 @@ func TestService_Create_EmptyName_FailsBeforeTouchingDB(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("got %d ruleset_names rows, want 0 (validation must run before any DB access)", count)
+	}
+}
+
+func TestService_FindIDByName_ReturnsTheIDCreateReserved(t *testing.T) {
+	pool := newTestPool(t)
+	service := newService(t, pool)
+	ctx := context.Background()
+
+	id, err := service.Create(ctx, "GURPS", "", nil)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	found, err := service.FindIDByName(ctx, "GURPS")
+	if err != nil {
+		t.Fatalf("find id by name: %v", err)
+	}
+	if found != id {
+		t.Fatalf("got id %s, want %s", found, id)
+	}
+}
+
+func TestService_FindIDByName_UnknownName_ReturnsError(t *testing.T) {
+	pool := newTestPool(t)
+	service := newService(t, pool)
+	ctx := context.Background()
+
+	if _, err := service.FindIDByName(ctx, "NeverCreated"); err == nil {
+		t.Fatal("got nil error for an unreserved name, want a real error")
 	}
 }
