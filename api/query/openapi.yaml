@@ -257,6 +257,53 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /rulesets/{rulesetId}/tables/{tableName}:
+    get:
+      operationId: listRulesetTableRows
+      summary: List every row of a Ruleset's named data table.
+      parameters:
+        - $ref: "#/components/parameters/RulesetId"
+        - name: tableName
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Table rows.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RulesetTableRow"
+
+  /rulesets/{rulesetId}/tables/{tableName}/{rowKey}:
+    get:
+      operationId: getRulesetTableRow
+      summary: Get one row's data from a Ruleset's named data table.
+      parameters:
+        - $ref: "#/components/parameters/RulesetId"
+        - name: tableName
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: rowKey
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The row's opaque, table-specific data.
+          content:
+            application/json:
+              schema:
+                type: object
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /users:
     get:
       operationId: listUsers
@@ -444,6 +491,19 @@ components:
             type: string
         isArchived:
           type: boolean
+
+    RulesetTableRow:
+      type: object
+      required: [key, data]
+      properties:
+        key:
+          type: string
+        # data is an opaque, table-specific payload — its shape varies per table (see
+        # internal/engine/timadorus/tables for what each table's own Go struct actually contains;
+        # there is no single fixed schema across tables, by design — traits.yaml's rows look
+        # nothing like a hypothetical future skills table's rows).
+        data:
+          type: object
 
     User:
       type: object

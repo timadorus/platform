@@ -75,6 +75,12 @@ type Ruleset struct {
 	References  []string           `json:"references"`
 }
 
+// RulesetTableRow defines model for RulesetTableRow.
+type RulesetTableRow struct {
+	Data map[string]interface{} `json:"data"`
+	Key  string                 `json:"key"`
+}
+
 // Universe defines model for Universe.
 type Universe struct {
 	Id         openapi_types.UUID `json:"id"`
@@ -151,6 +157,12 @@ type ServerInterface interface {
 	// GetRuleset Get a Ruleset by id.
 	// (GET /rulesets/{rulesetId})
 	GetRuleset(w http.ResponseWriter, r *http.Request, rulesetId RulesetId)
+	// ListRulesetTableRows List every row of a Ruleset's named data table.
+	// (GET /rulesets/{rulesetId}/tables/{tableName})
+	ListRulesetTableRows(w http.ResponseWriter, r *http.Request, rulesetId RulesetId, tableName string)
+	// GetRulesetTableRow Get one row's data from a Ruleset's named data table.
+	// (GET /rulesets/{rulesetId}/tables/{tableName}/{rowKey})
+	GetRulesetTableRow(w http.ResponseWriter, r *http.Request, rulesetId RulesetId, tableName string, rowKey string)
 	// ListUniverses List non-archived Universes.
 	// (GET /universes)
 	ListUniverses(w http.ResponseWriter, r *http.Request)
@@ -373,6 +385,85 @@ func (siw *ServerInterfaceWrapper) GetRuleset(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetRuleset(w, r, rulesetId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListRulesetTableRows operation middleware
+func (siw *ServerInterfaceWrapper) ListRulesetTableRows(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "rulesetId" -------------
+	var rulesetId RulesetId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "rulesetId", mux.Vars(r)["rulesetId"], &rulesetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "rulesetId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "tableName" -------------
+	var tableName string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tableName", mux.Vars(r)["tableName"], &tableName, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tableName", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListRulesetTableRows(w, r, rulesetId, tableName)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetRulesetTableRow operation middleware
+func (siw *ServerInterfaceWrapper) GetRulesetTableRow(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "rulesetId" -------------
+	var rulesetId RulesetId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "rulesetId", mux.Vars(r)["rulesetId"], &rulesetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "rulesetId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "tableName" -------------
+	var tableName string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tableName", mux.Vars(r)["tableName"], &tableName, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tableName", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "rowKey" -------------
+	var rowKey string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "rowKey", mux.Vars(r)["rowKey"], &rowKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "rowKey", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetRulesetTableRow(w, r, rulesetId, tableName, rowKey)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -739,6 +830,10 @@ func HandlerWithOptions(si ServerInterface, options GorillaServerOptions) http.H
 
 	r.HandleFunc(options.BaseURL+"/rulesets/{rulesetId}", wrapper.GetRuleset).Methods(http.MethodGet)
 
+	r.HandleFunc(options.BaseURL+"/rulesets/{rulesetId}/tables/{tableName}", wrapper.ListRulesetTableRows).Methods(http.MethodGet)
+
+	r.HandleFunc(options.BaseURL+"/rulesets/{rulesetId}/tables/{tableName}/{rowKey}", wrapper.GetRulesetTableRow).Methods(http.MethodGet)
+
 	r.HandleFunc(options.BaseURL+"/users", wrapper.ListUsers).Methods(http.MethodGet)
 
 	r.HandleFunc(options.BaseURL+"/universes", wrapper.ListUniverses).Methods(http.MethodGet)
@@ -1019,6 +1114,69 @@ func (response GetRuleset404ApplicationProblemPlusJSONResponse) VisitGetRulesetR
 	return err
 }
 
+type ListRulesetTableRowsRequestObject struct {
+	RulesetId RulesetId `json:"rulesetId"`
+	TableName string    `json:"tableName"`
+}
+
+type ListRulesetTableRowsResponseObject interface {
+	VisitListRulesetTableRowsResponse(w http.ResponseWriter) error
+}
+
+type ListRulesetTableRows200JSONResponse []RulesetTableRow
+
+func (response ListRulesetTableRows200JSONResponse) VisitListRulesetTableRowsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetRulesetTableRowRequestObject struct {
+	RulesetId RulesetId `json:"rulesetId"`
+	TableName string    `json:"tableName"`
+	RowKey    string    `json:"rowKey"`
+}
+
+type GetRulesetTableRowResponseObject interface {
+	VisitGetRulesetTableRowResponse(w http.ResponseWriter) error
+}
+
+type GetRulesetTableRow200JSONResponse map[string]interface{}
+
+func (response GetRulesetTableRow200JSONResponse) VisitGetRulesetTableRowResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetRulesetTableRow404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response GetRulesetTableRow404ApplicationProblemPlusJSONResponse) VisitGetRulesetTableRowResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListUniversesRequestObject struct {
 }
 
@@ -1269,6 +1427,12 @@ type StrictServerInterface interface {
 	// GetRuleset Get a Ruleset by id.
 	// (GET /rulesets/{rulesetId})
 	GetRuleset(ctx context.Context, request GetRulesetRequestObject) (GetRulesetResponseObject, error)
+	// ListRulesetTableRows List every row of a Ruleset's named data table.
+	// (GET /rulesets/{rulesetId}/tables/{tableName})
+	ListRulesetTableRows(ctx context.Context, request ListRulesetTableRowsRequestObject) (ListRulesetTableRowsResponseObject, error)
+	// GetRulesetTableRow Get one row's data from a Ruleset's named data table.
+	// (GET /rulesets/{rulesetId}/tables/{tableName}/{rowKey})
+	GetRulesetTableRow(ctx context.Context, request GetRulesetTableRowRequestObject) (GetRulesetTableRowResponseObject, error)
 	// ListUniverses List non-archived Universes.
 	// (GET /universes)
 	ListUniverses(ctx context.Context, request ListUniversesRequestObject) (ListUniversesResponseObject, error)
@@ -1540,6 +1704,61 @@ func (sh *strictHandler) GetRuleset(w http.ResponseWriter, r *http.Request, rule
 	}
 }
 
+// ListRulesetTableRows operation middleware
+func (sh *strictHandler) ListRulesetTableRows(w http.ResponseWriter, r *http.Request, rulesetId RulesetId, tableName string) {
+	var request ListRulesetTableRowsRequestObject
+
+	request.RulesetId = rulesetId
+	request.TableName = tableName
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListRulesetTableRows(ctx, request.(ListRulesetTableRowsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListRulesetTableRows")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListRulesetTableRowsResponseObject); ok {
+		if err := validResponse.VisitListRulesetTableRowsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetRulesetTableRow operation middleware
+func (sh *strictHandler) GetRulesetTableRow(w http.ResponseWriter, r *http.Request, rulesetId RulesetId, tableName string, rowKey string) {
+	var request GetRulesetTableRowRequestObject
+
+	request.RulesetId = rulesetId
+	request.TableName = tableName
+	request.RowKey = rowKey
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetRulesetTableRow(ctx, request.(GetRulesetTableRowRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetRulesetTableRow")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetRulesetTableRowResponseObject); ok {
+		if err := validResponse.VisitGetRulesetTableRowResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListUniverses operation middleware
 func (sh *strictHandler) ListUniverses(w http.ResponseWriter, r *http.Request) {
 	var request ListUniversesRequestObject
@@ -1751,31 +1970,34 @@ func (sh *strictHandler) GetUser(w http.ResponseWriter, r *http.Request, userId 
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"2h8MLq9MvArltUeplBmZk4hsrjb/BAAA//8=",
+	"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",
+	"k/XV+p8AAAD//w==",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

@@ -4,6 +4,7 @@ package query
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 
 	"github.com/timadorus/platform/api/query/gen"
@@ -12,18 +13,20 @@ import (
 	entityquery "github.com/timadorus/platform/internal/query/entity"
 	objectquery "github.com/timadorus/platform/internal/query/object"
 	rulesetquery "github.com/timadorus/platform/internal/query/ruleset"
+	rulesettablesquery "github.com/timadorus/platform/internal/query/rulesettables"
 	universequery "github.com/timadorus/platform/internal/query/universe"
 	userquery "github.com/timadorus/platform/internal/query/user"
 )
 
 type Server struct {
-	universe  *universequery.Repository
-	user      *userquery.Repository
-	campaign  *campaignquery.Repository
-	entity    *entityquery.Repository
-	character *characterquery.Repository
-	object    *objectquery.Repository
-	ruleset   *rulesetquery.Repository
+	universe      *universequery.Repository
+	user          *userquery.Repository
+	campaign      *campaignquery.Repository
+	entity        *entityquery.Repository
+	character     *characterquery.Repository
+	object        *objectquery.Repository
+	ruleset       *rulesetquery.Repository
+	rulesetTables *rulesettablesquery.Repository
 }
 
 func NewServer(
@@ -34,15 +37,17 @@ func NewServer(
 	characterRepo *characterquery.Repository,
 	objectRepo *objectquery.Repository,
 	rulesetRepo *rulesetquery.Repository,
+	rulesetTablesRepo *rulesettablesquery.Repository,
 ) *Server {
 	return &Server{
-		universe:  universeRepo,
-		user:      userRepo,
-		campaign:  campaignRepo,
-		entity:    entityRepo,
-		character: characterRepo,
-		object:    objectRepo,
-		ruleset:   rulesetRepo,
+		universe:      universeRepo,
+		user:          userRepo,
+		campaign:      campaignRepo,
+		entity:        entityRepo,
+		character:     characterRepo,
+		object:        objectRepo,
+		ruleset:       rulesetRepo,
+		rulesetTables: rulesetTablesRepo,
 	}
 }
 
@@ -281,6 +286,39 @@ func (s *Server) ListUniverses(ctx context.Context, request gen.ListUniversesReq
 		out[i] = gen.Universe{Id: u.ID, Name: u.Name, IsArchived: u.IsArchived}
 	}
 	return gen.ListUniverses200JSONResponse(out), nil
+}
+
+func (s *Server) ListRulesetTableRows(ctx context.Context, request gen.ListRulesetTableRowsRequestObject) (gen.ListRulesetTableRowsResponseObject, error) {
+	rows, err := s.rulesetTables.List(ctx, request.RulesetId, request.TableName)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]gen.RulesetTableRow, len(rows))
+	for i, row := range rows {
+		var data map[string]interface{}
+		if err := json.Unmarshal(row.Data, &data); err != nil {
+			return nil, err
+		}
+		out[i] = gen.RulesetTableRow{Key: row.Key, Data: data}
+	}
+	return gen.ListRulesetTableRows200JSONResponse(out), nil
+}
+
+func (s *Server) GetRulesetTableRow(ctx context.Context, request gen.GetRulesetTableRowRequestObject) (gen.GetRulesetTableRowResponseObject, error) {
+	data, err := s.rulesetTables.Get(ctx, request.RulesetId, request.TableName, request.RowKey)
+	if err != nil {
+		if errors.Is(err, rulesettablesquery.ErrNotFound) {
+			return gen.GetRulesetTableRow404ApplicationProblemPlusJSONResponse{
+				NotFoundApplicationProblemPlusJSONResponse: gen.NotFoundApplicationProblemPlusJSONResponse(notFound(err)),
+			}, nil
+		}
+		return nil, err
+	}
+	var out map[string]interface{}
+	if err := json.Unmarshal(data, &out); err != nil {
+		return nil, err
+	}
+	return gen.GetRulesetTableRow200JSONResponse(out), nil
 }
 
 func notFound(err error) gen.Problem {
