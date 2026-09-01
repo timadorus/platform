@@ -21,6 +21,7 @@ schema_owners=(
   "projection_character:internal/projection/character/migrations"
   "projection_object:internal/projection/object/migrations"
   "projection_ruleset:internal/projection/ruleset/migrations"
+  "projection_ruleset_tables:internal/projection/rulesettables/migrations"
   "command_ruleset:internal/command/ruleset/migrations"
 )
 
