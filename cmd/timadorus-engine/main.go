@@ -4,7 +4,9 @@
 // Router/checkpoint machinery), but registers two processors sharing one RulesetCache instead
 // of the seven read-model projectors, which is why it's a separate binary: unlike every
 // projector, it legitimately imports full write-side packages (domain/character,
-// domain/campaign, eventsourcing, eventstore/postgres).
+// domain/campaign, eventsourcing, eventstore/postgres). Also syncs the Timadorus Ruleset's data
+// tables (traits.yaml today, more to follow) into ruleset_tables_read_model at startup — see
+// internal/engine/timadorus/tables.
 package main
 
 import (
@@ -25,6 +27,7 @@ import (
 	"github.com/timadorus/platform/internal/bus"
 	"github.com/timadorus/platform/internal/config"
 	timadorusengine "github.com/timadorus/platform/internal/engine/timadorus"
+	"github.com/timadorus/platform/internal/engine/timadorus/tables"
 	"github.com/timadorus/platform/internal/observability"
 	"github.com/timadorus/platform/internal/projection"
 )
@@ -60,8 +63,18 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	// Registering the Timadorus Ruleset here, before anything else starts, means a registration
 	// failure (anything other than "it already exists") terminates this process via run()'s
 	// existing error return -> main()'s os.Exit(1), before /readyz ever starts listening and
-	// before this binary consumes a single event.
-	if err := timadorusengine.RegisterRuleset(ctx, pool); err != nil {
+	// before this binary consumes a single event. The returned id scopes the data-table sync
+	// immediately below — both run once, synchronously, before the router starts.
+	rulesetID, err := timadorusengine.RegisterRuleset(ctx, pool)
+	if err != nil {
+		return err
+	}
+
+	traits, err := tables.LoadTraits()
+	if err != nil {
+		return err
+	}
+	if err := tables.RegisterTables(ctx, pool, rulesetID, traits); err != nil {
 		return err
 	}
 
