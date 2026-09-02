@@ -55,11 +55,12 @@ export function useChangeFeed() {
     const myEpoch = ++epoch
     currentUniverseId = universeId
     cursor = 0
-    const { data } = await getQueryClient().GET('/universes/{universeId}/changes/cursor', {
+    const { data, error } = await getQueryClient().GET('/universes/{universeId}/changes/cursor', {
       params: { path: { universeId } },
     })
     if (myEpoch !== epoch) return // a newer start() call has already superseded this one
-    cursor = data?.globalSeq ?? 0
+    if (error || !data) return // leave the feed stopped; a later start() (e.g. a route change) retries
+    cursor = data.globalSeq
     timer = setInterval(poll, POLL_INTERVAL_MS)
   }
 
