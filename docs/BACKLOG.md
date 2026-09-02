@@ -304,6 +304,24 @@ live with a real headless-Chromium session.
   scoped to its own `universeId`, or hoist the `provide` to a shared ancestor) if a real need for
   it surfaces.
 
+- [ ] **`useChangeFeed.ts`'s `poll()` only re-checks its epoch guard once per batch, not once per
+  change.** `myEpoch` is captured and checked right after the fetch resolves, but the loop that
+  follows awaits `nextTick()` between writes (added to fix the batching-drop bug above) without
+  re-checking `epoch` inside the loop. If `stop()` (or a new `start()` for a different Universe)
+  fires in the gap between two `nextTick()` awaits, the loop keeps writing the remaining
+  already-fetched changes — meant for the just-abandoned Universe — to `cursor`/`lastChange` before
+  the interval is actually cleared. Extremely narrow (same-tick `stop()` mid-batch), and the
+  original fix's own reviewer-suggested shape already had this property, so it wasn't flagged as
+  new breakage. Fix: also check `if (myEpoch !== epoch) return` inside the loop, after each
+  `await nextTick()`.
+
+- [ ] **`change.aggregateId === <id>.value` comparisons are case-sensitive string equality.** All
+  five detail views compare the change feed's `aggregateId` (Go's lowercase-canonical UUID
+  marshalling) against a raw route param. A hand-typed or pasted uppercase UUID in the URL would
+  silently disable that view's change reactions. Very low likelihood, and consistent with how ids
+  are already compared elsewhere in this codebase — the final reviewer noted it for completeness
+  only and did not recommend a change.
+
 ## Devcluster tooling (`test/e2e/internal`)
 
 - [ ] **No `TraefikServiceName` exported constant.** `seed.go` and `up.go` both hardcode the
