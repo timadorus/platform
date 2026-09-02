@@ -65,6 +65,10 @@ export interface MockState {
   // after creation — simulating an async projector that hasn't caught up yet. Unset (the
   // default) means immediately visible, matching every existing test's expectations.
   createVisibilityDelayMs?: number
+  // changes simulates externally-made changes (another tab/user) for universe-change-feed.spec.ts
+  // — tests push onto this array directly; the mock routes below serve from it exactly like a
+  // real universe_changes_read_model would.
+  changes: { globalSeq: number; universeId: string; aggregateType: string; aggregateId: string; eventType: string; occurredAt: string }[]
 }
 
 // createMockState seeds a fresh, per-test state object — arrays, not module-level globals, so
@@ -81,6 +85,7 @@ export function createMockState(overrides: Partial<MockState> = {}): MockState {
     gamemasterIds: [],
     creatorIds: [],
     nextId: 1,
+    changes: [],
     ...overrides,
   }
 }
@@ -184,6 +189,19 @@ export async function installMockBackend(page: Page, state: MockState, auth: Moc
     }
     if (method === 'GET' && (m = matchPath('/api/query/universes/:universeId/campaigns', p))) {
       const matches = state.campaigns.filter((c) => c.universeId === m!.params.universeId && !c.isArchived)
+      return json(route, matches)
+    }
+    if (method === 'GET' && (m = matchPath('/api/query/universes/:universeId/changes/cursor', p))) {
+      const relevant = state.changes.filter((c) => c.universeId === m!.params.universeId)
+      const cursor = relevant.length ? Math.max(...relevant.map((c) => c.globalSeq)) : 0
+      return json(route, { globalSeq: cursor })
+    }
+    if (method === 'GET' && (m = matchPath('/api/query/universes/:universeId/changes', p))) {
+      const since = Number(query.get('since') ?? '0')
+      const matches = state.changes
+        .filter((c) => c.universeId === m!.params.universeId && c.globalSeq > since)
+        .sort((a, b) => a.globalSeq - b.globalSeq)
+        .slice(0, 20)
       return json(route, matches)
     }
     if (method === 'GET' && (m = matchPath('/api/query/campaigns/:campaignId', p))) {
