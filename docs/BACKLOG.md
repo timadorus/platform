@@ -313,3 +313,34 @@ live with a real headless-Chromium session.
   budget was tuned against observed Traefik routing-sync delay, not derived from a proven bound.
   Constants are isolated at the top of the function for easy tuning if a slower environment ever
   needs more headroom.
+
+## projector
+
+- [ ] **`cmd/projector` now runs 12 projectors on a default-sized connection pool with no budget
+  note.** `cmd/timadorus-engine/main.go` carries an explicit "Connection budget" comment for its 2
+  processors; `cmd/projector/main.go`'s `pgxpool.New` has no equivalent, and the
+  `universe-change-feed` branch took it from 7 to 12 projectors (a 71% increase in concurrent
+  connection demand) with no explicit `pool_max_conns` (defaults to `max(4, NumCPU)`). Not a
+  correctness bug today — each `Router.handle` holds exactly one connection and the
+  `universechanges` projectors resolve on the ambient tx rather than acquiring a second pool
+  connection, so there's no deadlock risk — but on a small node a simultaneous cold-start replay
+  of all 12 could in principle queue long enough to trip Watermill's 30s `AckWaitTimeout` and
+  cause redelivery churn. Add a "Connection budget" comment near `cmd/projector/main.go`'s
+  `pgxpool.New` mirroring the engine's, and consider `pool_max_conns` if this is ever measured to
+  matter in practice.
+
+- [ ] **A full read-model rebuild (all checkpoints reset) is not safe with the change-feed
+  projectors in the mix.** Replay load at this platform's current scale is fine (cheap indexed
+  lookup + insert per event, small backlogs). But if every checkpoint were ever reset to rebuild
+  read models from scratch, the `universe-changes-*` projectors would race the base projectors
+  with no ordering guarantee between independent durables, and the 5-attempt Nack budget (no
+  `NakDelay`) would burn in milliseconds — non-`Created` events would dead-letter en masse and
+  their change rows would be lost. Rebuild base read models first, then reset the
+  `universe-changes-*` checkpoints, if a full rebuild is ever needed.
+
+- [ ] **No CI check that `web/src/api/{query,command}.types.ts` stay in sync with the OpenAPI
+  specs.** `web/package.json`'s `npm run generate` (via `web/scripts/generate-api-clients.mjs`)
+  already regenerates both files from `api/query/openapi.yaml` and `api/command/openapi.yaml` —
+  that command already exists and is current. What's still missing is a CI step that runs it and
+  fails the build on a diff, so a spec change without a regenerate can land unnoticed (as it did
+  under an earlier, already-merged branch).
