@@ -90,6 +90,35 @@ up; don't grow this file into a design doc.
   structure — returning `ruleset.ErrNameAlreadyExists` on conflict, and, ideally, release the old
   name in that same transaction.
 
+- [ ] **Embedding-size threshold for future table files is undocumented.** This branch's design
+  embeds `traits.yaml` directly via `//go:embed`, appropriate for a small, secret-free,
+  `//go:embed`-able file the binary can't start without. But the design spec calls this "the
+  first of an extensive set of such files" without saying at what size or count embedding stops
+  being appropriate and a different content-delivery approach (a seeded pipeline, external
+  config, etc.) becomes warranted. Note this so whoever adds the next table file (or the fifth,
+  or the twentieth) has somewhere to weigh that judgment call rather than rediscovering it.
+
+- [ ] **Edits to a table YAML file never propagate to already-synced clusters — undocumented
+  outside code comments and the design spec.** `RegisterTables`'s `ON CONFLICT (ruleset_id,
+  table_name, row_key) DO NOTHING` is correct given this branch's stated immutability premise
+  (rule changes are always modeled as new Rulesets, never edits to an existing one's tables) —
+  but the operational consequence is sharp: anyone who edits a table's YAML content and redeploys
+  gets no error, no warning, and no change on a cluster where that ruleset/table/row combination
+  was already synced once. A concrete example: `traits.yaml`'s "stronger that most people" typo,
+  fixed elsewhere in this same branch, will read correctly on any fresh cluster from this point
+  forward, but a cluster that synced the old text before this fix keeps the typo forever unless
+  manually corrected or reset.
+
+- [ ] **No end-to-end coverage for the two new query-api endpoints
+  (`GET /rulesets/{id}/tables/{name}[/{rowKey}]`).** `test/e2e/e2e_test.go` exercises
+  `GET /rulesets` and `GET /rulesets/{id}` but neither new path, and nothing asserts that the
+  engine's startup table-sync is actually readable through the query API on a real running
+  cluster. A single e2e assertion (e.g. `GET /rulesets/{timadorusRulesetId}/tables/traits` returns
+  the 3 expected rows after `make dev-up`) would cover the sync, the endpoint, and the migration
+  image all in one shot — the Critical fixed in this same fix-wave (a broken migration image) went
+  undetected specifically because no such coverage existed. This is a recommendation for a future
+  branch, not a defect in this one — the plan never asked for it.
+
 ## Web SPA (`web/src`)
 
 All three items previously listed here are fixed (`e7ad69c`, `e89a5f3`): `waitForUser` now takes

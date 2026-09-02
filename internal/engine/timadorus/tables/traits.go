@@ -79,7 +79,7 @@ func (t *TraitsTable) Row(key string) (*TraitsRow, bool) {
 
 // RegisterHook attaches h to the row at key, returning an error if key doesn't exist rather than
 // silently no-op'ing (a typo'd row key should fail loudly at registration time, not silently
-// never fire).
+// never fire). Nothing in this codebase calls it yet; see Hook's own doc comment for why.
 func (t *TraitsTable) RegisterHook(key string, h Hook) error {
 	row, ok := t.rows[key]
 	if !ok {
@@ -89,7 +89,8 @@ func (t *TraitsTable) RegisterHook(key string, h Hook) error {
 	return nil
 }
 
-// Dispatch runs every hook registered on the row at key.
+// Dispatch runs every hook registered on the row at key. Nothing in this codebase calls it yet;
+// see Hook's own doc comment for why.
 func (t *TraitsTable) Dispatch(ctx context.Context, tx pgx.Tx, key string, env bus.Envelope) error {
 	row, ok := t.rows[key]
 	if !ok {

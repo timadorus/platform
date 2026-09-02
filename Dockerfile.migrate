@@ -17,6 +17,7 @@ COPY internal/projection/entity/migrations /migrations/internal/projection/entit
 COPY internal/projection/character/migrations /migrations/internal/projection/character/migrations
 COPY internal/projection/object/migrations /migrations/internal/projection/object/migrations
 COPY internal/projection/ruleset/migrations /migrations/internal/projection/ruleset/migrations
+COPY internal/projection/rulesettables/migrations /migrations/internal/projection/rulesettables/migrations
 COPY internal/command/ruleset/migrations /migrations/internal/command/ruleset/migrations
 COPY scripts/migrate-up.sh /usr/local/bin/migrate-up.sh
 ENV MIGRATIONS_BASE=/migrations

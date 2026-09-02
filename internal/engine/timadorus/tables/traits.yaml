@@ -1,7 +1,7 @@
 traits:
   strong:
     displayName: "Strong"
-    description: "You are stronger that most people. Your strength allows you to perform feats of physical power that others cannot. (Your maximum Strength attribute is +5)"
+    description: "You are stronger than most people. Your strength allows you to perform feats of physical power that others cannot. (Your maximum Strength attribute is +5)"
   quick:
     displayName: "Quick"
     description: "You are faster than most people. Your speed allows you to move and react more quickly than others. (Your maximum Quickness attribute is +5)"
