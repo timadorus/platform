@@ -106,6 +106,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/universes/{universeId}/changes/cursor": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the current change cursor for a Universe. */
+        get: operations["getUniverseChangesCursor"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/universes/{universeId}/changes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List changes to this Universe and everything inside it, after a given cursor. */
+        get: operations["listUniverseChanges"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/campaigns/{campaignId}": {
         parameters: {
             query?: never;
@@ -242,6 +276,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/rulesets/{rulesetId}/tables/{tableName}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List every row of a Ruleset's named data table. */
+        get: operations["listRulesetTableRows"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rulesets/{rulesetId}/tables/{tableName}/{rowKey}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get one row's data from a Ruleset's named data table. */
+        get: operations["getRulesetTableRow"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/users": {
         parameters: {
             query?: never;
@@ -327,6 +395,24 @@ export interface components {
             description: string;
             references: string[];
             isArchived: boolean;
+        };
+        RulesetTableRow: {
+            key: string;
+            data: Record<string, never>;
+        };
+        UniverseChangeCursor: {
+            /** Format: int64 */
+            globalSeq: number;
+        };
+        UniverseChange: {
+            /** Format: int64 */
+            globalSeq: number;
+            aggregateType: string;
+            /** Format: uuid */
+            aggregateId: string;
+            eventType: string;
+            /** Format: date-time */
+            occurredAt: string;
         };
         User: {
             /** Format: uuid */
@@ -514,6 +600,52 @@ export interface operations {
             };
         };
     };
+    getUniverseChangesCursor: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                universeId: components["parameters"]["UniverseId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The current cursor. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UniverseChangeCursor"];
+                };
+            };
+        };
+    };
+    listUniverseChanges: {
+        parameters: {
+            query: {
+                since: number;
+            };
+            header?: never;
+            path: {
+                universeId: components["parameters"]["UniverseId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Changes, ordered by globalSeq ascending, capped at 20 per call. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UniverseChange"][];
+                };
+            };
+        };
+    };
     getCampaign: {
         parameters: {
             query?: never;
@@ -689,6 +821,54 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Ruleset"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listRulesetTableRows: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rulesetId: components["parameters"]["RulesetId"];
+                tableName: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Table rows. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RulesetTableRow"][];
+                };
+            };
+        };
+    };
+    getRulesetTableRow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rulesetId: components["parameters"]["RulesetId"];
+                tableName: string;
+                rowKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The row's opaque, table-specific data. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
                 };
             };
             404: components["responses"]["NotFound"];

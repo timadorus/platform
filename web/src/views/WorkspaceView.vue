@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, provide, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, provide, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUniverses, type UniverseSummary } from '@/composables/useUniverses'
 import { useCampaigns, type CampaignSummary } from '@/composables/useCampaigns'
+import { useChangeFeed } from '@/composables/useChangeFeed'
 import AppHeader from '@/components/layout/AppHeader.vue'
 import AppSidebar from '@/components/layout/AppSidebar.vue'
 import CharactersPanel from '@/components/layout/CharactersPanel.vue'
@@ -35,6 +36,9 @@ provide('bumpSidebarRefresh', () => {
 const pendingEntityId = ref<string | null>(null)
 provide('pendingEntityId', pendingEntityId)
 
+const { lastChange: lastAggregateChange, start: startChangeFeed, stop: stopChangeFeed } = useChangeFeed()
+provide('lastAggregateChange', lastAggregateChange)
+
 async function load() {
   universe.value = await getUniverse(universeId.value)
   campaign.value = await getCampaign(campaignId.value)
@@ -42,6 +46,9 @@ async function load() {
 
 onMounted(load)
 watch([universeId, campaignId], load)
+onMounted(() => startChangeFeed(universeId.value))
+watch(universeId, startChangeFeed)
+onUnmounted(stopChangeFeed)
 // Campaign rename/archive now happen inside CampaignOverviewPanel.vue (the workspace route's
 // default child), not a modal owned here — it bumps the same shared signal
 // CharactersPanel/EntitiesPanel already react to, so re-running load() here keeps the header's
