@@ -23,6 +23,7 @@ schema_owners=(
   "projection_ruleset:internal/projection/ruleset/migrations"
   "projection_ruleset_tables:internal/projection/rulesettables/migrations"
   "command_ruleset:internal/command/ruleset/migrations"
+  "projection_universe_changes:internal/projection/universechanges/migrations"
 )
 
 case "$DATABASE_URL" in
