@@ -55,8 +55,8 @@ func UninstallNATS() {
 }
 
 // eventStreamNames lists every JetStream stream the timadorus-platform event bus creates —
-// one per aggregate type (internal/bus.Subject), matching cmd/projector/main.go's projector
-// registration list.
+// one per aggregate type (internal/bus.Subject), matching the aggregate types in
+// cmd/projector/main.go's projector registration list.
 var eventStreamNames = []string{
 	"events_universe", "events_user", "events_campaign", "events_entity", "events_character", "events_object",
 	"events_ruleset",

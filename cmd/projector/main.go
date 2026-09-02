@@ -59,7 +59,8 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	router := projection.NewRouter(pool, newSubscriber, logger)
 
 	// Adding a new projection is exactly one line here — internal/projection itself never
-	// changes (plan §7's open/closed requirement).
+	// changes (plan §7's open/closed requirement). (This feature needed five — see
+	// docs/superpowers/specs/2026-09-02-universe-change-feed-design.md.)
 	projectors := []projection.Projector{
 		universeprojection.NewProjector(),
 		userprojection.NewProjector(),
