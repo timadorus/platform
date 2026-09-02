@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, inject, onMounted, ref, watch, type Ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUniverses, type UniverseSummary } from '@/composables/useUniverses'
+import type { AggregateChange } from '@/composables/useChangeFeed'
 import { useUsers } from '@/composables/useUsers'
 import { useCampaigns } from '@/composables/useCampaigns'
 import { useSelectionStore } from '@/stores/selection'
@@ -47,6 +48,13 @@ async function load() {
 }
 onMounted(load)
 watch(universeId, load)
+
+const lastAggregateChange = inject<Ref<AggregateChange | null>>('lastAggregateChange')
+if (lastAggregateChange) {
+  watch(lastAggregateChange, (change) => {
+    if (change?.aggregateType === 'universe' && change.aggregateId === universeId.value) load()
+  })
+}
 
 function startEditName() {
   if (!universe.value) return

@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, inject, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, inject, onMounted, onUnmounted, ref, watch, type Ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useCharacters, type CharacterSummary } from '@/composables/useCharacters'
+import type { AggregateChange } from '@/composables/useChangeFeed'
 import { useUsers } from '@/composables/useUsers'
 import BaseButton from '@/components/common/BaseButton.vue'
 import ErrorBanner from '@/components/common/ErrorBanner.vue'
@@ -60,6 +61,13 @@ async function load() {
 onMounted(load)
 watch(characterId, load)
 onUnmounted(() => loadController?.abort())
+
+const lastAggregateChange = inject<Ref<AggregateChange | null>>('lastAggregateChange')
+if (lastAggregateChange) {
+  watch(lastAggregateChange, (change) => {
+    if (change?.aggregateType === 'character' && change.aggregateId === characterId.value) load()
+  })
+}
 
 async function onSubmitRename(newName: string) {
   if (!character.value) return

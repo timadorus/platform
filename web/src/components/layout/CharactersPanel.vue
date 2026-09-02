@@ -7,6 +7,7 @@ import { useCampaigns } from '@/composables/useCampaigns'
 import { useUsers } from '@/composables/useUsers'
 import CharacterCard from './CharacterCard.vue'
 import CreateCharacterModal from '@/components/modals/CreateCharacterModal.vue'
+import type { AggregateChange } from '@/composables/useChangeFeed'
 
 const props = defineProps<{ campaignId: string }>()
 const route = useRoute()
@@ -39,6 +40,13 @@ if (sidebarRefreshSignal) {
   watch(sidebarRefreshSignal, refresh)
 }
 const pendingEntityId = inject<Ref<string | null>>('pendingEntityId')
+
+const lastAggregateChange = inject<Ref<AggregateChange | null>>('lastAggregateChange')
+if (lastAggregateChange) {
+  watch(lastAggregateChange, (change) => {
+    if (change?.aggregateType === 'character') refresh()
+  })
+}
 
 // Holds the AbortController for the current onCreated background poll (if any), so it can be
 // aborted on unmount — mirrors CreatingUserModal.vue's pattern for waitForUser.

@@ -5,6 +5,7 @@ import { useEntities } from '@/composables/useEntities'
 import SearchableAggregatePanel from './SearchableAggregatePanel.vue'
 import CreateEntityModal from '@/components/modals/CreateEntityModal.vue'
 import AdvancedSearchStubModal from './AdvancedSearchStubModal.vue'
+import type { AggregateChange } from '@/composables/useChangeFeed'
 
 const props = defineProps<{ universeId: string }>()
 const route = useRoute()
@@ -57,6 +58,13 @@ if (pendingEntityId) {
 }
 
 onUnmounted(() => pendingEntityController?.abort())
+
+const lastAggregateChange = inject<Ref<AggregateChange | null>>('lastAggregateChange')
+if (lastAggregateChange) {
+  watch(lastAggregateChange, (change) => {
+    if (change?.aggregateType === 'entity') search(props.universeId, currentQuery.value)
+  })
+}
 </script>
 
 <template>

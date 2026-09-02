@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, inject, onMounted, ref, watch } from 'vue'
+import { computed, inject, onMounted, ref, watch, type Ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useCampaigns, type CampaignSummary } from '@/composables/useCampaigns'
+import type { AggregateChange } from '@/composables/useChangeFeed'
 import { useRulesets } from '@/composables/useRulesets'
 import { useUsers } from '@/composables/useUsers'
 import { useCharacters } from '@/composables/useCharacters'
@@ -66,6 +67,13 @@ async function load() {
 }
 onMounted(load)
 watch([universeId, campaignId], load)
+
+const lastAggregateChange = inject<Ref<AggregateChange | null>>('lastAggregateChange')
+if (lastAggregateChange) {
+  watch(lastAggregateChange, (change) => {
+    if (change?.aggregateType === 'campaign' && change.aggregateId === campaignId.value) load()
+  })
+}
 
 async function onSubmitRename(newName: string) {
   if (!campaign.value) return

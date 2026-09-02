@@ -5,6 +5,7 @@ import { useObjects } from '@/composables/useObjects'
 import SearchableAggregatePanel from './SearchableAggregatePanel.vue'
 import CreateObjectModal from '@/components/modals/CreateObjectModal.vue'
 import AdvancedSearchStubModal from './AdvancedSearchStubModal.vue'
+import type { AggregateChange } from '@/composables/useChangeFeed'
 
 const props = defineProps<{ universeId: string }>()
 const route = useRoute()
@@ -33,6 +34,13 @@ const sidebarRefreshSignal = inject<Ref<number>>('sidebarRefreshSignal')
 if (sidebarRefreshSignal) {
   watch(sidebarRefreshSignal, () => {
     search(props.universeId, currentQuery.value)
+  })
+}
+
+const lastAggregateChange = inject<Ref<AggregateChange | null>>('lastAggregateChange')
+if (lastAggregateChange) {
+  watch(lastAggregateChange, (change) => {
+    if (change?.aggregateType === 'object') search(props.universeId, currentQuery.value)
   })
 }
 </script>
