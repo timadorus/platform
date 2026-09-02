@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { nextTick, ref } from 'vue'
 import { getQueryClient } from '@/api/client'
 
 export interface AggregateChange {
@@ -39,6 +39,10 @@ export function useChangeFeed() {
         for (const change of data as AggregateChange[]) {
           cursor = change.globalSeq
           lastChange.value = change
+          // Let each change flush to watchers before the next overwrites lastChange — Vue's
+          // flush:'pre' watch coalesces same-tick writes, and a poll batch can contain more than
+          // one change (e.g. Character creation emits Entity+Character events together).
+          await nextTick()
         }
       }
     } finally {

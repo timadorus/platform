@@ -56,3 +56,60 @@ test('an externally-made Entity change is picked up by the Entities sidebar with
   // useChangeFeed polls every 5s — wait comfortably past that instead of asserting immediately.
   await expect(entitiesSection.getByText('Gandalf')).toBeVisible({ timeout: 10000 })
 })
+
+test('a multi-change poll batch updates every affected sidebar, not just the last change', async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  const base = baseURL!
+  const authority = `${base}/oidc`
+  const state = seedState()
+  await seedAuth(context, { baseURL: base, authority, clientId: CLIENT_ID })
+  await installMockBackend(page, state, { baseURL: base, authority, clientId: CLIENT_ID })
+
+  await page.goto('/universes/u1/campaigns/c1')
+  const entitiesSection = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Entities' }) })
+  const charactersSection = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Characters' }) })
+  await expect(entitiesSection.getByText('Aragorn')).toBeVisible()
+
+  // Regression for Important #1: creating a Character always emits EntityCreated then
+  // CharacterCreated in one unit of work, and both routinely land in the same poll response.
+  // Seed both an Entity change and a Character change with different aggregateTypes into the
+  // *same* mocked /changes response — Vue's flush:'pre' watch coalesces same-tick writes to a
+  // Ref, so without the fix only the last change (Character) would ever reach a watcher and the
+  // Entities sidebar would never refresh.
+  state.entities.push({ id: 'e2', name: 'Gimli', universeId: 'u1', isArchived: false })
+  state.characters.push({
+    id: 'ch2',
+    name: 'Legolas',
+    campaignId: 'c1',
+    entityId: 'e3',
+    playerUserId: 'user-1',
+    isArchived: false,
+  })
+  state.changes.push(
+    {
+      globalSeq: 1,
+      universeId: 'u1',
+      aggregateType: 'entity',
+      aggregateId: 'e2',
+      eventType: 'entity.created.v1',
+      occurredAt: new Date().toISOString(),
+    },
+    {
+      globalSeq: 2,
+      universeId: 'u1',
+      aggregateType: 'character',
+      aggregateId: 'ch2',
+      eventType: 'character.created.v1',
+      occurredAt: new Date().toISOString(),
+    },
+  )
+
+  // useChangeFeed polls every 5s — wait comfortably past that instead of asserting immediately.
+  // Both assertions must hold: proving only the Character sidebar (the last change in the batch)
+  // updated would demonstrate the bug, not the fix.
+  await expect(entitiesSection.getByText('Gimli')).toBeVisible({ timeout: 10000 })
+  await expect(charactersSection.getByText('Legolas')).toBeVisible({ timeout: 10000 })
+})
