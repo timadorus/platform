@@ -28,6 +28,7 @@ import (
 	objectprojection "github.com/timadorus/platform/internal/projection/object"
 	rulesetprojection "github.com/timadorus/platform/internal/projection/ruleset"
 	universeprojection "github.com/timadorus/platform/internal/projection/universe"
+	universechangesprojection "github.com/timadorus/platform/internal/projection/universechanges"
 	userprojection "github.com/timadorus/platform/internal/projection/user"
 )
 
@@ -67,6 +68,11 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		characterprojection.NewProjector(),
 		objectprojection.NewProjector(),
 		rulesetprojection.NewProjector(),
+		universechangesprojection.NewUniverseProjector(),
+		universechangesprojection.NewCampaignProjector(),
+		universechangesprojection.NewEntityProjector(),
+		universechangesprojection.NewObjectProjector(),
+		universechangesprojection.NewCharacterProjector(),
 	}
 
 	// The projector has no public API (plan §9's read/write import-graph rule keeps it out
