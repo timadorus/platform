@@ -82,7 +82,7 @@ func (p *CampaignProcessor) Subjects() []string { return []string{bus.Subject(ev
 // every newly created Campaign that uses that Ruleset (see handleCampaignCreated). Not a `const`
 // — Go has no slice constants — but never mutated after initialization; edit this list in place
 // to change what new "timadorus" Campaigns start with.
-var defaultTraits = []string{"strong", "agile", "loyal"}
+var defaultTraits = []string{"strong", "agile", "quick"}
 
 func (p *CampaignProcessor) Handle(ctx context.Context, tx pgx.Tx, env bus.Envelope) error {
 	switch env.EventType {

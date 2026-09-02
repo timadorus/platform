@@ -408,7 +408,7 @@ func TestCampaignProcessor_CampaignCreated_MatchingRuleset_MergesDefaultTraits(t
 	if err := json.Unmarshal([]byte(configEvent.Configuration), &decoded); err != nil {
 		t.Fatalf("configuration %q is not the expected shape: %v", configEvent.Configuration, err)
 	}
-	want := []string{"strong", "agile", "loyal"}
+	want := []string{"strong", "agile", "quick"}
 	if len(decoded.Traits) != len(want) {
 		t.Fatalf("got traits %v, want %v", decoded.Traits, want)
 	}
@@ -557,7 +557,7 @@ func TestCampaignProcessor_TraitsAndConfigsCoexist(t *testing.T) {
 	if err := json.Unmarshal([]byte(configEvent.Configuration), &decoded); err != nil {
 		t.Fatalf("configuration %q is not the expected shape: %v", configEvent.Configuration, err)
 	}
-	wantTraits := []string{"strong", "agile", "loyal"}
+	wantTraits := []string{"strong", "agile", "quick"}
 	if len(decoded.Traits) != len(wantTraits) {
 		t.Fatalf("got traits %v, want %v (traits should survive the configs append)", decoded.Traits, wantTraits)
 	}
