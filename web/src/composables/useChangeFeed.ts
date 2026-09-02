@@ -26,6 +26,7 @@ export function useChangeFeed() {
   let currentUniverseId = ''
   let timer: ReturnType<typeof setInterval> | null = null
   let inFlight = false
+  let epoch = 0
 
   async function poll() {
     if (inFlight || !currentUniverseId) return
@@ -47,16 +48,19 @@ export function useChangeFeed() {
 
   async function start(universeId: string) {
     stop()
+    const myEpoch = ++epoch
     currentUniverseId = universeId
     cursor = 0
     const { data } = await getQueryClient().GET('/universes/{universeId}/changes/cursor', {
       params: { path: { universeId } },
     })
+    if (myEpoch !== epoch) return // a newer start() call has already superseded this one
     cursor = data?.globalSeq ?? 0
     timer = setInterval(poll, POLL_INTERVAL_MS)
   }
 
   function stop() {
+    epoch++ // invalidate any in-flight start() call too, so its eventual resolution is a no-op
     if (timer) clearInterval(timer)
     timer = null
     currentUniverseId = ''
