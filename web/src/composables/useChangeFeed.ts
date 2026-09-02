@@ -47,6 +47,12 @@ export function useChangeFeed() {
           await nextTick()
         }
       }
+    } catch (err) {
+      // fetch rejects (throws) on a genuine network failure (offline, DNS, connection reset)
+      // rather than returning { error } — openapi-fetch only normalizes non-2xx HTTP responses.
+      // Log and let the next tick retry rather than propagating an unhandled rejection out of
+      // setInterval(poll, ...).
+      console.error('useChangeFeed: poll failed', err)
     } finally {
       inFlight = false
     }
@@ -57,13 +63,21 @@ export function useChangeFeed() {
     const myEpoch = ++epoch
     currentUniverseId = universeId
     cursor = 0
-    const { data, error } = await getQueryClient().GET('/universes/{universeId}/changes/cursor', {
-      params: { path: { universeId } },
-    })
-    if (myEpoch !== epoch) return // a newer start() call has already superseded this one
-    if (error || !data) return // leave the feed stopped; a later start() (e.g. a route change) retries
-    cursor = data.globalSeq
-    timer = setInterval(poll, POLL_INTERVAL_MS)
+    try {
+      const { data, error } = await getQueryClient().GET('/universes/{universeId}/changes/cursor', {
+        params: { path: { universeId } },
+      })
+      if (myEpoch !== epoch) return // a newer start() call has already superseded this one
+      if (error || !data) return // leave the feed stopped; a later start() (e.g. a route change) retries
+      cursor = data.globalSeq
+      timer = setInterval(poll, POLL_INTERVAL_MS)
+    } catch (err) {
+      // Same network-failure case as poll() above. Leave the feed stopped (timer never gets
+      // assigned) rather than letting the rejection propagate out of an unawaited call site
+      // (onMounted(() => startChangeFeed(...))) and killing the feed for the rest of the session
+      // with no retry.
+      console.error('useChangeFeed: start failed', err)
+    }
   }
 
   function stop() {
