@@ -31,10 +31,12 @@ export function useChangeFeed() {
   async function poll() {
     if (inFlight || !currentUniverseId) return
     inFlight = true
+    const myEpoch = epoch
     try {
       const { data, error } = await getQueryClient().GET('/universes/{universeId}/changes', {
         params: { path: { universeId: currentUniverseId }, query: { since: cursor } },
       })
+      if (myEpoch !== epoch) return // stop()/a new start() superseded this poll while it was in flight
       if (!error && data) {
         for (const change of data as AggregateChange[]) {
           cursor = change.globalSeq
