@@ -26,37 +26,54 @@ existing session-local mechanisms, not replacing them.
   `event_type`, `occurred_at`) before any read model catches up. This feed is a new *read-side*
   projection of that existing stream, not a new kind of event.
 
-- **A new, checkpointed `projection.Projector`, living in `cmd/projector`** (not a new binary,
-  not `cmd/timadorus-engine`) — it only ever writes its own read-model row, never touches the
-  event store's write side, exactly like every other read-model projector.
+- **Five separate, checkpointed `projection.Projector`s, living in `cmd/projector`** (not a new
+  binary, not `cmd/timadorus-engine`, not one projector subscribed to five subjects) — one per
+  source aggregate type (Universe/Campaign/Entity/Object/Character), each subscribed to exactly
+  one subject. This is a correction from an earlier draft of this design, which tried a single
+  projector subscribed to all five subjects: `internal/projection/router.go` runs one goroutine
+  per subject, but the checkpoint is keyed by `Name()` alone — one shared `last_global_seq` across
+  all five goroutines, and `Set` unconditionally overwrites rather than taking a max. A
+  higher-`global_seq` event from one subject could commit the checkpoint before a lower-`global_seq`
+  event from a *different* subject is processed, making that lower event's own `env.GlobalSeq <=
+  lastSeq` check read "already applied" and silently skip it. No existing projector in this
+  codebase has ever subscribed to more than one subject, so this hazard had never come up before.
+  Five independent single-subject projectors sidesteps it entirely — each gets its own checkpoint,
+  matching every other projector's already-proven shape.
 
-- **Resolving each event's owning Universe** — the one genuinely non-trivial part, because most
-  events don't carry it directly (only `*Created` events do):
-  - `Universe*` events: `universe_id = env.aggregate_id` directly.
-  - `CampaignCreated`: `universe_id` comes straight from the event payload's own `UniverseID`.
-    Every *other* Campaign event (`CampaignRenamed`, `GamemasterAdded`/`Removed`,
-    `ConfigurationChanged`, `ConfigurationRequested`, `CampaignArchived`) carries only its own
-    aggregate id, not the Universe — resolved via an **in-memory `campaignID → universeID` cache
-    this projector builds itself** from `CampaignCreated` events as it observes them, in order.
-    This is deliberately the same fix already applied twice this session (`RulesetCache`,
-    `campaign-creation-default-traits`): **never a cross-projection join against another
-    projector's read model** — that's exactly the class of race already found and fixed there.
-    A from-scratch deploy (or a checkpoint reset) simply replays full history like any new
-    projector would, which rebuilds the cache correctly by construction — the router delivers
-    every event to one projector instance serially, in `global_seq` order, so a `CampaignCreated`
-    is always processed before any later event on that same Campaign could ever arrive.
-  - `EntityCreated`/`ObjectCreated`: `universe_id` from the payload directly; also cached
-    (`entityID`/`objectID → universeID`) for their own later Rename/Archive events, which don't
-    repeat it.
-  - `CharacterCreated`: `universe_id` resolved via two hops — the payload's own `CampaignID`,
-    looked up in the same campaign cache — then cached directly as `characterID → universeID`
-    (flattened, so later Character events need only one lookup, not two).
-  - A cache miss on a non-`Created` event is treated as a hard processing error (→ dead-lettered,
-    matching every other processor's "this should be provably unreachable" failure shape) —
-    given the router's ordering guarantee, it can only mean a real bug, not a legitimate race.
+- **Resolving each event's owning Universe: plain read-model queries, not an in-memory cache** —
+  the one genuinely non-trivial part, because most events don't carry it directly (only `*Created`
+  events do). An in-memory cache (shared across the five projectors, mirroring `RulesetCache`) was
+  the first instinct, but it doesn't actually work here: with five *independent* durable consumers
+  (not five goroutines of one projector), there is no ordering guarantee across them — a
+  `CharacterCreated` event could reach the Character projector before the corresponding
+  `CampaignCreated` reaches the Campaign projector and populates a shared cache, and this
+  codebase's NATS subscriber has no `NakDelay` (already found as a gap by the
+  `campaign-creation-default-traits` branch's final review), so the 5-attempt retry budget burns
+  in milliseconds — nowhere near enough time to wait out a real replay-catchup window. Instead:
+  - `Universe*` events: `universe_id = env.aggregate_id` directly. No query needed.
+  - `CampaignCreated`: `universe_id` comes straight from the event payload's own `UniverseID`. No
+    query needed.
+  - Every *other* Campaign event (`CampaignRenamed`, `GamemasterAdded`/`Removed`,
+    `ConfigurationChanged`, `ConfigurationRequested`, `CampaignArchived`): `SELECT universe_id FROM
+    campaigns_read_model WHERE id = $1` (the event's own `aggregate_id`).
+  - `EntityCreated`/`ObjectCreated`: `universe_id` from the payload directly. Every other
+    Entity/Object event: `SELECT universe_id FROM entities_read_model|objects_read_model WHERE id
+    = $1`.
+  - `CharacterCreated`: `universe_id` resolved via the payload's own `CampaignID`, looked up as
+    `SELECT universe_id FROM campaigns_read_model WHERE id = $1`. Every other Character event:
+    `SELECT c.universe_id FROM characters_read_model ch JOIN campaigns_read_model c ON c.id =
+    ch.campaign_id WHERE ch.id = $1` (one query, not two).
+  - **This is exactly `RulesetCache.resolve`'s own already-established pattern** (a plain
+    cross-projection read-model join), and it reintroduces that same narrow "immediately after
+    creation" race window — already reviewed and accepted in this codebase as a documented
+    trade-off in that exact spot. A zero-rows result is treated as a transient error (→ the
+    router's normal Nack/retry path), matching how every existing cross-projection lookup in this
+    codebase already handles a miss.
   - `User`/`Ruleset` events are **not included** — both are unparented, so "owning Universe"
     doesn't apply to them. A User's rename never appearing in any Universe's feed matches today's
     existing gap; this spec doesn't attempt to solve it.
+  - Each of the five projectors is stateless — no mutex, no shared cache, no new failure mode
+    beyond the one this codebase already carries elsewhere.
 
 - **Every event on a covered aggregate type produces a change-log row, unconditionally** — no
   per-event-type inclusion/exclusion list to maintain as the domain's event catalog grows. This
@@ -110,18 +127,22 @@ Wired into **both** `scripts/migrate-up.sh`'s `schema_owners` list **and** `Dock
 matching `COPY` line — the exact pairing this session's own final review just caught being missed
 for `ruleset_tables_read_model`. Both must be updated together this time.
 
-### `internal/projection/universechanges/projector.go`
+### `internal/projection/universechanges/` — five projector files, one shared insert helper
 
-Implements `projection.Projector`, subscribed to every parented aggregate's subject (`universe`,
-`campaign`, `entity`, `object`, `character` — not `user`/`ruleset`). Holds the two in-memory
-caches described above. Resolves `universe_id` per the rules above, then inserts one row per
-event into `universe_changes_read_model`.
+`universe_projector.go`, `campaign_projector.go`, `entity_projector.go`, `object_projector.go`,
+`character_projector.go`, each implementing `projection.Projector` against exactly one subject.
+Each `Handle` resolves `universe_id` per the rules above (a direct payload/aggregate-id read for
+`Universe*` and every `*Created` event, a plain read-model query otherwise), then calls a small
+shared `insertChange(ctx, tx, universeID, env)` helper (pure SQL, no business logic) that all five
+reuse — the one legitimate, narrow sharing here, not a generic container.
 
 ### `cmd/projector/main.go`
 
-One new line in the explicit projector-registration list (this codebase's own convention: "a new
-line in `cmd/projector/main.go`'s explicit registration list — deliberately explicit... for
-discoverability").
+Five new lines in the explicit projector-registration list (one per new projector) — this
+codebase's own convention: "a new line in `cmd/projector/main.go`'s explicit registration list —
+deliberately explicit... for discoverability." Five lines because this feature needed five
+independent single-subject projectors, not one line because it's five distinct consumers, not one
+logical addition the way every prior projector's own registration line has been.
 
 ### `internal/query/universechanges/repository.go`
 
