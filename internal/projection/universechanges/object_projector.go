@@ -12,13 +12,13 @@ import (
 	"github.com/timadorus/platform/internal/domain/object/events"
 )
 
-const ObjectProjectorName = "universe-changes-object"
+const objectProjectorName = "universe-changes-object"
 
 type ObjectProjector struct{}
 
 func NewObjectProjector() *ObjectProjector { return &ObjectProjector{} }
 
-func (p *ObjectProjector) Name() string { return ObjectProjectorName }
+func (p *ObjectProjector) Name() string { return objectProjectorName }
 
 func (p *ObjectProjector) Subjects() []string { return []string{bus.Subject(events.AggregateType)} }
 

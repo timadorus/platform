@@ -12,13 +12,13 @@ import (
 	"github.com/timadorus/platform/internal/domain/entity/events"
 )
 
-const EntityProjectorName = "universe-changes-entity"
+const entityProjectorName = "universe-changes-entity"
 
 type EntityProjector struct{}
 
 func NewEntityProjector() *EntityProjector { return &EntityProjector{} }
 
-func (p *EntityProjector) Name() string { return EntityProjectorName }
+func (p *EntityProjector) Name() string { return entityProjectorName }
 
 func (p *EntityProjector) Subjects() []string { return []string{bus.Subject(events.AggregateType)} }
 

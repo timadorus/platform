@@ -12,13 +12,13 @@ import (
 	"github.com/timadorus/platform/internal/domain/character/events"
 )
 
-const CharacterProjectorName = "universe-changes-character"
+const characterProjectorName = "universe-changes-character"
 
 type CharacterProjector struct{}
 
 func NewCharacterProjector() *CharacterProjector { return &CharacterProjector{} }
 
-func (p *CharacterProjector) Name() string { return CharacterProjectorName }
+func (p *CharacterProjector) Name() string { return characterProjectorName }
 
 func (p *CharacterProjector) Subjects() []string { return []string{bus.Subject(events.AggregateType)} }
 

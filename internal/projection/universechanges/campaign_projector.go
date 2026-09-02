@@ -12,13 +12,13 @@ import (
 	"github.com/timadorus/platform/internal/domain/campaign/events"
 )
 
-const CampaignProjectorName = "universe-changes-campaign"
+const campaignProjectorName = "universe-changes-campaign"
 
 type CampaignProjector struct{}
 
 func NewCampaignProjector() *CampaignProjector { return &CampaignProjector{} }
 
-func (p *CampaignProjector) Name() string { return CampaignProjectorName }
+func (p *CampaignProjector) Name() string { return campaignProjectorName }
 
 func (p *CampaignProjector) Subjects() []string { return []string{bus.Subject(events.AggregateType)} }
 
