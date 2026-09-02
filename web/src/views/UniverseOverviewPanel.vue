@@ -1,8 +1,12 @@
 <script setup lang="ts">
-import { computed, inject, onMounted, ref, watch, type Ref } from 'vue'
+// This panel is a top-level route (/universes/:universeId/manage), outside WorkspaceView's
+// provide scope, so it does not currently receive lastAggregateChange change-feed events — see
+// docs/BACKLOG.md. If a future need arises to react to Universe-level changes here, it needs its
+// own useChangeFeed instance scoped to its own universeId, or the provide needs to move to a
+// shared ancestor.
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUniverses, type UniverseSummary } from '@/composables/useUniverses'
-import type { AggregateChange } from '@/composables/useChangeFeed'
 import { useUsers } from '@/composables/useUsers'
 import { useCampaigns } from '@/composables/useCampaigns'
 import { useSelectionStore } from '@/stores/selection'
@@ -48,13 +52,6 @@ async function load() {
 }
 onMounted(load)
 watch(universeId, load)
-
-const lastAggregateChange = inject<Ref<AggregateChange | null>>('lastAggregateChange')
-if (lastAggregateChange) {
-  watch(lastAggregateChange, (change) => {
-    if (change?.aggregateType === 'universe' && change.aggregateId === universeId.value) load()
-  })
-}
 
 function startEditName() {
   if (!universe.value) return

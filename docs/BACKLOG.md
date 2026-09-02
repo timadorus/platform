@@ -297,6 +297,13 @@ live with a real headless-Chromium session.
   restoring `getByLabel` for every future test against every modal in the app. Out of scope for
   `universe-panel-create-campaign` per its plan's Global Constraints.
 
+- [ ] **Universe-level change-feed events currently have no live SPA consumer.**
+  `UniverseOverviewPanel.vue` sits outside `WorkspaceView`'s provide scope (it's a top-level route,
+  not a child route of `WorkspaceView`), so `lastAggregateChange` is never injected there and the
+  panel never reacts to `universe`-aggregate changes. Wire it up (its own `useChangeFeed` instance
+  scoped to its own `universeId`, or hoist the `provide` to a shared ancestor) if a real need for
+  it surfaces.
+
 ## Devcluster tooling (`test/e2e/internal`)
 
 - [ ] **No `TraefikServiceName` exported constant.** `seed.go` and `up.go` both hardcode the
