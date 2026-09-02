@@ -28,6 +28,7 @@ import (
 	rulesetquery "github.com/timadorus/platform/internal/query/ruleset"
 	rulesettablesquery "github.com/timadorus/platform/internal/query/rulesettables"
 	universequery "github.com/timadorus/platform/internal/query/universe"
+	universechangesquery "github.com/timadorus/platform/internal/query/universechanges"
 	userquery "github.com/timadorus/platform/internal/query/user"
 )
 
@@ -60,7 +61,8 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	objectRepo := objectquery.NewRepository(pool)
 	rulesetRepo := rulesetquery.NewRepository(pool)
 	rulesetTablesRepo := rulesettablesquery.NewRepository(pool)
-	server := httpquery.NewServer(universeRepo, userRepo, campaignRepo, entityRepo, characterRepo, objectRepo, rulesetRepo, rulesetTablesRepo)
+	changesRepo := universechangesquery.NewRepository(pool)
+	server := httpquery.NewServer(universeRepo, userRepo, campaignRepo, entityRepo, characterRepo, objectRepo, rulesetRepo, rulesetTablesRepo, changesRepo)
 	strictHandler := gen.NewStrictHandler(server, nil)
 
 	spec, err := gen.GetSwagger()

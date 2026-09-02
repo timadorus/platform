@@ -128,6 +128,42 @@ paths:
                 items:
                   $ref: "#/components/schemas/Object"
 
+  /universes/{universeId}/changes/cursor:
+    get:
+      operationId: getUniverseChangesCursor
+      summary: Get the current change cursor for a Universe.
+      parameters:
+        - $ref: "#/components/parameters/UniverseId"
+      responses:
+        "200":
+          description: The current cursor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UniverseChangeCursor"
+
+  /universes/{universeId}/changes:
+    get:
+      operationId: listUniverseChanges
+      summary: List changes to this Universe and everything inside it, after a given cursor.
+      parameters:
+        - $ref: "#/components/parameters/UniverseId"
+        - name: since
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: Changes, ordered by globalSeq ascending, capped at 20 per call.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/UniverseChange"
+
   /campaigns/{campaignId}:
     get:
       operationId: getCampaign
@@ -504,6 +540,32 @@ components:
         # nothing like a hypothetical future skills table's rows).
         data:
           type: object
+
+    UniverseChangeCursor:
+      type: object
+      required: [globalSeq]
+      properties:
+        globalSeq:
+          type: integer
+          format: int64
+
+    UniverseChange:
+      type: object
+      required: [globalSeq, aggregateType, aggregateId, eventType, occurredAt]
+      properties:
+        globalSeq:
+          type: integer
+          format: int64
+        aggregateType:
+          type: string
+        aggregateId:
+          type: string
+          format: uuid
+        eventType:
+          type: string
+        occurredAt:
+          type: string
+          format: date-time
 
     User:
       type: object

@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/gorilla/mux"
@@ -88,6 +89,20 @@ type Universe struct {
 	Name       string             `json:"name"`
 }
 
+// UniverseChange defines model for UniverseChange.
+type UniverseChange struct {
+	AggregateId   openapi_types.UUID `json:"aggregateId"`
+	AggregateType string             `json:"aggregateType"`
+	EventType     string             `json:"eventType"`
+	GlobalSeq     int64              `json:"globalSeq"`
+	OccurredAt    time.Time          `json:"occurredAt"`
+}
+
+// UniverseChangeCursor defines model for UniverseChangeCursor.
+type UniverseChangeCursor struct {
+	GlobalSeq int64 `json:"globalSeq"`
+}
+
 // User defines model for User.
 type User struct {
 	Id         openapi_types.UUID `json:"id"`
@@ -118,6 +133,11 @@ type UserId = openapi_types.UUID
 
 // NotFound RFC 7807 problem+json error body.
 type NotFound = Problem
+
+// ListUniverseChangesParams defines parameters for ListUniverseChanges.
+type ListUniverseChangesParams struct {
+	Since int64 `form:"since" json:"since"`
+}
 
 // ListEntitiesByUniverseParams defines parameters for ListEntitiesByUniverse.
 type ListEntitiesByUniverseParams struct {
@@ -172,6 +192,12 @@ type ServerInterface interface {
 	// ListCampaignsByUniverse List non-archived Campaigns under a Universe.
 	// (GET /universes/{universeId}/campaigns)
 	ListCampaignsByUniverse(w http.ResponseWriter, r *http.Request, universeId UniverseId)
+	// ListUniverseChanges List changes to this Universe and everything inside it, after a given cursor.
+	// (GET /universes/{universeId}/changes)
+	ListUniverseChanges(w http.ResponseWriter, r *http.Request, universeId UniverseId, params ListUniverseChangesParams)
+	// GetUniverseChangesCursor Get the current change cursor for a Universe.
+	// (GET /universes/{universeId}/changes/cursor)
+	GetUniverseChangesCursor(w http.ResponseWriter, r *http.Request, universeId UniverseId)
 	// ListUniverseCreators List a Universe's Creators.
 	// (GET /universes/{universeId}/creators)
 	ListUniverseCreators(w http.ResponseWriter, r *http.Request, universeId UniverseId)
@@ -539,6 +565,74 @@ func (siw *ServerInterfaceWrapper) ListCampaignsByUniverse(w http.ResponseWriter
 	handler.ServeHTTP(w, r)
 }
 
+// ListUniverseChanges operation middleware
+func (siw *ServerInterfaceWrapper) ListUniverseChanges(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "universeId" -------------
+	var universeId UniverseId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "universeId", mux.Vars(r)["universeId"], &universeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "universeId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListUniverseChangesParams
+
+	// ------------- Required query parameter "since" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "since", r.URL.Query(), &params.Since, runtime.BindQueryParameterOptions{Type: "integer", Format: "int64"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "since"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "since", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListUniverseChanges(w, r, universeId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetUniverseChangesCursor operation middleware
+func (siw *ServerInterfaceWrapper) GetUniverseChangesCursor(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "universeId" -------------
+	var universeId UniverseId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "universeId", mux.Vars(r)["universeId"], &universeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "universeId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetUniverseChangesCursor(w, r, universeId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListUniverseCreators operation middleware
 func (siw *ServerInterfaceWrapper) ListUniverseCreators(w http.ResponseWriter, r *http.Request) {
 
@@ -813,6 +907,10 @@ func HandlerWithOptions(si ServerInterface, options GorillaServerOptions) http.H
 	r.HandleFunc(options.BaseURL+"/universes/{universeId}/entities", wrapper.ListEntitiesByUniverse).Methods(http.MethodGet)
 
 	r.HandleFunc(options.BaseURL+"/universes/{universeId}/objects", wrapper.ListObjectsByUniverse).Methods(http.MethodGet)
+
+	r.HandleFunc(options.BaseURL+"/universes/{universeId}/changes/cursor", wrapper.GetUniverseChangesCursor).Methods(http.MethodGet)
+
+	r.HandleFunc(options.BaseURL+"/universes/{universeId}/changes", wrapper.ListUniverseChanges).Methods(http.MethodGet)
 
 	r.HandleFunc(options.BaseURL+"/campaigns/{campaignId}", wrapper.GetCampaign).Methods(http.MethodGet)
 
@@ -1258,6 +1356,51 @@ func (response ListCampaignsByUniverse200JSONResponse) VisitListCampaignsByUnive
 	return err
 }
 
+type ListUniverseChangesRequestObject struct {
+	UniverseId UniverseId `json:"universeId"`
+	Params     ListUniverseChangesParams
+}
+
+type ListUniverseChangesResponseObject interface {
+	VisitListUniverseChangesResponse(w http.ResponseWriter) error
+}
+
+type ListUniverseChanges200JSONResponse []UniverseChange
+
+func (response ListUniverseChanges200JSONResponse) VisitListUniverseChangesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetUniverseChangesCursorRequestObject struct {
+	UniverseId UniverseId `json:"universeId"`
+}
+
+type GetUniverseChangesCursorResponseObject interface {
+	VisitGetUniverseChangesCursorResponse(w http.ResponseWriter) error
+}
+
+type GetUniverseChangesCursor200JSONResponse UniverseChangeCursor
+
+func (response GetUniverseChangesCursor200JSONResponse) VisitGetUniverseChangesCursorResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListUniverseCreatorsRequestObject struct {
 	UniverseId UniverseId `json:"universeId"`
 }
@@ -1442,6 +1585,12 @@ type StrictServerInterface interface {
 	// ListCampaignsByUniverse List non-archived Campaigns under a Universe.
 	// (GET /universes/{universeId}/campaigns)
 	ListCampaignsByUniverse(ctx context.Context, request ListCampaignsByUniverseRequestObject) (ListCampaignsByUniverseResponseObject, error)
+	// ListUniverseChanges List changes to this Universe and everything inside it, after a given cursor.
+	// (GET /universes/{universeId}/changes)
+	ListUniverseChanges(ctx context.Context, request ListUniverseChangesRequestObject) (ListUniverseChangesResponseObject, error)
+	// GetUniverseChangesCursor Get the current change cursor for a Universe.
+	// (GET /universes/{universeId}/changes/cursor)
+	GetUniverseChangesCursor(ctx context.Context, request GetUniverseChangesCursorRequestObject) (GetUniverseChangesCursorResponseObject, error)
 	// ListUniverseCreators List a Universe's Creators.
 	// (GET /universes/{universeId}/creators)
 	ListUniverseCreators(ctx context.Context, request ListUniverseCreatorsRequestObject) (ListUniverseCreatorsResponseObject, error)
@@ -1835,6 +1984,59 @@ func (sh *strictHandler) ListCampaignsByUniverse(w http.ResponseWriter, r *http.
 	}
 }
 
+// ListUniverseChanges operation middleware
+func (sh *strictHandler) ListUniverseChanges(w http.ResponseWriter, r *http.Request, universeId UniverseId, params ListUniverseChangesParams) {
+	var request ListUniverseChangesRequestObject
+
+	request.UniverseId = universeId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListUniverseChanges(ctx, request.(ListUniverseChangesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListUniverseChanges")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListUniverseChangesResponseObject); ok {
+		if err := validResponse.VisitListUniverseChangesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetUniverseChangesCursor operation middleware
+func (sh *strictHandler) GetUniverseChangesCursor(w http.ResponseWriter, r *http.Request, universeId UniverseId) {
+	var request GetUniverseChangesCursorRequestObject
+
+	request.UniverseId = universeId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetUniverseChangesCursor(ctx, request.(GetUniverseChangesCursorRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetUniverseChangesCursor")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetUniverseChangesCursorResponseObject); ok {
+		if err := validResponse.VisitGetUniverseChangesCursorResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListUniverseCreators operation middleware
 func (sh *strictHandler) ListUniverseCreators(w http.ResponseWriter, r *http.Request, universeId UniverseId) {
 	var request ListUniverseCreatorsRequestObject
@@ -1970,34 +2172,38 @@ func (sh *strictHandler) GetUser(w http.ResponseWriter, r *http.Request, userId 
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"k/XV+p8AAAD//w==",
+	"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",
+	"AP//",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

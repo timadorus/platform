@@ -15,6 +15,7 @@ import (
 	rulesetquery "github.com/timadorus/platform/internal/query/ruleset"
 	rulesettablesquery "github.com/timadorus/platform/internal/query/rulesettables"
 	universequery "github.com/timadorus/platform/internal/query/universe"
+	universechangesquery "github.com/timadorus/platform/internal/query/universechanges"
 	userquery "github.com/timadorus/platform/internal/query/user"
 )
 
@@ -27,6 +28,7 @@ type Server struct {
 	object        *objectquery.Repository
 	ruleset       *rulesetquery.Repository
 	rulesetTables *rulesettablesquery.Repository
+	changes       *universechangesquery.Repository
 }
 
 func NewServer(
@@ -38,6 +40,7 @@ func NewServer(
 	objectRepo *objectquery.Repository,
 	rulesetRepo *rulesetquery.Repository,
 	rulesetTablesRepo *rulesettablesquery.Repository,
+	changesRepo *universechangesquery.Repository,
 ) *Server {
 	return &Server{
 		universe:      universeRepo,
@@ -48,6 +51,7 @@ func NewServer(
 		object:        objectRepo,
 		ruleset:       rulesetRepo,
 		rulesetTables: rulesetTablesRepo,
+		changes:       changesRepo,
 	}
 }
 
@@ -319,6 +323,32 @@ func (s *Server) GetRulesetTableRow(ctx context.Context, request gen.GetRulesetT
 		return nil, err
 	}
 	return gen.GetRulesetTableRow200JSONResponse(out), nil
+}
+
+func (s *Server) GetUniverseChangesCursor(ctx context.Context, request gen.GetUniverseChangesCursorRequestObject) (gen.GetUniverseChangesCursorResponseObject, error) {
+	cursor, err := s.changes.Cursor(ctx, request.UniverseId)
+	if err != nil {
+		return nil, err
+	}
+	return gen.GetUniverseChangesCursor200JSONResponse{GlobalSeq: cursor}, nil
+}
+
+func (s *Server) ListUniverseChanges(ctx context.Context, request gen.ListUniverseChangesRequestObject) (gen.ListUniverseChangesResponseObject, error) {
+	changes, err := s.changes.List(ctx, request.UniverseId, request.Params.Since)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]gen.UniverseChange, len(changes))
+	for i, c := range changes {
+		out[i] = gen.UniverseChange{
+			GlobalSeq:     c.GlobalSeq,
+			AggregateType: c.AggregateType,
+			AggregateId:   c.AggregateID,
+			EventType:     c.EventType,
+			OccurredAt:    c.OccurredAt,
+		}
+	}
+	return gen.ListUniverseChanges200JSONResponse(out), nil
 }
 
 func notFound(err error) gen.Problem {
