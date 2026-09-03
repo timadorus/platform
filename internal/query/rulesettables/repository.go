@@ -35,7 +35,7 @@ func (r *Repository) List(ctx context.Context, rulesetID uuid.UUID, tableName st
 	rows, err := r.pool.Query(ctx,
 		`SELECT DISTINCT ON (row_key) row_key, data FROM ruleset_tables_read_model
 		 WHERE ruleset_id = $1 AND table_name = $2
-		 ORDER BY row_key, updated_at DESC`,
+		 ORDER BY row_key, updated_at DESC, content_hash DESC`,
 		rulesetID, tableName,
 	)
 	if err != nil {
@@ -64,7 +64,7 @@ func (r *Repository) Get(ctx context.Context, rulesetID uuid.UUID, tableName, ro
 	err := r.pool.QueryRow(ctx,
 		`SELECT data FROM ruleset_tables_read_model
 		 WHERE ruleset_id = $1 AND table_name = $2 AND row_key = $3
-		 ORDER BY updated_at DESC
+		 ORDER BY updated_at DESC, content_hash DESC
 		 LIMIT 1`,
 		rulesetID, tableName, rowKey,
 	).Scan(&data)
