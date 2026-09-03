@@ -114,16 +114,20 @@ func getEnv(key, def string) string {
 	return def
 }
 
-// getEnvInt32 parses key as a base-10 int32, falling back to def on an unset or unparseable
-// value — deliberately silent on a bad value (this package has no logger to report through)
-// rather than failing binary startup over a malformed tuning knob.
+// getEnvInt32 parses key as a base-10 int32, falling back to def on an unset, unparseable, or
+// non-positive value — deliberately silent on a bad value (this package has no logger to report
+// through) rather than failing binary startup over a malformed tuning knob. Non-positive values
+// are rejected here (not just left to whatever eventually consumes the value) because a value
+// like TIMADORUS_ENGINE_POOL_MAX_CONNS parses fine as an int32 but would otherwise reach
+// pgxpool.NewWithConfig and fail fatally with an opaque "MaxSize must be >= 1" that never names
+// the environment variable at fault.
 func getEnvInt32(key string, def int32) int32 {
 	v := os.Getenv(key)
 	if v == "" {
 		return def
 	}
 	n, err := strconv.ParseInt(v, 10, 32)
-	if err != nil {
+	if err != nil || n < 1 {
 		return def
 	}
 	return int32(n)

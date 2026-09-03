@@ -28,3 +28,11 @@ func TestLoadTimadorusEngine_PoolMaxConnsInvalid_FallsBackToDefault(t *testing.T
 		t.Fatalf("got PoolMaxConns %d, want default 8 on invalid input", cfg.PoolMaxConns)
 	}
 }
+
+func TestLoadTimadorusEngine_PoolMaxConnsOutOfRange_FallsBackToDefault(t *testing.T) {
+	t.Setenv("TIMADORUS_ENGINE_POOL_MAX_CONNS", "0")
+	cfg := config.LoadTimadorusEngine()
+	if cfg.PoolMaxConns != 8 {
+		t.Fatalf("got PoolMaxConns %d, want default 8 for a non-positive override", cfg.PoolMaxConns)
+	}
+}
