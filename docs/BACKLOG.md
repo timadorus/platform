@@ -77,16 +77,12 @@ up; don't grow this file into a design doc.
   config, etc.) becomes warranted. Note this so whoever adds the next table file (or the fifth,
   or the twentieth) has somewhere to weigh that judgment call rather than rediscovering it.
 
-- [ ] **Edits to a table YAML file never propagate to already-synced clusters — undocumented
-  outside code comments and the design spec.** `RegisterTables`'s `ON CONFLICT (ruleset_id,
-  table_name, row_key) DO NOTHING` is correct given this branch's stated immutability premise
-  (rule changes are always modeled as new Rulesets, never edits to an existing one's tables) —
-  but the operational consequence is sharp: anyone who edits a table's YAML content and redeploys
-  gets no error, no warning, and no change on a cluster where that ruleset/table/row combination
-  was already synced once. A concrete example: `traits.yaml`'s "stronger that most people" typo,
-  fixed elsewhere in this same branch, will read correctly on any fresh cluster from this point
-  forward, but a cluster that synced the old text before this fix keeps the typo forever unless
-  manually corrected or reset.
+- [x] **Fixed.** `ruleset_tables_read_model`'s primary key now includes a `content_hash` column
+  (`0002_content_hash_versioning.up.sql`). `RegisterTables` computes a sha256 of each row's
+  marshaled content, so an edited row's new content inserts as an additional, newer row instead of
+  being silently discarded by the old `ON CONFLICT (ruleset_id, table_name, row_key) DO NOTHING`.
+  `internal/query/rulesettables.Repository.List`/`Get` always resolve the newest row per key by
+  `updated_at`, so callers still see exactly one row per key — the current one.
 
 - [ ] **No end-to-end coverage for the two new query-api endpoints
   (`GET /rulesets/{id}/tables/{name}[/{rowKey}]`).** `test/e2e/e2e_test.go` exercises

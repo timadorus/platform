@@ -20,6 +20,7 @@ func newTestPool(t *testing.T) *pgxpool.Pool {
 		tcpostgres.WithPassword("timadorus"),
 		tcpostgres.WithOrderedInitScripts(
 			"../../../projection/rulesettables/migrations/0001_ruleset_tables_read_model.up.sql",
+			"../../../projection/rulesettables/migrations/0002_content_hash_versioning.up.sql",
 		),
 		testcontainers.WithWaitStrategy(
 			wait.ForLog("database system is ready to accept connections").WithOccurrence(2),

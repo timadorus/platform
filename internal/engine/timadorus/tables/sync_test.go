@@ -97,6 +97,33 @@ func TestRegisterTables_IdempotentOnSecondCall(t *testing.T) {
 	}
 }
 
+func TestRegisterTables_ContentChange_InsertsNewVersionInsteadOfDiscarding(t *testing.T) {
+	pool := newTestPool(t)
+	ctx := context.Background()
+	rulesetID := uuid.New()
+
+	v1 := &fakeTable{name: "fake", rows: map[string]fakeRow{"a": {Name: "Alpha"}}}
+	if err := tables.RegisterTables(ctx, pool, rulesetID, v1); err != nil {
+		t.Fatalf("first register: %v", err)
+	}
+
+	v2 := &fakeTable{name: "fake", rows: map[string]fakeRow{"a": {Name: "Alpha Fixed Typo"}}}
+	if err := tables.RegisterTables(ctx, pool, rulesetID, v2); err != nil {
+		t.Fatalf("second register (content changed): %v", err)
+	}
+
+	var count int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM ruleset_tables_read_model WHERE ruleset_id = $1 AND table_name = $2 AND row_key = $3`,
+		rulesetID, "fake", "a",
+	).Scan(&count); err != nil {
+		t.Fatalf("count rows: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("got %d rows for the edited key, want 2 (old content preserved as history, new content added as a new version)", count)
+	}
+}
+
 func TestRegisterTables_SameTableNameDifferentRulesets_NoCollision(t *testing.T) {
 	pool := newTestPool(t)
 	ctx := context.Background()

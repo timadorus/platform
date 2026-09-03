@@ -28,12 +28,14 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
-// List returns every row of rulesetID's tableName table, ordered by row key.
+// List returns every row of rulesetID's tableName table, ordered by row key — the newest version
+// of each row if RegisterTables has synced more than one content_hash for the same key (see
+// 0002_content_hash_versioning.up.sql).
 func (r *Repository) List(ctx context.Context, rulesetID uuid.UUID, tableName string) ([]Row, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT row_key, data FROM ruleset_tables_read_model
+		`SELECT DISTINCT ON (row_key) row_key, data FROM ruleset_tables_read_model
 		 WHERE ruleset_id = $1 AND table_name = $2
-		 ORDER BY row_key`,
+		 ORDER BY row_key, updated_at DESC`,
 		rulesetID, tableName,
 	)
 	if err != nil {
@@ -55,12 +57,15 @@ func (r *Repository) List(ctx context.Context, rulesetID uuid.UUID, tableName st
 	return out, nil
 }
 
-// Get returns one row's data, or ErrNotFound.
+// Get returns one row's data, or ErrNotFound — the newest version if more than one content_hash
+// has been synced for this key (see List's doc comment).
 func (r *Repository) Get(ctx context.Context, rulesetID uuid.UUID, tableName, rowKey string) (json.RawMessage, error) {
 	var data json.RawMessage
 	err := r.pool.QueryRow(ctx,
 		`SELECT data FROM ruleset_tables_read_model
-		 WHERE ruleset_id = $1 AND table_name = $2 AND row_key = $3`,
+		 WHERE ruleset_id = $1 AND table_name = $2 AND row_key = $3
+		 ORDER BY updated_at DESC
+		 LIMIT 1`,
 		rulesetID, tableName, rowKey,
 	).Scan(&data)
 	if errors.Is(err, pgx.ErrNoRows) {
