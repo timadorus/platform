@@ -14,7 +14,7 @@ up; don't grow this file into a design doc.
   reverting. `TestSharedRulesetCache_ConcurrentAccess` stays as-is; it still proves the two
   processors correctly share one cache instance end to end, just not reliably under `-race`.
 
-- [x] **Fixed.** `cmd/timadorus-engine/main.go` now builds its pool via `pgxpool.ParseConfig` +
+- [x] **Fixed** (`eff7a90`). `cmd/timadorus-engine/main.go` now builds its pool via `pgxpool.ParseConfig` +
   `pgxpool.NewWithConfig`, setting `MaxConns` from the new `TimadorusEngine.PoolMaxConns` config
   field (`internal/config/config.go`, default 8, overridable via
   `TIMADORUS_ENGINE_POOL_MAX_CONNS`). A 3rd processor sharing this binary can now get headroom via
