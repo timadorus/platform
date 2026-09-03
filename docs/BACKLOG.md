@@ -14,13 +14,11 @@ up; don't grow this file into a design doc.
   reverting. `TestSharedRulesetCache_ConcurrentAccess` stays as-is; it still proves the two
   processors correctly share one cache instance end to end, just not reliably under `-race`.
 
-- [ ] **Connection pool headroom.** `cmd/timadorus-engine/main.go`'s `pgxpool.New` has no
-  explicit `pool_max_conns` (defaults to `max(4, NumCPU)`). Two processors now share one pool,
-  and each in-flight `Handle` can hold up to 2 connections at once (the Router's transaction +
-  the aggregate's `Load`, which reads via the pool, not the ambient tx) — so 2 processors already
-  peak at the default floor, with `/readyz`'s own health-check `Ping` as a 5th consumer under
-  load. Documented in a comment near `pgxpool.New`, not yet fixed. A 3rd processor sharing this
-  binary would need an explicit `pool_max_conns` bump.
+- [x] **Fixed.** `cmd/timadorus-engine/main.go` now builds its pool via `pgxpool.ParseConfig` +
+  `pgxpool.NewWithConfig`, setting `MaxConns` from the new `TimadorusEngine.PoolMaxConns` config
+  field (`internal/config/config.go`, default 8, overridable via
+  `TIMADORUS_ENGINE_POOL_MAX_CONNS`). A 3rd processor sharing this binary can now get headroom via
+  config alone, no code change.
 
 - [ ] **`RulesetCache` never invalidates on Ruleset rename.** The doc comment on
   `internal/engine/timadorus/cache.go`'s `RulesetCache` now correctly *states* this trade-off,

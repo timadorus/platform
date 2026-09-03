@@ -3,7 +3,10 @@
 // need one.
 package config
 
-import "os"
+import (
+	"os"
+	"strconv"
+)
 
 type JWT struct {
 	// JWKSURL, if set, fetches the verification key set from an identity provider. Takes
@@ -76,13 +79,20 @@ type TimadorusEngine struct {
 	HTTPAddr    string
 	DatabaseURL string
 	NATSURL     string
+	// PoolMaxConns caps the shared Postgres connection pool used by both engine processors (see
+	// cmd/timadorus-engine/main.go's "Connection budget" comment for the reasoning behind the
+	// default of 8). Configurable via TIMADORUS_ENGINE_POOL_MAX_CONNS so a 3rd processor sharing
+	// this binary, or any other change to the per-Handle connection cost, can be given headroom
+	// without a code change or redeploy of a new binary.
+	PoolMaxConns int32
 }
 
 func LoadTimadorusEngine() TimadorusEngine {
 	return TimadorusEngine{
-		HTTPAddr:    getEnv("TIMADORUS_ENGINE_ADDR", ":8084"),
-		DatabaseURL: getEnv("DATABASE_URL", "postgres://timadorus:timadorus@localhost:5432/timadorus?sslmode=disable"),
-		NATSURL:     getEnv("NATS_URL", "nats://localhost:4222"),
+		HTTPAddr:     getEnv("TIMADORUS_ENGINE_ADDR", ":8084"),
+		DatabaseURL:  getEnv("DATABASE_URL", "postgres://timadorus:timadorus@localhost:5432/timadorus?sslmode=disable"),
+		NATSURL:      getEnv("NATS_URL", "nats://localhost:4222"),
+		PoolMaxConns: getEnvInt32("TIMADORUS_ENGINE_POOL_MAX_CONNS", 8),
 	}
 }
 
@@ -102,4 +112,19 @@ func getEnv(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// getEnvInt32 parses key as a base-10 int32, falling back to def on an unset or unparseable
+// value — deliberately silent on a bad value (this package has no logger to report through)
+// rather than failing binary startup over a malformed tuning knob.
+func getEnvInt32(key string, def int32) int32 {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	n, err := strconv.ParseInt(v, 10, 32)
+	if err != nil {
+		return def
+	}
+	return int32(n)
 }

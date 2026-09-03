@@ -51,10 +51,15 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	// at once — one for the Router's own transaction, and one for the aggregate's Load, which
 	// reads via the pool rather than the ambient tx (see postgres.Store.Load). So N processors
 	// sharing this one pool can peak at 2N connections, on top of /readyz's own Ping. With the
-	// 2 processors registered below that's already at pgxpool's default floor (max(4,
-	// NumCPU)) in the worst case. A third processor sharing this binary would need an explicit
-	// pool_max_conns bump — a deliberate follow-up, not done here.
-	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
+	// 2 processors registered below that's 4, plus Ping — comfortably under the default of 8.
+	// Configurable via TIMADORUS_ENGINE_POOL_MAX_CONNS (internal/config.LoadTimadorusEngine) if
+	// a 3rd processor or heavier load ever needs more headroom, with no code change required.
+	poolCfg, err := pgxpool.ParseConfig(cfg.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	poolCfg.MaxConns = cfg.PoolMaxConns
+	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
 		return err
 	}
