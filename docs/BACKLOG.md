@@ -7,7 +7,7 @@ up; don't grow this file into a design doc.
 
 ## `timadorus-engine` (`internal/engine/timadorus`, `cmd/timadorus-engine`)
 
-- [x] **Fixed.** `TestRulesetCache_ConcurrentGetSet_Race` (`internal/engine/timadorus/cache_test.go`)
+- [x] **Fixed** (`f8fadc6`). `TestRulesetCache_ConcurrentGetSet_Race` (`internal/engine/timadorus/cache_test.go`)
   drives `RulesetCache.get`/`set` directly from 50 goroutines against 3 shared keys, no DB
   round-trip or processor in the way — confirmed to actually catch a regression by temporarily
   deleting the cache's mutex calls and observing `go test -race` report a real data race, then
