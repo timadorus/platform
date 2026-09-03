@@ -84,7 +84,7 @@ up; don't grow this file into a design doc.
   `internal/query/rulesettables.Repository.List`/`Get` always resolve the newest row per key by
   `updated_at`, so callers still see exactly one row per key — the current one.
 
-- [x] **Fixed.** `test/e2e/e2e_test.go` now has a dedicated `It` asserting
+- [x] **Fixed** (`fb907ad`). `test/e2e/e2e_test.go` now has a dedicated `It` asserting
   `GET /rulesets/{timadorusRulesetId}/tables/traits` returns all 3 seeded rows and
   `GET .../tables/traits/strong` returns the expected row content, resolving the "Timadorus"
   Ruleset by name from `GET /rulesets` rather than assuming a fixed id — covering the startup
