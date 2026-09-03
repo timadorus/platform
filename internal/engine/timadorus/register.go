@@ -43,7 +43,13 @@ const TargetRulesetName = "Timadorus"
 // it, and the very next startup's Create call above succeeds in making a brand-new Ruleset
 // genuinely named TargetRulesetName — rather than resolving the old, now-differently-named one,
 // which is the correct behavior given this engine's whole premise is "act on the Ruleset
-// literally named Timadorus."
+// literally named Timadorus." Note the full blast radius of such a rename, though: the OLD
+// Ruleset's already-synced ruleset_tables_read_model rows stay behind under its old id (the new
+// Ruleset gets its own fresh sync under the new id — nothing overwrites or migrates the old rows,
+// they're simply orphaned), and any Campaign still referencing the old Ruleset id silently stops
+// being treated as "the Timadorus ruleset" by CampaignProcessor/CharacterProcessor, since those
+// match by name via RulesetCache/targetRulesetName, not by id — even though nothing in the domain
+// model itself changed for that Campaign or its old Ruleset.
 func RegisterRuleset(ctx context.Context, pool *pgxpool.Pool) (uuid.UUID, error) {
 	registry := eventsourcing.NewRegistry()
 	rulesetevents.Register(registry)
