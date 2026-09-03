@@ -124,6 +124,42 @@ func TestRegisterTables_ContentChange_InsertsNewVersionInsteadOfDiscarding(t *te
 	}
 }
 
+func TestRegisterTables_RevertToPreviousContent_BecomesTheLatestVersion(t *testing.T) {
+	pool := newTestPool(t)
+	ctx := context.Background()
+	rulesetID := uuid.New()
+
+	v1 := &fakeTable{name: "fake", rows: map[string]fakeRow{"a": {Name: "Alpha"}}}
+	v2 := &fakeTable{name: "fake", rows: map[string]fakeRow{"a": {Name: "Alpha Fixed Typo"}}}
+
+	if err := tables.RegisterTables(ctx, pool, rulesetID, v1); err != nil {
+		t.Fatalf("register v1: %v", err)
+	}
+	if err := tables.RegisterTables(ctx, pool, rulesetID, v2); err != nil {
+		t.Fatalf("register v2: %v", err)
+	}
+	if err := tables.RegisterTables(ctx, pool, rulesetID, v1); err != nil {
+		t.Fatalf("revert to v1: %v", err)
+	}
+
+	var payload []byte
+	if err := pool.QueryRow(ctx,
+		`SELECT data FROM ruleset_tables_read_model
+		 WHERE ruleset_id = $1 AND table_name = $2 AND row_key = $3
+		 ORDER BY updated_at DESC LIMIT 1`,
+		rulesetID, "fake", "a",
+	).Scan(&payload); err != nil {
+		t.Fatalf("select latest row a: %v", err)
+	}
+	var decoded fakeRow
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if decoded.Name != "Alpha" {
+		t.Fatalf("got name %q after reverting to v1, want %q (revert must become the latest version, not stay stuck on v2)", decoded.Name, "Alpha")
+	}
+}
+
 func TestRegisterTables_SameTableNameDifferentRulesets_NoCollision(t *testing.T) {
 	pool := newTestPool(t)
 	ctx := context.Background()
