@@ -239,6 +239,40 @@ func TestService_Rename_ToAnAlreadyTakenName_FailsAndKeepsOldReservation(t *test
 	}
 }
 
+func TestService_Rename_DoesNotDeleteAReservationBelongingToADifferentID(t *testing.T) {
+	pool := newTestPool(t)
+	service := newService(t, pool)
+	ctx := context.Background()
+
+	id, err := service.Create(ctx, "Other", "", nil)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	// Simulate a ruleset_names row whose name matches this aggregate's current name but whose id
+	// column belongs to a different aggregate entirely (e.g. a pre-existing, never-actually-
+	// reserved Ruleset from before this branch — see migrations/0002_ruleset_names_id.up.sql's
+	// nullable id column). This is exactly the scenario the id guard on Rename's DELETE protects
+	// against: without it, renaming the legitimate aggregate away would delete a reservation row
+	// that a different aggregate still needs.
+	otherID := uuid.New()
+	if _, err := pool.Exec(ctx, `UPDATE ruleset_names SET id = $1 WHERE name = $2`, otherID, "Other"); err != nil {
+		t.Fatalf("rewrite reservation to a mismatched id: %v", err)
+	}
+
+	if err := service.Rename(ctx, id, "Renamed"); err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+
+	var count int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM ruleset_names WHERE name = $1 AND id = $2`, "Other", otherID).Scan(&count); err != nil {
+		t.Fatalf("count mismatched-id reservation: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("got %d ruleset_names rows for (\"Other\", %s), want 1 (a reservation belonging to a different id must survive this rename)", count, otherID)
+	}
+}
+
 func TestService_Rename_ToTheSameName_IsANoOpAndDoesNotTouchReservations(t *testing.T) {
 	pool := newTestPool(t)
 	service := newService(t, pool)

@@ -114,7 +114,7 @@ func (s *Service) Rename(ctx context.Context, id uuid.UUID, name string) error {
 		}
 		return fmt.Errorf("ruleset: reserve renamed name %q: %w", name, err)
 	}
-	if _, err := tx.Exec(ctx, `DELETE FROM ruleset_names WHERE name = $1`, oldName); err != nil {
+	if _, err := tx.Exec(ctx, `DELETE FROM ruleset_names WHERE name = $1 AND id = $2`, oldName, id); err != nil {
 		_ = uow.Rollback(ctx)
 		return fmt.Errorf("ruleset: release old name %q: %w", oldName, err)
 	}
