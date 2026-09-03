@@ -63,7 +63,7 @@ up; don't grow this file into a design doc.
   the current name isn't stored anywhere but the event stream itself) and inserts it into
   `ruleset_names` with `ON CONFLICT DO NOTHING`.
 
-- [x] **Fixed.** `ruleset.Service.Rename` (`internal/command/ruleset/service.go`) now reserves the
+- [x] **Fixed** (`c97b9f6`). `ruleset.Service.Rename` (`internal/command/ruleset/service.go`) now reserves the
   new name and releases the old one in the same transaction as the `RulesetRenamed` save, mirroring
   `Create`'s own reservation shape exactly. A rename to an already-taken name now correctly fails
   with `ErrNameAlreadyExists` and leaves the old reservation untouched; a rename to the current
