@@ -36,14 +36,14 @@ const TargetRulesetName = "Timadorus"
 // run()) terminates the process on it, since a Campaign referencing this Ruleset by name has no
 // other way to discover it if registration silently failed.
 //
-// The "already exists" check only ever looks at the ruleset_names reservation, not at whether a
-// Ruleset named TargetRulesetName actually exists right now: ruleset.Service.Rename never
-// releases or re-reserves names (see Service.Create's doc comment), so if the "Timadorus" Ruleset
-// is ever renamed away, this reservation survives and every later startup still treats the
-// platform as registered — even though no Ruleset is actually named TargetRulesetName any more.
-// FindIDByName still resolves the ORIGINAL Ruleset's id correctly in that case (the reservation's
-// id column is set once at Create and never changes), which is arguably the more useful behavior
-// anyway — that Ruleset still exists, just under a different name.
+// The "already exists" check only ever looks at the ruleset_names reservation, which now stays
+// in sync with reality: ruleset.Service.Rename releases the old name and reserves the new one in
+// the same transaction as the RulesetRenamed save (see that method's own doc comment). So if the
+// "Timadorus" Ruleset is ever renamed away, the "Timadorus" reservation is released along with
+// it, and the very next startup's Create call above succeeds in making a brand-new Ruleset
+// genuinely named TargetRulesetName — rather than resolving the old, now-differently-named one,
+// which is the correct behavior given this engine's whole premise is "act on the Ruleset
+// literally named Timadorus."
 func RegisterRuleset(ctx context.Context, pool *pgxpool.Pool) (uuid.UUID, error) {
 	registry := eventsourcing.NewRegistry()
 	rulesetevents.Register(registry)

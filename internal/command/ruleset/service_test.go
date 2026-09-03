@@ -163,3 +163,100 @@ func TestService_FindIDByName_UnknownName_ReturnsError(t *testing.T) {
 		t.Fatal("got nil error for an unreserved name, want a real error")
 	}
 }
+
+func TestService_Rename_ReleasesOldNameAndReservesNew(t *testing.T) {
+	pool := newTestPool(t)
+	service := newService(t, pool)
+	ctx := context.Background()
+
+	id, err := service.Create(ctx, "OldName", "", nil)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if err := service.Rename(ctx, id, "NewName"); err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+
+	// The old name must be released: a later Create must succeed, not collide.
+	if _, err := service.Create(ctx, "OldName", "", nil); err != nil {
+		t.Fatalf("create with the released old name: %v", err)
+	}
+
+	// The new name must be reserved: FindIDByName must resolve it to the renamed aggregate.
+	found, err := service.FindIDByName(ctx, "NewName")
+	if err != nil {
+		t.Fatalf("find id by new name: %v", err)
+	}
+	if found != id {
+		t.Fatalf("got id %s for \"NewName\", want %s", found, id)
+	}
+
+	var oldNameCount int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM ruleset_names WHERE name = $1 AND id = $2`, "OldName", id).Scan(&oldNameCount); err != nil {
+		t.Fatalf("count old reservation still pointing at the renamed aggregate: %v", err)
+	}
+	if oldNameCount != 0 {
+		t.Fatalf("got %d ruleset_names rows for (\"OldName\", %s), want 0 (must not still point at the renamed aggregate)", oldNameCount, id)
+	}
+}
+
+func TestService_Rename_ToAnAlreadyTakenName_FailsAndKeepsOldReservation(t *testing.T) {
+	pool := newTestPool(t)
+	service := newService(t, pool)
+	ctx := context.Background()
+
+	idA, err := service.Create(ctx, "RulesetA", "", nil)
+	if err != nil {
+		t.Fatalf("create A: %v", err)
+	}
+	if _, err := service.Create(ctx, "RulesetB", "", nil); err != nil {
+		t.Fatalf("create B: %v", err)
+	}
+
+	err = service.Rename(ctx, idA, "RulesetB")
+	if !errors.Is(err, ruleset.ErrNameAlreadyExists) {
+		t.Fatalf("got %v, want ErrNameAlreadyExists", err)
+	}
+
+	// A's old reservation must survive the failed rename attempt.
+	found, err := service.FindIDByName(ctx, "RulesetA")
+	if err != nil {
+		t.Fatalf("find id by RulesetA after failed rename: %v", err)
+	}
+	if found != idA {
+		t.Fatalf("got id %s for \"RulesetA\" after failed rename, want %s (old reservation must survive)", found, idA)
+	}
+
+	var eventCount int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM events WHERE aggregate_id = $1 AND event_type = $2`,
+		idA, rulesetevents.TypeRulesetRenamed,
+	).Scan(&eventCount); err != nil {
+		t.Fatalf("count RulesetRenamed events: %v", err)
+	}
+	if eventCount != 0 {
+		t.Fatalf("got %d RulesetRenamed events for A, want 0 (a failed reservation must not still raise the event)", eventCount)
+	}
+}
+
+func TestService_Rename_ToTheSameName_IsANoOpAndDoesNotTouchReservations(t *testing.T) {
+	pool := newTestPool(t)
+	service := newService(t, pool)
+	ctx := context.Background()
+
+	id, err := service.Create(ctx, "SameName", "", nil)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if err := service.Rename(ctx, id, "SameName"); err != nil {
+		t.Fatalf("rename to the same name: %v", err)
+	}
+
+	var count int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM ruleset_names WHERE name = $1`, "SameName").Scan(&count); err != nil {
+		t.Fatalf("count ruleset_names: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("got %d ruleset_names rows for \"SameName\", want 1 (renaming to the current name must be a pure no-op)", count)
+	}
+}

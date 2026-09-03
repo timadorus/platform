@@ -32,10 +32,9 @@ func NewService(repo *eventsourcing.Repository[*ruleset.Ruleset], pool *pgxpool.
 // commit or both roll back together. A unique-constraint violation on the reservation means the
 // name is already taken and becomes ruleset.ErrNameAlreadyExists; no aggregate is created and no
 // event is appended. Names are never released, even if the Ruleset is later archived. This
-// invariant does not extend to Rename: Rename never touches ruleset_names, so a name freed by
-// renaming a Ruleset away stays reserved (orphaned), and the new name it takes is left
-// unreserved — a later Create can then produce a duplicate of that new name. See docs/BACKLOG.md
-// for the known gap and the fix sketch (reserving the new name in Rename's own transaction).
+// invariant now also extends to Rename (see Rename's own doc comment): renaming reserves the
+// new name and releases the old one in the same transaction as the RulesetRenamed save, so the
+// two never disagree.
 func (s *Service) Create(ctx context.Context, name, description string, references []string) (uuid.UUID, error) {
 	r, err := ruleset.New(name, description, references)
 	if err != nil {
@@ -83,15 +82,47 @@ func (s *Service) FindIDByName(ctx context.Context, name string) (uuid.UUID, err
 	return *id, nil
 }
 
+// Rename reserves the new name and releases the old one in the same transaction as the
+// RulesetRenamed save — the same shape Create already uses for its own reservation (see Create's
+// doc comment). A no-op rename (name already equals the current name — see Ruleset.Rename) skips
+// the reservation dance entirely: there is nothing to release or reserve, and attempting to
+// insert a name already reserved by this same aggregate would wrongly report
+// ErrNameAlreadyExists.
 func (s *Service) Rename(ctx context.Context, id uuid.UUID, name string) error {
 	r, err := s.repo.Load(ctx, id)
 	if err != nil {
 		return err
 	}
+	oldName := r.Name()
 	if err := r.Rename(name); err != nil {
 		return err
 	}
-	return s.repo.Save(ctx, r)
+	if name == oldName {
+		return s.repo.Save(ctx, r)
+	}
+
+	uow, txCtx, err := postgres.NewUnitOfWork(ctx, s.pool)
+	if err != nil {
+		return err
+	}
+	tx, _ := postgres.TxFromContext(txCtx) // always ok: txCtx was just built by NewUnitOfWork
+
+	if _, err := tx.Exec(ctx, `INSERT INTO ruleset_names (name, id) VALUES ($1, $2)`, name, id); err != nil {
+		_ = uow.Rollback(ctx)
+		if postgres.IsUniqueViolation(err) {
+			return ruleset.ErrNameAlreadyExists
+		}
+		return fmt.Errorf("ruleset: reserve renamed name %q: %w", name, err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM ruleset_names WHERE name = $1`, oldName); err != nil {
+		_ = uow.Rollback(ctx)
+		return fmt.Errorf("ruleset: release old name %q: %w", oldName, err)
+	}
+	if err := s.repo.Save(txCtx, r); err != nil {
+		_ = uow.Rollback(ctx)
+		return err
+	}
+	return uow.Commit(ctx)
 }
 
 func (s *Service) SetDescription(ctx context.Context, id uuid.UUID, description string) error {

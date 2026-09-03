@@ -63,22 +63,11 @@ up; don't grow this file into a design doc.
   the current name isn't stored anywhere but the event stream itself) and inserts it into
   `ruleset_names` with `ON CONFLICT DO NOTHING`.
 
-- [ ] **`Rename` bypasses the `ruleset_names` reservation entirely, so it and the event store can
-  disagree — including in a way that silently defeats `RegisterRuleset`.**
-  `ruleset.Service.Rename` does a plain `Load` → `Rename` → `Save` and never touches
-  `ruleset_names`, unlike `Create`, which reserves the name in the same transaction as the save.
-  Consequences: (1) renaming a Ruleset from "A" to "B" leaves "A" reserved with no aggregate
-  bearing that name, and leaves "B" completely unreserved, so a later `Create("B")` succeeds and
-  produces a duplicate "B"; (2) renaming the "Timadorus" Ruleset away leaves the "Timadorus"
-  reservation in place, so every future `RegisterRuleset` call gets `ErrNameAlreadyExists` and
-  treats the platform as already registered, even though no Ruleset is actually named
-  "Timadorus" any more. The design spec scoped the uniqueness invariant to `Create` only and
-  never claimed `Rename` coverage, so this is a spec-level gap rather than an implementation bug;
-  `Service.Create`'s and `RegisterRuleset`'s doc comments now say so explicitly instead of
-  overstating the guarantee. Fix sketch for a follow-up branch: make `Rename` reserve the new
-  name in the same transaction as the `RulesetRenamed` event — a near-copy of `Create`'s
-  structure — returning `ruleset.ErrNameAlreadyExists` on conflict, and, ideally, release the old
-  name in that same transaction.
+- [x] **Fixed.** `ruleset.Service.Rename` (`internal/command/ruleset/service.go`) now reserves the
+  new name and releases the old one in the same transaction as the `RulesetRenamed` save, mirroring
+  `Create`'s own reservation shape exactly. A rename to an already-taken name now correctly fails
+  with `ErrNameAlreadyExists` and leaves the old reservation untouched; a rename to the current
+  name is a pure no-op. `RegisterRuleset`'s and `Create`'s doc comments updated to match.
 
 - [ ] **Embedding-size threshold for future table files is undocumented.** This branch's design
   embeds `traits.yaml` directly via `//go:embed`, appropriate for a small, secret-free,
