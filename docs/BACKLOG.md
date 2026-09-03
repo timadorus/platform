@@ -84,15 +84,11 @@ up; don't grow this file into a design doc.
   `internal/query/rulesettables.Repository.List`/`Get` always resolve the newest row per key by
   `updated_at`, so callers still see exactly one row per key — the current one.
 
-- [ ] **No end-to-end coverage for the two new query-api endpoints
-  (`GET /rulesets/{id}/tables/{name}[/{rowKey}]`).** `test/e2e/e2e_test.go` exercises
-  `GET /rulesets` and `GET /rulesets/{id}` but neither new path, and nothing asserts that the
-  engine's startup table-sync is actually readable through the query API on a real running
-  cluster. A single e2e assertion (e.g. `GET /rulesets/{timadorusRulesetId}/tables/traits` returns
-  the 3 expected rows after `make dev-up`) would cover the sync, the endpoint, and the migration
-  image all in one shot — the Critical fixed in this same fix-wave (a broken migration image) went
-  undetected specifically because no such coverage existed. This is a recommendation for a future
-  branch, not a defect in this one — the plan never asked for it.
+- [x] **Fixed.** `test/e2e/e2e_test.go` now has a dedicated `It` asserting
+  `GET /rulesets/{timadorusRulesetId}/tables/traits` returns all 3 seeded rows and
+  `GET .../tables/traits/strong` returns the expected row content, resolving the "Timadorus"
+  Ruleset by name from `GET /rulesets` rather than assuming a fixed id — covering the startup
+  sync, both endpoints, and the migration image all in one test.
 
 ## Web SPA (`web/src`)
 

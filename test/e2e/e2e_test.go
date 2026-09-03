@@ -251,4 +251,40 @@ var _ = Describe("Timadorus platform aggregates", func() {
 			g.Expect(got).To(ContainElement(HaveField("Id", rulesetResp.Id)))
 		}, time.Minute, time.Second).Should(Succeed())
 	})
+
+	It("the Timadorus ruleset's data tables are synced and queryable through the query API", func() {
+		var rulesets []querygen.Ruleset
+		resp, err := doJSON(http.MethodGet, env.QueryAPIBaseURL+"/rulesets", env.BearerToken, nil, &rulesets)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		var timadorusRuleset *querygen.Ruleset
+		for i := range rulesets {
+			if rulesets[i].Name == "Timadorus" {
+				timadorusRuleset = &rulesets[i]
+				break
+			}
+		}
+		Expect(timadorusRuleset).NotTo(BeNil(), "expected timadorus-engine to have registered a Ruleset named \"Timadorus\" at startup")
+
+		var traitRows []querygen.RulesetTableRow
+		resp, err = doJSON(http.MethodGet, fmt.Sprintf("%s/rulesets/%s/tables/traits", env.QueryAPIBaseURL, timadorusRuleset.Id), env.BearerToken, nil, &traitRows)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		// strong, agile, quick — internal/engine/timadorus/tables/traits.yaml's three rows.
+		Expect(traitRows).To(HaveLen(3))
+		Expect(traitRows).To(ContainElement(HaveField("Key", "strong")))
+		Expect(traitRows).To(ContainElement(HaveField("Key", "agile")))
+		Expect(traitRows).To(ContainElement(HaveField("Key", "quick")))
+
+		var strongRow map[string]any
+		resp, err = doJSON(http.MethodGet, fmt.Sprintf("%s/rulesets/%s/tables/traits/strong", env.QueryAPIBaseURL, timadorusRuleset.Id), env.BearerToken, nil, &strongRow)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		Expect(strongRow["displayName"]).To(Equal("Strong"))
+
+		resp, err = doJSON(http.MethodGet, fmt.Sprintf("%s/rulesets/%s/tables/traits/nonexistent-row", env.QueryAPIBaseURL, timadorusRuleset.Id), env.BearerToken, nil, nil)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
+	})
 })
