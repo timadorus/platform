@@ -77,7 +77,7 @@ up; don't grow this file into a design doc.
   config, etc.) becomes warranted. Note this so whoever adds the next table file (or the fifth,
   or the twentieth) has somewhere to weigh that judgment call rather than rediscovering it.
 
-- [x] **Fixed.** `ruleset_tables_read_model`'s primary key now includes a `content_hash` column
+- [x] **Fixed** (`333f8c8`). `ruleset_tables_read_model`'s primary key now includes a `content_hash` column
   (`0002_content_hash_versioning.up.sql`). `RegisterTables` computes a sha256 of each row's
   marshaled content, so an edited row's new content inserts as an additional, newer row instead of
   being silently discarded by the old `ON CONFLICT (ruleset_id, table_name, row_key) DO NOTHING`.
