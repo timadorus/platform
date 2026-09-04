@@ -18,10 +18,10 @@ function seedState(overrides: Partial<MockState> = {}): MockState {
 async function createCharacter(page: Page, name: string) {
   await page.getByRole('button', { name: '+ Create Character' }).click()
   await expect(page.getByRole('heading', { name: 'Create Character' })).toBeVisible()
-  const modalForm = page.locator('form')
-  await modalForm.locator('input[type="text"]').first().fill(name)
+  const modalForm = page.getByTestId('create-character-form')
+  await modalForm.getByTestId('character-name-input').fill(name)
   await page.getByPlaceholder('Search users…').fill('devuser')
-  await page.getByRole('button', { name: 'devuser@timadorus.local' }).click()
+  await page.getByTestId('user-picker').getByRole('button', { name: 'devuser@timadorus.local' }).click()
   await modalForm.getByRole('button', { name: 'Create', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Create Character' })).toHaveCount(0)
 }
@@ -50,7 +50,7 @@ test('sidebar lists and the main pane eventually reflect a newly created Charact
   const entitiesSection = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Entities' }) })
   await expect(entitiesSection.getByRole('button', { name: 'Samwise Gamgee' })).toBeVisible()
 
-  const baseInfo = page.locator('div.rounded-md').filter({ hasText: 'Base Info' })
+  const baseInfo = page.getByTestId('base-info-card')
   await expect(baseInfo.getByText('Samwise Gamgee')).toBeVisible()
 })
 

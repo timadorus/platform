@@ -45,6 +45,10 @@ export function useChangeFeed() {
           // flush:'pre' watch coalesces same-tick writes, and a poll batch can contain more than
           // one change (e.g. Character creation emits Entity+Character events together).
           await nextTick()
+          // Re-check after every await, not just once before the loop: a stop() (or a new
+          // start() for a different Universe) landing in the gap between two nextTick() calls
+          // must stop this now-abandoned batch from writing any more remaining changes.
+          if (myEpoch !== epoch) return
         }
       }
     } catch (err) {

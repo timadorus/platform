@@ -31,7 +31,7 @@ watch(entityId, load)
 const lastAggregateChange = inject<Ref<AggregateChange | null>>('lastAggregateChange')
 if (lastAggregateChange) {
   watch(lastAggregateChange, (change) => {
-    if (change?.aggregateType === 'entity' && change.aggregateId === entityId.value) load()
+    if (change?.aggregateType === 'entity' && change.aggregateId.toLowerCase() === entityId.value.toLowerCase()) load()
   })
 }
 

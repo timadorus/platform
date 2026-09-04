@@ -16,6 +16,10 @@ export interface MockCampaign {
   // don't need to change — ConfigurationPanel.vue already renders "No configuration set yet"
   // when this is absent.
   configuration?: string
+  // Optional for the same reason as configuration above — existing seeds that construct a
+  // MockCampaign directly (rather than via the POST route below) don't carry this. The POST
+  // route always sets it, so a test asserting against a just-created campaign can rely on it.
+  gamemasterUserIds?: string[]
 }
 
 export interface MockUser {
@@ -284,6 +288,7 @@ export async function installMockBackend(page: Page, state: MockState, auth: Moc
         universeId: m!.params.universeId,
         name: body.name,
         rulesetId: body.rulesetId,
+        gamemasterUserIds: body.gamemasterUserIds,
         isArchived: false,
       })
       return json(route, { id: campaignId }, 201)

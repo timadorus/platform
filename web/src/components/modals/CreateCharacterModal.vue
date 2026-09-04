@@ -42,10 +42,15 @@ async function submit() {
 <template>
   <BaseModal title="Create Character" @close="emit('close')">
     <ErrorBanner :message="error" @dismiss="error = null" />
-    <form class="space-y-3" @submit.prevent="submit">
+    <form class="space-y-3" data-testid="create-character-form" @submit.prevent="submit">
       <div>
         <label class="mb-1 block text-xs font-medium text-slate-600">Name</label>
-        <input v-model="name" type="text" class="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
+        <input
+          v-model="name"
+          type="text"
+          data-testid="character-name-input"
+          class="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+        />
       </div>
       <div>
         <label class="mb-1 block text-xs font-medium text-slate-600">Player</label>

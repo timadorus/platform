@@ -73,7 +73,14 @@ function onCreated(characterId: string, entityId: string) {
   // aborted on unmount (below) so the poll doesn't keep hitting the backend after the user
   // navigates away.
   createdCharacterController = new AbortController()
-  waitForCharacterInList(props.campaignId, characterId, { signal: createdCharacterController.signal })
+  waitForCharacterInList(props.campaignId, characterId, { signal: createdCharacterController.signal }).then((found) => {
+    // Once the new Character is actually visible, do a full refresh() (not just another list())
+    // so `users`/`gamemasterIds` — loaded once at mount — pick up a brand-new User this
+    // Character might be assigned to. Without this, playerLabel() shows the raw playerUserId
+    // UUID until some unrelated refresh happens to fire. Skipped on a timeout/abort (found ===
+    // false): there's no new Character to correct the label for in that case.
+    if (found) void refresh()
+  })
   // The auto-created Entity lives in a sibling panel (EntitiesPanel) — tell it which id to wait
   // for via the shared pendingEntityId ref (WorkspaceView.vue), rather than the generic
   // sidebarRefreshSignal (which only fires once, with no retry).

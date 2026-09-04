@@ -29,10 +29,10 @@ test('creating a Character updates both sidebar lists and selects it in the main
   await page.getByRole('button', { name: '+ Create Character' }).click()
   await expect(page.getByRole('heading', { name: 'Create Character' })).toBeVisible()
 
-  const modalForm = page.locator('form')
-  await modalForm.locator('input[type="text"]').first().fill('Frodo Baggins')
+  const modalForm = page.getByTestId('create-character-form')
+  await modalForm.getByTestId('character-name-input').fill('Frodo Baggins')
   await page.getByPlaceholder('Search users…').fill('devuser')
-  await page.getByRole('button', { name: 'devuser@timadorus.local' }).click()
+  await page.getByTestId('user-picker').getByRole('button', { name: 'devuser@timadorus.local' }).click()
   await modalForm.getByRole('button', { name: 'Create', exact: true }).click()
 
   // 1. modal closes
@@ -53,6 +53,6 @@ test('creating a Character updates both sidebar lists and selects it in the main
   await expect(page).toHaveURL(/\/universes\/u1\/campaigns\/c1\/characters\/character-\d+$/)
 
   // 6. main view selects and displays the new Character
-  const baseInfo = page.locator('div.rounded-md').filter({ hasText: 'Base Info' })
+  const baseInfo = page.getByTestId('base-info-card')
   await expect(baseInfo.getByText('Frodo Baggins')).toBeVisible()
 })

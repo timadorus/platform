@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import BaseButton from '@/components/common/BaseButton.vue'
 import UserPicker from '@/components/pickers/UserPicker.vue'
 
@@ -27,8 +27,23 @@ function startEditName() {
 function saveName() {
   if (!nameDraft.value.trim()) return
   emit('submit-rename', nameDraft.value.trim())
-  editingName.value = false
+  // editingName is deliberately NOT closed here — see the watch below. Closing immediately
+  // (the old behavior) collapsed the editor before the parent's PATCH resolved, so a rejected
+  // rename discarded the typed draft with no way to recover it without retyping from scratch.
 }
+
+// Close the editor only once the parent's own `name` actually changes to match what was
+// submitted — i.e. only on a successful rename. A rejected rename never touches `name`, so the
+// editor (and the user's typed draft) stays exactly as they left it, ready to retry immediately
+// alongside the error banner the parent already shows.
+watch(
+  () => props.name,
+  (newName) => {
+    if (editingName.value && newName === nameDraft.value) {
+      editingName.value = false
+    }
+  },
+)
 
 const showAddGamemaster = ref(false)
 function onSelectGamemaster(userId: string) {

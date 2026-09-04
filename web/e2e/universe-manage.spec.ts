@@ -111,4 +111,15 @@ test('creating a Campaign from the Universe panel navigates into its workspace',
   await page.getByRole('button', { name: 'Create', exact: true }).click()
 
   await expect(page).toHaveURL(/\/universes\/u1\/campaigns\/[^/]+$/)
+
+  // The checkbox assertion above only proves UserMultiSelect ticked a box in the DOM, not that
+  // the selected user id actually reached the request body — the mock would 201 just as happily
+  // on gamemasterUserIds: [], which the real backend rejects with 422. Assert the mock's
+  // recorded state directly to close that gap.
+  expect(state.campaigns.at(-1)).toMatchObject({
+    name: 'New Campaign',
+    rulesetId: 'r1',
+    universeId: 'u1',
+    gamemasterUserIds: ['user-1'],
+  })
 })

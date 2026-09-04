@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import BaseButton from '@/components/common/BaseButton.vue'
 import UserPicker from '@/components/pickers/UserPicker.vue'
 
@@ -22,8 +22,23 @@ function startEditName() {
 function saveName() {
   if (!nameDraft.value.trim()) return
   emit('submit-rename', nameDraft.value.trim())
-  editingName.value = false
+  // editingName is deliberately NOT closed here — see the watch below. Closing immediately
+  // (the old behavior) collapsed the editor before the parent's PATCH resolved, so a rejected
+  // rename discarded the typed draft with no way to recover it without retyping from scratch.
 }
+
+// Close the editor only once the parent's own `name` actually changes to match what was
+// submitted — i.e. only on a successful rename. A rejected rename never touches `name`, so the
+// editor (and the user's typed draft) stays exactly as they left it, ready to retry immediately
+// alongside the error banner the parent already shows.
+watch(
+  () => props.name,
+  (newName) => {
+    if (editingName.value && newName === nameDraft.value) {
+      editingName.value = false
+    }
+  },
+)
 
 const editingPlayer = ref(false)
 function onSelectPlayer(userId: string) {
@@ -33,7 +48,7 @@ function onSelectPlayer(userId: string) {
 </script>
 
 <template>
-  <div class="rounded-md border border-slate-200 p-4">
+  <div class="rounded-md border border-slate-200 p-4" data-testid="base-info-card">
     <h2 class="mb-3 text-sm font-semibold text-slate-900">Base Info</h2>
     <table class="w-full text-sm">
       <tbody>
@@ -55,9 +70,7 @@ function onSelectPlayer(userId: string) {
         </tr>
         <tr class="border-b border-slate-50">
           <td class="py-1.5 pr-3 font-medium text-slate-500">Player</td>
-          <td class="py-1.5 pr-3">
-            <template v-if="!editingPlayer">{{ playerName }}</template>
-          </td>
+          <td class="py-1.5 pr-3">{{ playerName }}</td>
           <td class="py-1.5 text-right align-top">
             <button v-if="!editingPlayer" class="text-xs text-indigo-600 hover:underline" @click="editingPlayer = true">
               Reassign Player

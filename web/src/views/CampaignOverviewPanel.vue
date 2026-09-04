@@ -71,7 +71,7 @@ watch([universeId, campaignId], load)
 const lastAggregateChange = inject<Ref<AggregateChange | null>>('lastAggregateChange')
 if (lastAggregateChange) {
   watch(lastAggregateChange, (change) => {
-    if (change?.aggregateType === 'campaign' && change.aggregateId === campaignId.value) load()
+    if (change?.aggregateType === 'campaign' && change.aggregateId.toLowerCase() === campaignId.value.toLowerCase()) load()
   })
 }
 

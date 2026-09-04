@@ -65,7 +65,7 @@ onUnmounted(() => loadController?.abort())
 const lastAggregateChange = inject<Ref<AggregateChange | null>>('lastAggregateChange')
 if (lastAggregateChange) {
   watch(lastAggregateChange, (change) => {
-    if (change?.aggregateType === 'character' && change.aggregateId === characterId.value) load()
+    if (change?.aggregateType === 'character' && change.aggregateId.toLowerCase() === characterId.value.toLowerCase()) load()
   })
 }
 
@@ -112,7 +112,7 @@ async function onSubmitReassignPlayer(userId: string) {
     <ErrorBanner :message="error" @dismiss="error = null" />
     <BaseTabs :tabs="tabs" v-model="activeTab" class="mb-4" />
 
-    <div v-if="activeTab === 'Stats'" class="flex gap-4">
+    <div v-if="activeTab === 'Stats'" class="flex flex-wrap gap-4">
       <AttributesTable class="flex-1" />
       <BaseInfoTable
         :key="character.id"

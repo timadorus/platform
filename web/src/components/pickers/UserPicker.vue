@@ -21,7 +21,7 @@ const filtered = computed(() => {
 </script>
 
 <template>
-  <div>
+  <div data-testid="user-picker">
     <input v-model="query" type="text" placeholder="Search users…" class="mb-2 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
     <div class="max-h-40 overflow-y-auto rounded-md border border-slate-200">
       <button
