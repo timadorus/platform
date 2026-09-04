@@ -11,6 +11,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -45,7 +46,10 @@ func main() {
 }
 
 func run(ctx context.Context, logger *slog.Logger) error {
-	cfg := config.LoadTimadorusEngine()
+	cfg, err := config.LoadTimadorusEngine()
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
 
 	// Connection budget: each in-flight Router.Handle call can hold up to 2 pool connections
 	// at once — one for the Router's own transaction, and one for the aggregate's Load, which

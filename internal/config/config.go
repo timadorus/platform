@@ -4,6 +4,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 )
@@ -83,17 +84,27 @@ type TimadorusEngine struct {
 	// cmd/timadorus-engine/main.go's "Connection budget" comment for the reasoning behind the
 	// default of 8). Configurable via TIMADORUS_ENGINE_POOL_MAX_CONNS so a 3rd processor sharing
 	// this binary, or any other change to the per-Handle connection cost, can be given headroom
-	// without a code change or redeploy of a new binary.
+	// without a code change or redeploy of a new binary. Leaving the variable unset defaults to
+	// 8; explicitly setting it to something invalid (unparseable, zero, or negative) fails
+	// LoadTimadorusEngine with a named error instead of silently substituting the default — see
+	// parsePoolMaxConns.
 	PoolMaxConns int32
 }
 
-func LoadTimadorusEngine() TimadorusEngine {
+// LoadTimadorusEngine returns an error only when TIMADORUS_ENGINE_POOL_MAX_CONNS is explicitly
+// set to something invalid (see parsePoolMaxConns) — every other field is best-effort, matching
+// this package's other Load* functions. Leaving the variable unset is not an error.
+func LoadTimadorusEngine() (TimadorusEngine, error) {
+	poolMaxConns, err := parsePoolMaxConns("TIMADORUS_ENGINE_POOL_MAX_CONNS", 8)
+	if err != nil {
+		return TimadorusEngine{}, err
+	}
 	return TimadorusEngine{
 		HTTPAddr:     getEnv("TIMADORUS_ENGINE_ADDR", ":8084"),
 		DatabaseURL:  getEnv("DATABASE_URL", "postgres://timadorus:timadorus@localhost:5432/timadorus?sslmode=disable"),
 		NATSURL:      getEnv("NATS_URL", "nats://localhost:4222"),
-		PoolMaxConns: getEnvInt32("TIMADORUS_ENGINE_POOL_MAX_CONNS", 8),
-	}
+		PoolMaxConns: poolMaxConns,
+	}, nil
 }
 
 func loadJWT() JWT {
@@ -114,21 +125,25 @@ func getEnv(key, def string) string {
 	return def
 }
 
-// getEnvInt32 parses key as a base-10 int32, falling back to def on an unset, unparseable, or
-// non-positive value — deliberately silent on a bad value (this package has no logger to report
-// through) rather than failing binary startup over a malformed tuning knob. Non-positive values
-// are rejected here (not just left to whatever eventually consumes the value) because a value
-// like TIMADORUS_ENGINE_POOL_MAX_CONNS parses fine as an int32 but would otherwise reach
-// pgxpool.NewWithConfig and fail fatally with an opaque "MaxSize must be >= 1" that never names
-// the environment variable at fault.
-func getEnvInt32(key string, def int32) int32 {
+// parsePoolMaxConns resolves a pool-size env var. Unset (or empty) is not an error — it means the
+// operator didn't opt into a value at all, so def applies silently, matching every other Load*
+// function's env-with-default convention. But once the operator DOES set it, the value has to be
+// usable: an unparseable or non-positive value would otherwise reach pgxpool.NewWithConfig and
+// fail fatally with an opaque "MaxSize must be >= 1" that never names the environment variable at
+// fault. Erroring here instead gives a startup failure that says exactly which variable, what
+// value was seen, and why — surfaced by the caller the same way every other fatal startup error
+// in this binary already is (run()'s error return -> main()'s os.Exit(1)).
+func parsePoolMaxConns(key string, def int32) (int32, error) {
 	v := os.Getenv(key)
 	if v == "" {
-		return def
+		return def, nil
 	}
 	n, err := strconv.ParseInt(v, 10, 32)
-	if err != nil || n < 1 {
-		return def
+	if err != nil {
+		return 0, fmt.Errorf("%s=%q is not a valid integer", key, v)
 	}
-	return int32(n)
+	if n < 1 {
+		return 0, fmt.Errorf("%s=%q must be a positive integer, got %d", key, v, n)
+	}
+	return int32(n), nil
 }
