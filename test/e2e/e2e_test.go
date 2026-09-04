@@ -287,4 +287,70 @@ var _ = Describe("Timadorus platform aggregates", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
 	})
+
+	It("changing a Campaign's max stat budget via the configure trigger eventually updates its configuration", func() {
+		var rulesets []querygen.Ruleset
+		resp, err := doJSON(http.MethodGet, env.QueryAPIBaseURL+"/rulesets", env.BearerToken, nil, &rulesets)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		var timadorusRuleset *querygen.Ruleset
+		for i := range rulesets {
+			if rulesets[i].Name == "Timadorus" {
+				timadorusRuleset = &rulesets[i]
+				break
+			}
+		}
+		Expect(timadorusRuleset).NotTo(BeNil(), "expected timadorus-engine to have registered a Ruleset named \"Timadorus\" at startup")
+
+		// Universe.New/Campaign.New both require at least one Creator/Gamemaster (ErrCreatorsRequired/
+		// ErrGamemastersRequired) — a real User is needed, matching this file's own existing pattern
+		// (see the giant "creates one of each aggregate" It above), not an empty slice.
+		var user commandgen.UserCreatedResponse
+		resp, err = doJSON(http.MethodPost, env.CommandAPIBaseURL+"/users", env.BearerToken,
+			commandgen.CreateUserRequest{Name: "e2e-max-stat-budget-user"}, &user)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+
+		var universe commandgen.UniverseCreatedResponse
+		resp, err = doJSON(http.MethodPost, env.CommandAPIBaseURL+"/universes", env.BearerToken,
+			commandgen.CreateUniverseRequest{Name: "e2e-max-stat-budget-universe", CreatorUserIds: []uuid.UUID{user.Id}}, &universe)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+
+		var campaignResp commandgen.CampaignCreatedResponse
+		resp, err = doJSON(http.MethodPost, fmt.Sprintf("%s/universes/%s/campaigns", env.CommandAPIBaseURL, universe.Id), env.BearerToken,
+			commandgen.CreateCampaignRequest{Name: "e2e-max-stat-budget-campaign", RulesetId: timadorusRuleset.Id, GamemasterUserIds: []uuid.UUID{user.Id}}, &campaignResp)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+
+		// The default (35) should already be present once the engine's CampaignCreated handling
+		// catches up.
+		Eventually(func(g Gomega) {
+			var got querygen.Campaign
+			resp, err := doJSON(http.MethodGet, fmt.Sprintf("%s/campaigns/%s", env.QueryAPIBaseURL, campaignResp.Id), env.BearerToken, nil, &got)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			var config map[string]any
+			g.Expect(json.Unmarshal([]byte(got.Configuration), &config)).To(Succeed())
+			cc, _ := config["characterCreation"].(map[string]any)
+			g.Expect(cc["maxStatBudget"]).To(Equal(float64(35)))
+		}, time.Minute, time.Second).Should(Succeed())
+
+		resp, err = doJSON(http.MethodPut, fmt.Sprintf("%s/campaigns/%s/configure", env.CommandAPIBaseURL, campaignResp.Id), env.BearerToken,
+			map[string]any{"action": "setMaxStatBudget", "value": 50}, nil)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
+
+		Eventually(func(g Gomega) {
+			var got querygen.Campaign
+			resp, err := doJSON(http.MethodGet, fmt.Sprintf("%s/campaigns/%s", env.QueryAPIBaseURL, campaignResp.Id), env.BearerToken, nil, &got)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			var config map[string]any
+			g.Expect(json.Unmarshal([]byte(got.Configuration), &config)).To(Succeed())
+			cc, _ := config["characterCreation"].(map[string]any)
+			g.Expect(cc["maxStatBudget"]).To(Equal(float64(50)))
+		}, time.Minute, time.Second).Should(Succeed())
+	})
 })
