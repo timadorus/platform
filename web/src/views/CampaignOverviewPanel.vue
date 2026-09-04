@@ -44,8 +44,13 @@ const gamemasters = computed(() =>
   gamemasterIds.value.map((id) => ({ id, name: users.value.find((u) => u.id === id)?.name ?? id })),
 )
 
-async function load() {
-  loading.value = true
+// silent: true for a background reload triggered by the change-feed (see the lastAggregateChange
+// watch below) — must NOT toggle `loading`, since the template's `v-if="loading"` gates the
+// entire subtree including <ConfigurationPanel>, and unmounting it on every unrelated background
+// change would destroy its pending-save state and any unsaved draft. A genuine campaign switch
+// (the watch further down) stays non-silent so it still shows the full "Loading…" state.
+async function load(opts: { silent?: boolean } = {}) {
+  if (!opts.silent) loading.value = true
   campaign.value = await getCampaign(campaignId.value)
   await listUsers()
   const [ruleset, ids] = await Promise.all([
@@ -63,15 +68,20 @@ async function load() {
     searchEntities(universeId.value, ''),
     searchObjects(universeId.value, ''),
   ])
-  loading.value = false
+  if (!opts.silent) loading.value = false
 }
-onMounted(load)
-watch([universeId, campaignId], load)
+// Both call sites are wrapped in arrow functions deliberately, not cosmetically: passed directly,
+// onMounted's and watch's callback signatures would pass their own arguments (e.g. watch's
+// `(newValue, oldValue, onCleanup)`) as load's first argument, silently shadowing `opts`.
+onMounted(() => load())
+watch([universeId, campaignId], () => load())
 
 const lastAggregateChange = inject<Ref<AggregateChange | null>>('lastAggregateChange')
 if (lastAggregateChange) {
   watch(lastAggregateChange, (change) => {
-    if (change?.aggregateType === 'campaign' && change.aggregateId.toLowerCase() === campaignId.value.toLowerCase()) load()
+    if (change?.aggregateType === 'campaign' && change.aggregateId.toLowerCase() === campaignId.value.toLowerCase()) {
+      load({ silent: true })
+    }
   })
 }
 
