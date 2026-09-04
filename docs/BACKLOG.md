@@ -99,25 +99,13 @@ of retrying for the full timeout, and the modal shows that error distinctly from
 timeout; and `query.types.ts`/`command.types.ts` are regenerated and current. All three verified
 live with a real headless-Chromium session.
 
-- [ ] **Character detail page (`character-detail-redesign`) and Campaign manage panel
-  (`campaign-tabbed-panel`): a rejected rename discards the user's typed draft.** Both
-  `BaseInfoTable.vue`'s and `ManageCampaignPanel.vue`'s `saveName()` collapse the inline editor
-  immediately after emitting `submit-rename`, before the parent's `PATCH` call has resolved.
-  Verified live with a mocked `400`: the error banner appears, the display reverts to the old
-  name, and the text the user typed is gone — they must reopen the editor and retype from scratch
-  to retry. Not data-damaging (the old name is never lost server-side), just a retry-ergonomics
-  regression versus the previous always-editable input, which kept the attempted text in the box.
-  For Character, this is a pre-existing, accepted trade-off; for Campaign, `campaign-tabbed-panel`
-  introduced it as a genuine regression, not an inherited one — the deleted
-  `ManageCampaignModal.vue` had exactly that always-editable input (`<input v-model="name">` plus
-  a Rename button) and kept the typed text across a rejected rename, while the new click-to-reveal
-  `ManageCampaignPanel.vue` does not. This remains an accepted, conscious trade-off for both
-  components — a fix costs an extra round trip (e.g. a `saving`/`error` prop from the parent, or
-  the emit carrying a callback). Separately, and pre-existing rather than introduced by either
-  branch, `saveName()` used to have no emptiness guard: clearing the field and clicking Save sent
-  `PATCH {"name":""}` unguarded (verified live for Character; the server rejected it and the
-  banner explained, so nothing broke). That gap has now been closed in both components with the
-  two-line `v-if` guard this entry used to price as the cheap half of the fix.
+- [x] **Fixed** (`db71a6e`). `BaseInfoTable.vue`'s and `ManageCampaignPanel.vue`'s `saveName()` no
+  longer close the editor immediately on emit — each now `watch`es its own `name` prop and closes
+  only once it changes to match what was submitted (i.e. only on a successful rename). A rejected
+  rename never touches `name`, so the editor and the typed draft survive untouched, ready to retry
+  alongside the error banner. Verified live with a throwaway Playwright repro forcing a 400 then a
+  204: confirmed the draft survives the rejection and the editor closes on the successful retry,
+  and confirmed the same repro genuinely fails against the pre-fix behavior.
 
 - [ ] **Character detail page: cosmetic table-column jitter in the Base Info card.** At some
   viewport widths (e.g. ~1400px) the table's `auto` layout re-measures column widths per state, so
@@ -126,18 +114,13 @@ live with a real headless-Chromium session.
   screenshot comparison across states. Purely visual; the design spec prescribed this exact table
   markup, so this is polish for a future pass, not a deviation from the spec.
 
-- [ ] **Character detail page: the current Player's name is hidden while reassigning.**
-  `BaseInfoTable.vue`'s Player cell only renders `{{ playerName }}` when `!editingPlayer`, so the
-  moment a GM clicks "Reassign Player" the current Player's name disappears, replaced by the
-  picker — there is no way to see who is being replaced without cancelling first. This is the
-  design spec's own given markup, faithfully implemented; flagged here as a UX opportunity for a
-  future pass rather than a defect against the plan.
+- [x] **Fixed** (`db71a6e`). `BaseInfoTable.vue`'s Player cell now always renders `{{ playerName }}`,
+  regardless of `editingPlayer` — the picker appears in its own row below, rather than replacing
+  the name. A GM can now see who is being replaced while reassigning.
 
-- [ ] **Character detail page: the Stats tab's two cards don't stack on narrow viewports.** The
-  Stats tab wraps `AttributesTable` and `BaseInfoTable` in `class="flex gap-4"` with no
-  `flex-wrap`, so both `flex-1` cards compress side-by-side rather than stacking at narrow widths.
-  Matches the spec's markup verbatim; noted because `BaseTabs` and the two tables are otherwise
-  responsive-friendly.
+- [x] **Fixed** (`db71a6e`). `CharacterDetailView.vue`'s Stats tab wrapper is now
+  `class="flex flex-wrap gap-4"`, so `AttributesTable`/`BaseInfoTable` stack instead of
+  compressing on narrow viewports.
 
 - [ ] **`web/e2e`'s mock backend covers only the campaign-workspace page tree and Character
   creation — a new test needs new route arms.** `installMockBackend`'s state shape
@@ -151,18 +134,12 @@ live with a real headless-Chromium session.
   (by design); unmocked commands now fail loudly with a `501` (fixed in the final-review fix wave)
   rather than silently succeeding, so a missing arm surfaces immediately at the actual gap.
 
-- [ ] **`web/e2e/character-creation.spec.ts`'s selectors will need hardening before a second test
-  is added.** Several selectors work today only because of incidental page state, flagged by a
-  final review as exactly what the "minimal additive change" allowance (e.g. a missing
-  `aria-label`) was meant for, deliberately not touched to avoid churning a passing test: (1)
-  `page.locator('form')` is unscoped to the modal — correct only because exactly one `<form>` is
-  ever mounted at a time; (2) `modalForm.locator('input[type="text"]').first()` picks the Name
-  field positionally — correct only because it happens to precede `UserPicker`'s own text input in
-  DOM order; (3) the player-selection button lookup is page-scoped rather than scoped to the
-  picker; (4) the Base Info card is located via a Tailwind utility class (`div.rounded-md`) rather
-  than a stable hook. Before writing the harness's second test, add `aria-label`s or
-  `data-testid`s to `CreateCharacterModal.vue`/`BaseInfoTable.vue` rather than propagating these
-  same patterns.
+- [x] **Fixed** (`db71a6e`). Added `data-testid` hooks (`create-character-form`,
+  `character-name-input`, `user-picker`, `base-info-card`) to `CreateCharacterModal.vue`,
+  `UserPicker.vue`, and `BaseInfoTable.vue`, and migrated `character-creation.spec.ts` and
+  `character-creation-lag.spec.ts` off all four fragile selectors this entry listed (the unscoped
+  `page.locator('form')`, the positional Name-field lookup, the page-scoped player-selection
+  button, and the Tailwind-class-based Base Info card lookup).
 
 - [ ] **The poll-with-timeout pattern is now duplicated four times.** `useUsers.ts`'s `waitForUser`,
   `useCharacters.ts`'s `waitForCharacter` and `waitForCharacterInList`, and `useEntities.ts`'s
@@ -202,12 +179,10 @@ live with a real headless-Chromium session.
   single richer shared signal payload (e.g. `sidebarEvent: Ref<{ kind: string; id: string } | null>`)
   rather than accumulating more one-off refs on `WorkspaceView.vue`.
 
-- [ ] **Creating a Character no longer refreshes `CharactersPanel`'s own `users`/`gamemasterIds`.**
-  The old `bumpSidebarRefresh()` call ran the panel's full `refresh()` (`list` + `listUsers` +
-  `listGamemasters`); the new `waitForCharacterInList` only calls `list()`. `playerLabel()` reads
-  `users.value`/`gamemasterIds.value`, both loaded once at mount — so a Character assigned to a
-  User created after this panel mounted will show the raw `playerUserId` UUID in the sidebar until
-  some unrelated refresh fires. Narrow, cosmetic, and self-healing.
+- [x] **Fixed** (`db71a6e`). `CharactersPanel.vue`'s `onCreated` now chains a full `refresh()`
+  (not just another `list()`) onto `waitForCharacterInList`'s resolution once the new Character is
+  actually visible, restoring the old `bumpSidebarRefresh()`'s full-refresh behavior for this call
+  site so `users`/`gamemasterIds` pick up a brand-new User the Character might be assigned to.
 
 - [ ] **Three independent 750ms polls now fire after one Character creation** (the Characters
   sidebar, the Entities sidebar, and the main pane), each with no shared coordination — roughly
@@ -246,16 +221,10 @@ live with a real headless-Chromium session.
   `UniverseOverviewPanel.goToCampaign`'s shape exactly — plus a deep-link regression test. Small
   follow-up branch.
 
-- [ ] **The mock's `POST /universes/{universeId}/campaigns` route discards `gamemasterUserIds`, so
-  `universe-manage.spec.ts`'s "creating a Campaign" test can only prove the URL changed, not that
-  the right Gamemaster reached the request.** `mockBackend.ts`'s handler destructures
-  `gamemasterUserIds` out of the body and never uses it — the pushed `MockCampaign` has no
-  gamemaster field. The test's `expect(page.getByRole('checkbox').first()).toBeChecked()` proves
-  `UserMultiSelect` ticked the box in the DOM, not that the selected user id reached the request
-  body; the mock would 201 just as happily on `gamemasterUserIds: []`, which the real backend
-  rejects with 422. Optional fix: assert against the mock's recorded state after navigation (e.g.
-  `expect(state.campaigns.at(-1)).toMatchObject({ name: 'New Campaign', rulesetId: 'r1', universeId:
-  'u1' })`), and/or actually store `gamemasterUserIds` on the pushed record and assert it.
+- [x] **Fixed** (`db71a6e`). `mockBackend.ts`'s campaign-creation route now stores
+  `gamemasterUserIds` on the pushed `MockCampaign`, and `universe-manage.spec.ts` asserts
+  `state.campaigns.at(-1)` directly (name, rulesetId, universeId, and `gamemasterUserIds`)
+  instead of only checking a checkbox's DOM state.
 
 - [ ] **`CreateCampaignModal.vue`'s labels have no `for`/`id` pairing with their inputs — a real
   accessibility gap that has now also forced two separate test-writing passes to route around
@@ -275,23 +244,16 @@ live with a real headless-Chromium session.
   scoped to its own `universeId`, or hoist the `provide` to a shared ancestor) if a real need for
   it surfaces.
 
-- [ ] **`useChangeFeed.ts`'s `poll()` only re-checks its epoch guard once per batch, not once per
-  change.** `myEpoch` is captured and checked right after the fetch resolves, but the loop that
-  follows awaits `nextTick()` between writes (added to fix the batching-drop bug above) without
-  re-checking `epoch` inside the loop. If `stop()` (or a new `start()` for a different Universe)
-  fires in the gap between two `nextTick()` awaits, the loop keeps writing the remaining
-  already-fetched changes — meant for the just-abandoned Universe — to `cursor`/`lastChange` before
-  the interval is actually cleared. Extremely narrow (same-tick `stop()` mid-batch), and the
-  original fix's own reviewer-suggested shape already had this property, so it wasn't flagged as
-  new breakage. Fix: also check `if (myEpoch !== epoch) return` inside the loop, after each
-  `await nextTick()`.
+- [x] **Fixed** (`db71a6e`). `useChangeFeed.ts`'s `poll()` now also checks
+  `if (myEpoch !== epoch) return` inside the batch loop, after every `await nextTick()`, not just
+  once before it — closing the narrow same-tick-`stop()`-mid-batch window this entry described.
 
-- [ ] **`change.aggregateId === <id>.value` comparisons are case-sensitive string equality.** All
-  five detail views compare the change feed's `aggregateId` (Go's lowercase-canonical UUID
-  marshalling) against a raw route param. A hand-typed or pasted uppercase UUID in the URL would
-  silently disable that view's change reactions. Very low likelihood, and consistent with how ids
-  are already compared elsewhere in this codebase — the final reviewer noted it for completeness
-  only and did not recommend a change.
+- [x] **Fixed** (`db71a6e`). The four remaining detail views (`CampaignOverviewPanel.vue`,
+  `EntityDetailView.vue`, `CharacterDetailView.vue`, `ObjectDetailView.vue` — the fifth,
+  `UniverseOverviewPanel.vue`, no longer has this comparison at all, since its change-feed wiring
+  was removed as dead code in an earlier fix) now compare `change.aggregateId.toLowerCase()`
+  against the route param's own `.toLowerCase()`, so a hand-typed or pasted uppercase UUID no
+  longer silently disables that view's change reactions.
 
 ## Devcluster tooling (`test/e2e/internal`)
 
