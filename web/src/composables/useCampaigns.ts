@@ -69,6 +69,14 @@ export function useCampaigns() {
     if (apiError) throw new Error(problemMessage(apiError) ?? 'Failed to archive Campaign.')
   }
 
+  async function requestConfiguration(id: string, payload: Record<string, unknown>): Promise<void> {
+    const { error: apiError } = await getCommandClient().PUT('/campaigns/{campaignId}/configure', {
+      params: { path: { campaignId: id } },
+      body: payload,
+    })
+    if (apiError) throw new Error(problemMessage(apiError) ?? 'Failed to request configuration change.')
+  }
+
   async function listGamemasters(id: string): Promise<string[]> {
     const { data, error: apiError } = await getQueryClient().GET('/campaigns/{campaignId}/gamemasters', {
       params: { path: { campaignId: id } },
@@ -93,5 +101,5 @@ export function useCampaigns() {
     if (apiError) throw new Error(problemMessage(apiError) ?? 'Failed to remove Gamemaster.')
   }
 
-  return { campaigns, loading, error, listByUniverse, get, create, rename, archive, listGamemasters, addGamemaster, removeGamemaster }
+  return { campaigns, loading, error, listByUniverse, get, create, rename, archive, requestConfiguration, listGamemasters, addGamemaster, removeGamemaster }
 }

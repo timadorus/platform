@@ -139,7 +139,12 @@ async function confirmArchive() {
       @remove-gamemaster="onRemoveGamemaster"
       @archive="showArchiveConfirm = true"
     />
-    <ConfigurationPanel v-else-if="activeTab === 'Configuration'" :configuration="campaign.configuration" />
+    <ConfigurationPanel
+      v-else-if="activeTab === 'Configuration'"
+      :key="campaignId"
+      :campaign-id="campaignId"
+      :configuration="campaign.configuration"
+    />
 
     <ConfirmDialog
       v-if="showArchiveConfirm"
