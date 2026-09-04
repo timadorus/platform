@@ -262,6 +262,15 @@ export async function installMockBackend(page: Page, state: MockState, auth: Moc
       return route.fulfill({ status: 204, body: '' })
     }
 
+    // Mirrors the real backend's fire-and-forget semantics: the actual endpoint queues an async
+    // engine mutation and returns before it lands, so this mock only accepts the request — it
+    // deliberately does NOT touch `state.campaigns` here. A test that wants to see the eventual
+    // effect updates `state.campaigns`/`state.changes` itself, exactly like
+    // universe-change-feed.spec.ts already does for an externally-made change.
+    if (method === 'PUT' && matchPath('/api/command/campaigns/:campaignId/configure', p)) {
+      return route.fulfill({ status: 204, body: '' })
+    }
+
     // Unlike the real backend, which rejects an empty name with a 422 (ErrNameRequired, see
     // internal/domain/universe/universe.go), this mock route accepts any body including an empty
     // name — do not rely on it as a validation oracle for that case.
