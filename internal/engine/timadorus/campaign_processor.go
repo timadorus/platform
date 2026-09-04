@@ -155,10 +155,11 @@ type configureAction struct {
 }
 
 // handleConfigurationRequested mirrors handleCampaignCreated's shape. A recognized
-// {"action":"setMaxStatBudget","value":n} payload updates characterCreation.maxStatBudget;
-// any other payload (including the historical {} used by the CLI's generic action verb) appends
-// occurredAt to the "configs" array instead, exactly as before. Neither mutation is idempotent
-// under event replay (see mutateConfiguration's own doc comment).
+// {"action":"setMaxStatBudget","value":n} payload updates characterCreation.maxStatBudget — a
+// plain overwrite, naturally idempotent under replay, exactly like handleCampaignCreated's own
+// merge. Any other payload (including the historical {} used by the CLI's generic action verb)
+// appends occurredAt to the "configs" array instead, exactly as before — NOT idempotent under
+// replay (see mutateConfiguration's own doc comment).
 func (p *CampaignProcessor) handleConfigurationRequested(ctx context.Context, tx pgx.Tx, env bus.Envelope) error {
 	var e events.ConfigurationRequested
 	if err := json.Unmarshal(env.Payload, &e); err != nil {
