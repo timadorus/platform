@@ -403,7 +403,7 @@ func TestCampaignProcessor_CampaignCreated_MatchingRuleset_MergesDefaultTraits(t
 	}
 
 	var decoded struct {
-		Traits           []string `json:"traits"`
+		Traits            []string `json:"traits"`
 		CharacterCreation struct {
 			MaxStatBudget int `json:"maxStatBudget"`
 		} `json:"characterCreation"`
