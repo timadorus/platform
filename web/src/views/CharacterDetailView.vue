@@ -10,6 +10,7 @@ import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import BaseTabs from '@/components/common/BaseTabs.vue'
 import AttributesTable from '@/components/character/AttributesTable.vue'
 import BaseInfoTable from '@/components/character/BaseInfoTable.vue'
+import CharacterConfigurationPanel from '@/components/character/CharacterConfigurationPanel.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -28,7 +29,7 @@ const showArchiveConfirm = ref(false)
 const loadTimedOut = ref(false)
 
 const activeTab = ref('Stats')
-const tabs = ['Stats', 'Skills', 'Equipment', 'Journal']
+const tabs = ['Stats', 'Skills', 'Equipment', 'Journal', 'Configuration']
 
 const playerName = computed(
   () => users.value.find((u) => u.id === character.value?.playerUserId)?.name ?? character.value?.playerUserId ?? '',
@@ -127,6 +128,7 @@ async function onSubmitReassignPlayer(userId: string) {
     <div v-else-if="activeTab === 'Skills'" class="text-sm text-slate-500">Skills coming soon.</div>
     <div v-else-if="activeTab === 'Equipment'" class="text-sm text-slate-500">Equipment coming soon.</div>
     <div v-else-if="activeTab === 'Journal'" class="text-sm text-slate-500">Journal coming soon.</div>
+    <CharacterConfigurationPanel v-else-if="activeTab === 'Configuration'" :key="character.id" :info="character.info" />
 
     <ConfirmDialog
       v-if="showArchiveConfirm"

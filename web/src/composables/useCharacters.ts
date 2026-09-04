@@ -8,6 +8,7 @@ export interface CharacterSummary {
   campaignId: string
   entityId: string
   playerUserId: string
+  info: string
   isArchived: boolean
 }
 

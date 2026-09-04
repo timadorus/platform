@@ -35,6 +35,10 @@ export interface MockCharacter {
   entityId: string
   playerUserId: string
   isArchived: boolean
+  // Optional so existing seeds don't need updating — CharacterConfigurationPanel.vue already
+  // renders "No configuration set yet." when this is absent, matching the real backend's default
+  // empty string.
+  info?: string
   // visibleAt (epoch ms) simulates read-model lag: unset means "always visible" (the default,
   // matching every existing test's expectations); set means query routes hide this record until
   // Date.now() reaches it, even though it already exists in `state`.
