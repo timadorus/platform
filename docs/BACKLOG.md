@@ -29,16 +29,20 @@ up; don't grow this file into a design doc.
 
 - [ ] **Architecture note for a 3rd aggregate type** (not a defect, just a heads-up): the
   extraction has now partially happened within `CampaignProcessor` itself —
-  `CampaignProcessor.mutateConfiguration` is shared between its own two handlers
-  (`handleCampaignCreated`'s "traits" overwrite and `handleConfigurationRequested`'s "configs"
-  append), replacing what used to be a separate `appendConfigurationTimestamp`. The remaining
-  cross-processor duplication is the ~35-line "parse opaque field → mutate under key K → save,
-  swallowing `ErrArchived`" body, still copy-adapted between
-  `CharacterProcessor.appendActionTimestamp` and `CampaignProcessor.mutateConfiguration`. If this
-  trigger-endpoint pattern (`Request*`/creation event → an engine processor conditionally
-  mutating the aggregate) gets reused a third time, these two survivors should get extracted into
-  a shared helper over a small interface. Two instances of copy-adapt is correct by this
-  codebase's own convention; three would earn the abstraction.
+  `CampaignProcessor.mutateConfiguration` is now shared between three call sites
+  (`handleCampaignCreated`'s "traits"+"characterCreation" merge, `handleConfigurationRequested`'s
+  recognized `setMaxStatBudget` branch, and that same handler's "configs"-append fallback for
+  everything else), replacing what used to be a separate `appendConfigurationTimestamp`. This
+  doesn't trip the "three earns the abstraction" threshold below, though — these three are three
+  *callers* of one *already-shared* helper (each just passing its own `mutate` closure), not three
+  copy-adapted bodies. The duplication this entry is actually tracking is a different axis: the
+  ~35-line "parse opaque field → mutate under key K → save, swallowing `ErrArchived`" body itself,
+  still copy-adapted between `CharacterProcessor.appendActionTimestamp` and
+  `CampaignProcessor.mutateConfiguration` — still only two instances. If this trigger-endpoint
+  pattern (`Request*`/creation event → an engine processor conditionally mutating the aggregate)
+  gets reused a third time, these two survivors should get extracted into a shared helper over a
+  small interface. Two instances of copy-adapt is correct by this codebase's own convention; three
+  would earn the abstraction.
 
 - [ ] **No backfill for pre-existing Campaigns — default traits only apply going forward.**
   Campaigns created before this branch's engine is deployed get no default traits: the merge is
@@ -47,7 +51,11 @@ up; don't grow this file into a design doc.
   "replay" is **not** a safe way to backfill existing Campaigns — replaying `CampaignCreated` for
   a Campaign that has also received `ConfigurationRequested` events since would re-run the
   non-idempotent "configs" append (see `mutateConfiguration`'s own doc comment) for every one of
-  those historical events too, not just merge in the missing traits.
+  those historical events too, not just merge in the missing traits. Same gap for
+  `characterCreation.maxStatBudget` (introduced by the `campaign-max-stat-budget` branch): it's
+  seeded by this same `handleCampaignCreated` merge, so a pre-existing Campaign never gets a
+  default `maxStatBudget` either — not a separate, undiscovered issue, just this entry's existing
+  gap covering one more field.
 
 - [ ] **No backfill for pre-existing Ruleset names — an in-place cluster upgrade gets a
   duplicate "Timadorus" Ruleset.** `internal/command/ruleset/migrations/0001_ruleset_names.up.sql`
@@ -62,6 +70,20 @@ up; don't grow this file into a design doc.
   `RulesetCreated` event plus the latest `RulesetRenamed` event per aggregate (non-trivial, since
   the current name isn't stored anywhere but the event stream itself) and inserts it into
   `ruleset_names` with `ON CONFLICT DO NOTHING`.
+
+- [ ] **`setMaxStatBudget` silently falls through to the `configs`-append fallback on a
+  non-integer `value`.** `configureAction.Value` is declared `int`, so a hand-crafted
+  `PUT .../configure` payload like `{"action":"setMaxStatBudget","value":40.5}` fails to decode
+  into it, and `handleConfigurationRequested` silently treats the whole action as unrecognized —
+  appending a timestamp to `configs` instead of updating `characterCreation.maxStatBudget`, with
+  no error or log signal anywhere. The SPA itself can no longer produce this payload (the
+  `campaign-max-stat-budget` branch's final-review fix wave added a client-side
+  `Number.isInteger` guard), so this is only reachable via `curl` or the CLI's generic `action`
+  verb, not through the app. A real fix would decode `value` as `json.Number` (or `float64`) and
+  reject/log a non-integer explicitly instead of silently falling through. Separately, and not
+  fixed either: a *missing* `value` key decodes to Go's zero value (`0`), a valid `int` — so
+  `maxStatBudget` silently becomes `0` rather than erroring, a narrower gap than the non-integer
+  case above and not caught by the same fix.
 
 - [x] **Fixed** (`c97b9f6`). `ruleset.Service.Rename` (`internal/command/ruleset/service.go`) now reserves the
   new name and releases the old one in the same transaction as the `RulesetRenamed` save, mirroring
