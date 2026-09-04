@@ -169,7 +169,7 @@ type NotFound = Problem
 type UnprocessableEntity = Problem
 
 // RequestCampaignConfigurationJSONBody defines parameters for RequestCampaignConfiguration.
-type RequestCampaignConfigurationJSONBody = map[string]interface{}
+type RequestCampaignConfigurationJSONBody map[string]interface{}
 
 // RequestCharacterActionJSONBody defines parameters for RequestCharacterAction.
 type RequestCharacterActionJSONBody = map[string]interface{}
@@ -184,7 +184,7 @@ type CreateCharacterJSONRequestBody = CreateCharacterRequest
 type SetCampaignConfigurationJSONRequestBody = SetCampaignConfigurationRequest
 
 // RequestCampaignConfigurationJSONRequestBody defines body for RequestCampaignConfiguration for application/json ContentType.
-type RequestCampaignConfigurationJSONRequestBody = RequestCampaignConfigurationJSONBody
+type RequestCampaignConfigurationJSONRequestBody RequestCampaignConfigurationJSONBody
 
 // RenameCharacterJSONRequestBody defines body for RenameCharacter for application/json ContentType.
 type RenameCharacterJSONRequestBody = RenameRequest
@@ -4495,22 +4495,22 @@ var swaggerSpec = []string{
 	"cIqygekREC0ylpA0nTvZmFi3Ijc4MZEI/vPv8/H56RjezxA8M8B4khYUFdwJPQNGFSjGE7ThrJz9lSgv",
 	"eBvhWMJ0Oq+CXpIy5BpmRAEXIPQMJXwlc9ACUiSSW34YNXFwrdUt59550WF3oZR+iAbYd/zYNcZ9yOmQ",
 	"jWApTuUpSZp++IWClqqNrYPIyZcC4Yfbn34El5RaaN2R5FfkFDjem9SLSJN6CekrwqhOxxthCoN4KuUy",
-	"KEwtJ967oaS1FX+n8rtBjaW7BBQxaYXz1wKVva9IZoRPncfyX4EyiYnxUv/9579AEqZswt9lhkgB740D",
-	"0zOiQfv8/BvkU8YRMjI3iDP/GFok0SCM31Vznsyk4KJQ6bzPt9X1ZhUv3In6wWksRY1dqMxEnYz9tZq9",
-	"FyJHvaPLInNHAteZaRse6fg3AIchDARqucBEiqwFjhs0xmMC1gT0jClgygLE3uDVEy33gYyY0mEr4JLS",
-	"pfQ5l6iQ69Pj6+SS0rZCtOhJvascO140rqg2OMLunnI3bsKeD7HDOsR61fSgIybJ2uzQR3M/5TLZLY4f",
-	"CCmHCeRuE7/TCE44OJ2B4C1Fd4fv6qTTGb85OFk8SuQOQm7T0skBHdNwiie1vjZ24bGv5gYPcM0bkUG6",
-	"8dC1zRM7sXkRvFBgdHqYk1oINa7PYSPcuKuuoSKnfRG3ew5AlGJT/iTSALfVJcg5OdpylUSTv3MBn6KC",
-	"K9SfIhsXGuOBpF/JXNkqFP6D2NAhOPpFHPZs9xNDFS98H1R/vllyvC3Wqo7a50xzSJkmL2uaYUBsHO8P",
-	"A4yhRPpKMKtx3qWvKl74Bu1+o3F3qFvLpmoQfzaaYRmNU0wQDxvbzGFwMRybKeWyajNls2nvBWLZxBI9",
-	"5g3gUkflke//Am1fHbd/5cj97/gGcGVX7mUJDfGiakLu96E1NLYzlvr9y7MXHVSRqx8TG/vRQ2FjMHUG",
-	"L5uwJ23JaamXMHRgXO1OHKA1re2ifFoFh1IOLxQ0drMOB+3Ozh4Y1J2ig0bBakPrUwVBrV1ImfIOwT+r",
-	"7M2tfEvuoyZXyy8+jpxdhdqOO9IrP3Tv/OoR0iXP27KK40X9iLY/Y2oofDvzbjzlfc6ZBpUzbQSMjdOm",
-	"wwFkMIlTJaDVzCkgrKpFpbe5ddde4COYU/dT1WO3tgaeGHd1tvq+pKfZwOp37/tXNzPr8pniNi1TrXgo",
-	"5F7Q/b/rlyqF4pulatextlmqnLW+U2rAch9em5TXg+2R2t6B+0uLPv+94wXF0bx3+8X6kX139+vjDs9d",
-	"9sA/Sb9d7n07r11eD/Shc8ergKOhs/1/HRwZnd0v1TvQ6QY+TXSWew+hU23wfssEksctD6jf7OFV1+vg",
-	"rrKAQjnIkoCq2jasKltJ4PoygNqhN6iVUjwf/4dy/A+BYPMj/95gGM5RX622YTYe5duNNZ/jf/xsNqBQ",
-	"3vttFzKNLqI4evj88L8AAAD//w==",
+	"KEwRSpn5RNJ3jVTe3eosJ+W7Iai1TX/f8rtBlKW7BCIxaYX61wKVvctIZoRPnTfzX4EyiYnxYP/9579A",
+	"EqbsYaDLRJEC3hvnpmdEg/a5+zfIp4wjZGRu0Gj+MbRIokEYn6zmPJlJwUWh0nmf36tr0SpeuNP2g9NY",
+	"ihq7EJuJOlH7azV7L7SOekeXBeiO5K4zCzc80vFvAA5DGAjUcoGJFFkLHDdojMcEswnoGVPAlAWIvd2r",
+	"J1ruA9kypcNWwCWlS6l1LlEh16fH18klpW2FaNGTllf5d7xoXF9tcLzdPR1v3JI9H3CHdcD1qulBR0yS",
+	"tZmjj/R+ymWyW4w/EFIOE8jdJn6nEZxwcDoDwVuK7g7f1SmoM35zcLJ4lMgdhNymZZUDOqbhFFZqfW3s",
+	"wmNf6Q0e7pq3JYN046ErnSd2mvMieKHA6PQwp7gQalwPxEa4cddgQ0VO+5Ju9xyAKMWm/EmkAW6rS5Bz",
+	"crSlLIkmf+cCPkUFV6g/RTYuNMYDSb+SubIVKvwHsaFDcPSLOOzZziiGKl74Hqn+fLPkeFusVd22z5nm",
+	"kDJNXtY7w4DYON4fBhhDifSVYFbjvEtfVbzwzdv9RuPuV7eWTdU8/mw0wzIap5ggHja2mcPgYjg2U8pl",
+	"1WbKRtTey8WywSV6zNvBpW7LI98NBlrCOm4Gy5H73/8N4Dqv3MsSGuJF1aDc70NraGxnLPXbmGcvOqgi",
+	"Vz8mNvajh8LGYOoMXjZhT9qS01KfYejAuNq5OEBrWtth+bQKDqUcXiho7GYdDtpdnz0wqLtIB42C1WbX",
+	"pwqCWruQMuUdgn9y2Ztb+XbdR02ull+DHDm7CrUkd6RXfuje+dUjpEuet2UVx4v6gW1/xtRQ+Hbm3Xjm",
+	"+5wzDSpn2ggYG6dNhwPIYBKnSkCrmVNAWFWLSm/j6659wkcwp+5nrMduew08P+7qevV9SU+zudXv3ve2",
+	"bmbW5RPGbVqmWvFQyL2g+3/XL1UKxTdL1a5jbbNUOWt9p9SA5T68NimvB9sjtb0D95cWff57xwuKo3nv",
+	"9mv2I/vu7pfJHZ677I9/kn673Pt2Xru8HuhD545XAUdDZ/v/QTgyOrtfsXeg0w18mugs9x5Cp9rgbZcJ",
+	"JI9bHlC/2aOsrpfDXWUBhXKQJQFVtW1YVbaSwPVlALVDb1ArpXg+/g/l+B8CweZH/r3BMJyjvlptw2w8",
+	"2Lcbaz7V//jZbEChvPfbLmQaXURx9PD54X8BAAD//w==",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

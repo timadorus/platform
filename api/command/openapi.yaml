@@ -285,6 +285,7 @@ paths:
           application/json:
             schema:
               type: object
+              additionalProperties: true
       responses:
         "204":
           description: Configuration requested.
