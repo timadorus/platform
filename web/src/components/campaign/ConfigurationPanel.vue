@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { useCampaigns } from '@/composables/useCampaigns'
 import ErrorBanner from '@/components/common/ErrorBanner.vue'
 
@@ -41,14 +41,42 @@ const errorMessage = ref<string | null>(null)
 // reflects my own request" apart from "someone else changed something unrelated in configuration".
 let pendingValue: number | null = null
 
+// A non-Timadorus Campaign silently no-ops on `configure` (by design) — no ConfigurationChanged
+// event is ever emitted, so the currentMaxStatBudget watch below never fires and `status` would
+// stay 'pending' forever with Save disabled. This timeout guarantees the panel always resolves.
+const PENDING_TIMEOUT_MS = 10000
+let pendingTimeoutHandle: ReturnType<typeof setTimeout> | null = null
+
+function clearPendingTimeout() {
+  if (pendingTimeoutHandle) {
+    clearTimeout(pendingTimeoutHandle)
+    pendingTimeoutHandle = null
+  }
+}
+
 async function save() {
   if (maxStatBudgetInput.value === null) return
+  if (!Number.isInteger(maxStatBudgetInput.value)) {
+    status.value = 'error'
+    errorMessage.value = 'Max Stat Budget must be a whole number.'
+    return
+  }
   status.value = 'pending'
   errorMessage.value = null
   pendingValue = maxStatBudgetInput.value
+  clearPendingTimeout()
+  pendingTimeoutHandle = setTimeout(() => {
+    if (status.value === 'pending') {
+      status.value = 'error'
+      errorMessage.value =
+        'No confirmation received — this only takes effect on a Timadorus-ruleset Campaign. If this Campaign uses a different Ruleset, the change was not applied.'
+      pendingValue = null
+    }
+  }, PENDING_TIMEOUT_MS)
   try {
     await requestConfiguration(props.campaignId, { action: 'setMaxStatBudget', value: maxStatBudgetInput.value })
   } catch (err) {
+    clearPendingTimeout()
     status.value = 'error'
     errorMessage.value = err instanceof Error ? err.message : 'Failed to request configuration change.'
   }
@@ -61,10 +89,13 @@ async function save() {
 // reloading the Campaign, which is what updates this component's `configuration` prop.
 watch(currentMaxStatBudget, (value) => {
   if (status.value === 'pending' && pendingValue !== null && value === pendingValue) {
+    clearPendingTimeout()
     status.value = 'idle'
     pendingValue = null
   }
 })
+
+onUnmounted(clearPendingTimeout)
 </script>
 
 <template>
@@ -77,6 +108,8 @@ watch(currentMaxStatBudget, (value) => {
         <input
           v-model.number="maxStatBudgetInput"
           type="number"
+          step="1"
+          min="0"
           class="w-24 rounded-md border border-slate-300 px-2 py-1 text-sm"
         />
         <button
