@@ -29,19 +29,22 @@ import (
 const CampaignProcessorName = "timadorus-engine-campaign"
 
 // CampaignProcessor is CharacterProcessor's sibling: same shape, same rationale for living in
-// this binary, reacting to two of Campaign's own events — CampaignCreated (merging default
-// traits) and ConfigurationRequested (appending a timestamp) — instead of Character's single
-// ActionRequested. Its ruleset lookup for ConfigurationRequested is simpler than
-// CharacterProcessor's: a Campaign event's own env.AggregateID already is the campaign id, so no
-// characters_read_model hop is needed; that lookup goes through RulesetCache.resolve's
-// campaigns_read_model join. CampaignCreated resolves its Ruleset name a different way — loading
-// the Ruleset aggregate directly from the event store via p.rulesets, keyed by the event's own
-// RulesetID — since neither campaigns_read_model nor rulesets_read_model can be relied on to
-// have a row for a brand-new Campaign or its Ruleset yet (see handleCampaignCreated's doc
-// comment for why the event store is race-free here and a read model isn't). Not naturally
-// idempotent on replay for the ConfigurationRequested path (the "configs" append), for the same
-// reason CharacterProcessor isn't — see that type's doc comment. The CampaignCreated path (a
-// plain "traits" overwrite) is naturally idempotent on replay by contrast.
+// this binary, reacting to two of Campaign's own events — CampaignCreated (merging default traits
+// and default character-creation settings) and ConfigurationRequested (either updating
+// characterCreation.maxStatBudget for a recognized setMaxStatBudget action, or, for any other
+// payload, appending a timestamp) — instead of Character's single ActionRequested. Its ruleset
+// lookup for ConfigurationRequested is simpler than CharacterProcessor's: a Campaign event's own
+// env.AggregateID already is the campaign id, so no characters_read_model hop is needed; that
+// lookup goes through RulesetCache.resolve's campaigns_read_model join. CampaignCreated resolves
+// its Ruleset name a different way — loading the Ruleset aggregate directly from the event store
+// via p.rulesets, keyed by the event's own RulesetID — since neither campaigns_read_model nor
+// rulesets_read_model can be relied on to have a row for a brand-new Campaign or its Ruleset yet
+// (see handleCampaignCreated's doc comment for why the event store is race-free here and a read
+// model isn't). Not naturally idempotent on replay for the ConfigurationRequested path's
+// timestamp-append fallback, for the same reason CharacterProcessor isn't — see that type's doc
+// comment. The CampaignCreated path (a plain "traits"/"characterCreation" overwrite) and the
+// setMaxStatBudget action (also a plain overwrite of characterCreation.maxStatBudget) are both
+// naturally idempotent on replay by contrast.
 type CampaignProcessor struct {
 	campaigns *eventsourcing.Repository[*campaign.Campaign]
 	rulesets  *eventsourcing.Repository[*ruleset.Ruleset]
@@ -83,6 +86,12 @@ func (p *CampaignProcessor) Subjects() []string { return []string{bus.Subject(ev
 // — Go has no slice constants — but never mutated after initialization; edit this list in place
 // to change what new "timadorus" Campaigns start with.
 var defaultTraits = []string{"strong", "agile", "quick"}
+
+// defaultMaxStatBudget's sibling to defaultTraits: character-creation defaults merged into every
+// newly created Campaign that uses the "timadorus" Ruleset, alongside defaultTraits. Not a
+// `const` for the same reason defaultTraits isn't (Go has no map constants); edit in place to
+// change the starting value for new "timadorus" Campaigns.
+var defaultMaxStatBudget = 35
 
 func (p *CampaignProcessor) Handle(ctx context.Context, tx pgx.Tx, env bus.Envelope) error {
 	switch env.EventType {
@@ -132,12 +141,24 @@ func (p *CampaignProcessor) handleCampaignCreated(ctx context.Context, tx pgx.Tx
 
 	return p.mutateConfiguration(ctx, tx, env, campaignID, func(config map[string]any) {
 		config["traits"] = defaultTraits
+		config["characterCreation"] = map[string]any{"maxStatBudget": defaultMaxStatBudget}
 	})
 }
 
-// handleConfigurationRequested mirrors handleCampaignCreated's shape, appending occurredAt to
-// the "configs" array instead of overwriting "traits" — the one difference being this mutation
-// is not idempotent under event replay (see mutateConfiguration's own doc comment).
+// configureAction is the one recognized shape of a PUT .../configure payload today — everything
+// else (including the empty {} the CLI's generic `action` verb and this package's own tests send)
+// falls through to the pre-existing timestamp-append behavior below. Extend this dispatch, not
+// the fallback, when the next real action is added.
+type configureAction struct {
+	Action string `json:"action"`
+	Value  int    `json:"value"`
+}
+
+// handleConfigurationRequested mirrors handleCampaignCreated's shape. A recognized
+// {"action":"setMaxStatBudget","value":n} payload updates characterCreation.maxStatBudget;
+// any other payload (including the historical {} used by the CLI's generic action verb) appends
+// occurredAt to the "configs" array instead, exactly as before. Neither mutation is idempotent
+// under event replay (see mutateConfiguration's own doc comment).
 func (p *CampaignProcessor) handleConfigurationRequested(ctx context.Context, tx pgx.Tx, env bus.Envelope) error {
 	var e events.ConfigurationRequested
 	if err := json.Unmarshal(env.Payload, &e); err != nil {
@@ -153,6 +174,18 @@ func (p *CampaignProcessor) handleConfigurationRequested(ctx context.Context, tx
 		return nil // not our ruleset — no-op, still checkpointed as handled
 	}
 
+	var action configureAction
+	if err := json.Unmarshal([]byte(e.Payload), &action); err == nil && action.Action == "setMaxStatBudget" {
+		return p.mutateConfiguration(ctx, tx, env, campaignID, func(config map[string]any) {
+			cc, _ := config["characterCreation"].(map[string]any)
+			if cc == nil {
+				cc = map[string]any{}
+			}
+			cc["maxStatBudget"] = action.Value
+			config["characterCreation"] = cc
+		})
+	}
+
 	occurredAt := e.OccurredAt
 	return p.mutateConfiguration(ctx, tx, env, campaignID, func(config map[string]any) {
 		configs, _ := config["configs"].([]any)
@@ -165,10 +198,12 @@ func (p *CampaignProcessor) handleConfigurationRequested(ctx context.Context, tx
 // or even a JSON object at all, since SetConfiguration accepts any string; erroring here would
 // get a Campaign permanently stuck instead of self-healing on retry), applies mutate to update
 // exactly the key(s) it owns, re-marshals, and saves via SetConfiguration. Shared by
-// handleCampaignCreated ("traits", a plain idempotent overwrite) and
-// handleConfigurationRequested ("configs", an append that is NOT idempotent under event replay —
-// a checkpoint reset would re-append every historical timestamp rather than converge) so each
-// only ever touches its own top-level key and never clobbers the other's.
+// handleCampaignCreated ("traits" and "characterCreation", plain idempotent overwrites) and
+// handleConfigurationRequested (either "characterCreation.maxStatBudget", also a plain idempotent
+// overwrite, for a recognized setMaxStatBudget action, or "configs" otherwise — an append that is
+// NOT idempotent under event replay, since a checkpoint reset would re-append every historical
+// timestamp rather than converge) so each call only ever touches the key(s) it owns and never
+// clobbers the others'.
 func (p *CampaignProcessor) mutateConfiguration(ctx context.Context, tx pgx.Tx, env bus.Envelope, campaignID uuid.UUID, mutate func(map[string]any)) error {
 	txCtx := postgres.WithTx(observability.WithCorrelationID(ctx, env.CorrelationID()), tx)
 

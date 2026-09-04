@@ -403,7 +403,10 @@ func TestCampaignProcessor_CampaignCreated_MatchingRuleset_MergesDefaultTraits(t
 	}
 
 	var decoded struct {
-		Traits []string `json:"traits"`
+		Traits           []string `json:"traits"`
+		CharacterCreation struct {
+			MaxStatBudget int `json:"maxStatBudget"`
+		} `json:"characterCreation"`
 	}
 	if err := json.Unmarshal([]byte(configEvent.Configuration), &decoded); err != nil {
 		t.Fatalf("configuration %q is not the expected shape: %v", configEvent.Configuration, err)
@@ -416,6 +419,9 @@ func TestCampaignProcessor_CampaignCreated_MatchingRuleset_MergesDefaultTraits(t
 		if decoded.Traits[i] != want[i] {
 			t.Fatalf("got traits %v, want %v", decoded.Traits, want)
 		}
+	}
+	if decoded.CharacterCreation.MaxStatBudget != 35 {
+		t.Fatalf("got maxStatBudget %d, want 35", decoded.CharacterCreation.MaxStatBudget)
 	}
 
 	wait()
@@ -613,6 +619,282 @@ func TestCampaignProcessor_CampaignCreated_ArchivedCampaign_NoOp(t *testing.T) {
 	}
 	if deadLetterCount != 0 {
 		t.Fatalf("got %d dead-lettered events, want 0 (archived Campaign should be a clean no-op)", deadLetterCount)
+	}
+
+	wait()
+}
+
+func TestCampaignProcessor_ConfigurationRequested_SetMaxStatBudget_MatchingRuleset_UpdatesValue(t *testing.T) {
+	pool := newTestPool(t)
+
+	rulesetID := uuid.New()
+	seedRuleset(t, pool, rulesetID, "timadorus")
+	campaignID := createCampaign(t, pool, rulesetID)
+
+	publish, wait := runCampaignEngine(t, pool)
+
+	publish(bus.Envelope{
+		GlobalSeq:     1,
+		AggregateID:   campaignID,
+		AggregateType: events.AggregateType,
+		Version:       2,
+		EventType:     events.TypeConfigurationRequested,
+		Payload: mustMarshal(t, events.ConfigurationRequested{
+			Payload:    `{"action":"setMaxStatBudget","value":40}`,
+			OccurredAt: time.Now().UTC(),
+		}),
+	})
+
+	deadline := time.Now().Add(5 * time.Second)
+	var payload []byte
+	for time.Now().Before(deadline) {
+		err := pool.QueryRow(context.Background(),
+			`SELECT payload FROM events WHERE aggregate_id = $1 AND event_type = $2
+			 ORDER BY version DESC LIMIT 1`,
+			campaignID, events.TypeConfigurationChanged,
+		).Scan(&payload)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			t.Fatalf("query configuration_changed event: %v", err)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if payload == nil {
+		t.Fatal("timed out waiting for a campaign.configuration_changed.v1 event")
+	}
+
+	var configEvent struct {
+		Configuration string `json:"configuration"`
+	}
+	if err := json.Unmarshal(payload, &configEvent); err != nil {
+		t.Fatalf("configuration_changed payload %s is not the expected shape: %v", payload, err)
+	}
+
+	var decoded struct {
+		Configs           []string `json:"configs"`
+		CharacterCreation struct {
+			MaxStatBudget int `json:"maxStatBudget"`
+		} `json:"characterCreation"`
+	}
+	if err := json.Unmarshal([]byte(configEvent.Configuration), &decoded); err != nil {
+		t.Fatalf("configuration %q is not the expected shape: %v", configEvent.Configuration, err)
+	}
+	if decoded.CharacterCreation.MaxStatBudget != 40 {
+		t.Fatalf("got maxStatBudget %d, want 40", decoded.CharacterCreation.MaxStatBudget)
+	}
+	if len(decoded.Configs) != 0 {
+		t.Fatalf("got configs %v, want none (a recognized setMaxStatBudget action must not also append a timestamp)", decoded.Configs)
+	}
+
+	wait()
+}
+
+func TestCampaignProcessor_ConfigurationRequested_UnrecognizedPayload_StillAppendsTimestamp(t *testing.T) {
+	pool := newTestPool(t)
+
+	rulesetID := uuid.New()
+	seedRuleset(t, pool, rulesetID, "timadorus")
+	campaignID := createCampaign(t, pool, rulesetID)
+
+	publish, wait := runCampaignEngine(t, pool)
+
+	occurredAt := time.Date(2026, 3, 4, 5, 6, 7, 0, time.UTC)
+	publish(bus.Envelope{
+		GlobalSeq:     1,
+		AggregateID:   campaignID,
+		AggregateType: events.AggregateType,
+		Version:       2,
+		EventType:     events.TypeConfigurationRequested,
+		Payload:       mustMarshal(t, events.ConfigurationRequested{Payload: "{}", OccurredAt: occurredAt}),
+	})
+
+	deadline := time.Now().Add(5 * time.Second)
+	var payload []byte
+	for time.Now().Before(deadline) {
+		err := pool.QueryRow(context.Background(),
+			`SELECT payload FROM events WHERE aggregate_id = $1 AND event_type = $2
+			 ORDER BY version DESC LIMIT 1`,
+			campaignID, events.TypeConfigurationChanged,
+		).Scan(&payload)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			t.Fatalf("query configuration_changed event: %v", err)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if payload == nil {
+		t.Fatal("timed out waiting for a campaign.configuration_changed.v1 event")
+	}
+
+	var configEvent struct {
+		Configuration string `json:"configuration"`
+	}
+	if err := json.Unmarshal(payload, &configEvent); err != nil {
+		t.Fatalf("configuration_changed payload %s is not the expected shape: %v", payload, err)
+	}
+
+	var decoded struct {
+		Configs           []string       `json:"configs"`
+		CharacterCreation map[string]any `json:"characterCreation"`
+	}
+	if err := json.Unmarshal([]byte(configEvent.Configuration), &decoded); err != nil {
+		t.Fatalf("configuration %q is not the expected shape: %v", configEvent.Configuration, err)
+	}
+	if len(decoded.Configs) != 1 || decoded.Configs[0] != occurredAt.Format(time.RFC3339Nano) {
+		t.Fatalf("got configs %v, want [%q] (the pre-existing fallback behavior must be unaffected)", decoded.Configs, occurredAt.Format(time.RFC3339Nano))
+	}
+	if decoded.CharacterCreation != nil {
+		t.Fatalf("got characterCreation %v, want none (this Campaign was never created via CampaignCreated in this test, and this payload isn't a setMaxStatBudget action)", decoded.CharacterCreation)
+	}
+
+	wait()
+}
+
+func TestCampaignProcessor_ConfigurationRequested_SetMaxStatBudget_NonMatchingRuleset_NoOp(t *testing.T) {
+	pool := newTestPool(t)
+
+	rulesetID := uuid.New()
+	seedRuleset(t, pool, rulesetID, "SomethingElse")
+	campaignID := createCampaign(t, pool, rulesetID)
+
+	publish, wait := runCampaignEngine(t, pool)
+
+	publish(bus.Envelope{
+		GlobalSeq:     1,
+		AggregateID:   campaignID,
+		AggregateType: events.AggregateType,
+		Version:       2,
+		EventType:     events.TypeConfigurationRequested,
+		Payload: mustMarshal(t, events.ConfigurationRequested{
+			Payload:    `{"action":"setMaxStatBudget","value":40}`,
+			OccurredAt: time.Now().UTC(),
+		}),
+	})
+
+	time.Sleep(500 * time.Millisecond)
+
+	var count int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM events WHERE aggregate_id = $1 AND event_type = $2`,
+		campaignID, events.TypeConfigurationChanged,
+	).Scan(&count); err != nil {
+		t.Fatalf("count configuration_changed events: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("got %d campaign.configuration_changed.v1 events, want 0 (ruleset doesn't match)", count)
+	}
+
+	wait()
+}
+
+func TestCampaignProcessor_TraitsAndCharacterCreationAndConfigsCoexist(t *testing.T) {
+	pool := newTestPool(t)
+
+	rulesetID := createRuleset(t, pool, "timadorus")
+	ctx := context.Background()
+	repo := campaignRepo(pool)
+	c, err := campaign.New(uuid.New(), rulesetID, "Test Campaign", []uuid.UUID{uuid.New()})
+	if err != nil {
+		t.Fatalf("campaign.New: %v", err)
+	}
+	if err := repo.Save(ctx, c); err != nil {
+		t.Fatalf("save campaign: %v", err)
+	}
+	campaignID := c.AggregateID()
+
+	publish, wait := runCampaignEngine(t, pool)
+
+	// 1. CampaignCreated merges traits + the maxStatBudget default.
+	publish(bus.Envelope{
+		GlobalSeq:     1,
+		AggregateID:   campaignID,
+		AggregateType: events.AggregateType,
+		Version:       1,
+		EventType:     events.TypeCampaignCreated,
+		Payload: mustMarshal(t, events.CampaignCreated{
+			ID: campaignID, Name: "Test Campaign", UniverseID: c.UniverseID(), RulesetID: rulesetID,
+			GamemasterUserIDs: []uuid.UUID{uuid.New()}, OccurredAt: time.Now().UTC(),
+		}),
+	})
+	waitForConfigVersion := func(wantVersion int) map[string]any {
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			var raw []byte
+			err := pool.QueryRow(context.Background(),
+				`SELECT payload FROM events WHERE aggregate_id = $1 AND event_type = $2 AND version = $3`,
+				campaignID, events.TypeConfigurationChanged, wantVersion,
+			).Scan(&raw)
+			if err == nil {
+				var ev struct {
+					Configuration string `json:"configuration"`
+				}
+				if uerr := json.Unmarshal(raw, &ev); uerr != nil {
+					t.Fatalf("unmarshal configuration_changed: %v", uerr)
+				}
+				var config map[string]any
+				if uerr := json.Unmarshal([]byte(ev.Configuration), &config); uerr != nil {
+					t.Fatalf("unmarshal configuration %q: %v", ev.Configuration, uerr)
+				}
+				return config
+			}
+			if !errors.Is(err, pgx.ErrNoRows) {
+				t.Fatalf("query configuration_changed event: %v", err)
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		t.Fatalf("timed out waiting for configuration_changed version %d", wantVersion)
+		return nil
+	}
+	config := waitForConfigVersion(2) // version 1 is CampaignCreated itself; the merge raises version 2
+	if config["traits"] == nil {
+		t.Fatal("traits missing after CampaignCreated")
+	}
+	if config["characterCreation"] == nil {
+		t.Fatal("characterCreation missing after CampaignCreated")
+	}
+
+	// 2. A setMaxStatBudget action updates characterCreation without disturbing traits.
+	publish(bus.Envelope{
+		GlobalSeq:     2,
+		AggregateID:   campaignID,
+		AggregateType: events.AggregateType,
+		Version:       2,
+		EventType:     events.TypeConfigurationRequested,
+		Payload: mustMarshal(t, events.ConfigurationRequested{
+			Payload:    `{"action":"setMaxStatBudget","value":50}`,
+			OccurredAt: time.Now().UTC(),
+		}),
+	})
+	config = waitForConfigVersion(3)
+	cc, _ := config["characterCreation"].(map[string]any)
+	if cc["maxStatBudget"] != float64(50) { // decoded via encoding/json into map[string]any: numbers are float64
+		t.Fatalf("got maxStatBudget %v, want 50", cc["maxStatBudget"])
+	}
+	if config["traits"] == nil {
+		t.Fatal("traits should survive the setMaxStatBudget update")
+	}
+
+	// 3. An unrecognized payload still appends a timestamp without disturbing the other two keys.
+	occurredAt := time.Now().UTC()
+	publish(bus.Envelope{
+		GlobalSeq:     3,
+		AggregateID:   campaignID,
+		AggregateType: events.AggregateType,
+		Version:       3,
+		EventType:     events.TypeConfigurationRequested,
+		Payload:       mustMarshal(t, events.ConfigurationRequested{Payload: "{}", OccurredAt: occurredAt}),
+	})
+	config = waitForConfigVersion(4)
+	configs, _ := config["configs"].([]any)
+	if len(configs) != 1 {
+		t.Fatalf("got configs %v, want exactly 1 entry", configs)
+	}
+	if config["traits"] == nil || config["characterCreation"] == nil {
+		t.Fatal("traits and characterCreation should both survive the configs append")
 	}
 
 	wait()
