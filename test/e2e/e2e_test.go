@@ -353,4 +353,92 @@ var _ = Describe("Timadorus platform aggregates", func() {
 			g.Expect(cc["maxStatBudget"]).To(Equal(float64(50)))
 		}, time.Minute, time.Second).Should(Succeed())
 	})
+
+	It("adding a trait to a Character validates against its Campaign's own trait list and eventually lands", func() {
+		var rulesets []querygen.Ruleset
+		resp, err := doJSON(http.MethodGet, env.QueryAPIBaseURL+"/rulesets", env.BearerToken, nil, &rulesets)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		var timadorusRuleset *querygen.Ruleset
+		for i := range rulesets {
+			if rulesets[i].Name == "Timadorus" {
+				timadorusRuleset = &rulesets[i]
+				break
+			}
+		}
+		Expect(timadorusRuleset).NotTo(BeNil(), "expected timadorus-engine to have registered a Ruleset named \"Timadorus\" at startup")
+
+		var user commandgen.UserCreatedResponse
+		resp, err = doJSON(http.MethodPost, env.CommandAPIBaseURL+"/users", env.BearerToken,
+			commandgen.CreateUserRequest{Name: "e2e-traits-user"}, &user)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+
+		var universe commandgen.UniverseCreatedResponse
+		resp, err = doJSON(http.MethodPost, env.CommandAPIBaseURL+"/universes", env.BearerToken,
+			commandgen.CreateUniverseRequest{Name: "e2e-traits-universe", CreatorUserIds: []uuid.UUID{user.Id}}, &universe)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+
+		var campaignResp commandgen.CampaignCreatedResponse
+		resp, err = doJSON(http.MethodPost, fmt.Sprintf("%s/universes/%s/campaigns", env.CommandAPIBaseURL, universe.Id), env.BearerToken,
+			commandgen.CreateCampaignRequest{Name: "e2e-traits-campaign", RulesetId: timadorusRuleset.Id, GamemasterUserIds: []uuid.UUID{user.Id}}, &campaignResp)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+
+		var characterResp commandgen.CharacterCreatedResponse
+		resp, err = doJSON(http.MethodPost, fmt.Sprintf("%s/campaigns/%s/characters", env.CommandAPIBaseURL, campaignResp.Id), env.BearerToken,
+			commandgen.CreateCharacterRequest{Name: "e2e-traits-character", PlayerUserId: user.Id}, &characterResp)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+
+		// The default stats object should already be present once the engine's CharacterCreated
+		// handling catches up.
+		Eventually(func(g Gomega) {
+			var got querygen.Character
+			resp, err := doJSON(http.MethodGet, fmt.Sprintf("%s/characters/%s", env.QueryAPIBaseURL, characterResp.CharacterId), env.BearerToken, nil, &got)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			var info map[string]any
+			g.Expect(json.Unmarshal([]byte(got.Info), &info)).To(Succeed())
+			stats, _ := info["stats"].(map[string]any)
+			g.Expect(stats["traitPoints"]).To(Equal(float64(2)))
+			g.Expect(stats["traits"]).To(BeEmpty())
+		}, time.Minute, time.Second).Should(Succeed())
+
+		// A trait NOT in the Campaign's own list must be rejected — no mutation.
+		resp, err = doJSON(http.MethodPut, fmt.Sprintf("%s/characters/%s/action", env.CommandAPIBaseURL, characterResp.CharacterId), env.BearerToken,
+			map[string]any{"action": "addTrait", "trait": "not-a-real-trait"}, nil)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
+		Consistently(func(g Gomega) {
+			var got querygen.Character
+			resp, err := doJSON(http.MethodGet, fmt.Sprintf("%s/characters/%s", env.QueryAPIBaseURL, characterResp.CharacterId), env.BearerToken, nil, &got)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			var info map[string]any
+			g.Expect(json.Unmarshal([]byte(got.Info), &info)).To(Succeed())
+			stats, _ := info["stats"].(map[string]any)
+			g.Expect(stats["traits"]).To(BeEmpty())
+		}, 5*time.Second, time.Second).Should(Succeed())
+
+		// A trait that IS in the Campaign's default seeded list ("strong") must succeed.
+		resp, err = doJSON(http.MethodPut, fmt.Sprintf("%s/characters/%s/action", env.CommandAPIBaseURL, characterResp.CharacterId), env.BearerToken,
+			map[string]any{"action": "addTrait", "trait": "strong"}, nil)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
+
+		Eventually(func(g Gomega) {
+			var got querygen.Character
+			resp, err := doJSON(http.MethodGet, fmt.Sprintf("%s/characters/%s", env.QueryAPIBaseURL, characterResp.CharacterId), env.BearerToken, nil, &got)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			var info map[string]any
+			g.Expect(json.Unmarshal([]byte(got.Info), &info)).To(Succeed())
+			stats, _ := info["stats"].(map[string]any)
+			g.Expect(stats["traitPoints"]).To(Equal(float64(1)))
+			g.Expect(stats["traits"]).To(ConsistOf("strong"))
+		}, time.Minute, time.Second).Should(Succeed())
+	})
 })
