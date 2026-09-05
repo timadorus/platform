@@ -1,7 +1,10 @@
 // timadorus-engine subscribes to the Character and Campaign event streams and reacts to their
 // respective trigger events (ActionRequested, ConfigurationRequested, CampaignCreated) — see
-// internal/engine/timadorus for the actual logic. Structurally identical to cmd/projector (same
-// Router/checkpoint machinery), but registers two processors sharing one RulesetCache instead
+// internal/engine/timadorus for the actual logic. Also runs a Reconciler: a completely separate
+// periodic background sweep (no NATS/Router/checkpoint involvement) that self-heals any Timadorus
+// Campaign/Character missing its default configuration/stats fields — see reconcile.go's own doc
+// comment. Structurally identical to cmd/projector (same Router/checkpoint machinery for the two
+// event-driven processors), but registers two processors sharing one RulesetCache instead
 // of the seven read-model projectors, which is why it's a separate binary: unlike every
 // projector, it legitimately imports full write-side packages (domain/character,
 // domain/campaign, eventsourcing, eventstore/postgres). Also syncs the Timadorus Ruleset's data
@@ -56,8 +59,10 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	// reads via the pool rather than the ambient tx (see postgres.Store.Load). So N processors
 	// sharing this one pool can peak at 2N connections, on top of /readyz's own Ping. With the
 	// 2 processors registered below that's 4, plus Ping — comfortably under the default of 8.
-	// Configurable via TIMADORUS_ENGINE_POOL_MAX_CONNS (internal/config.LoadTimadorusEngine) if
-	// a 3rd processor or heavier load ever needs more headroom, with no code change required.
+	// The Reconciler (below) adds at most 1-2 more, sequentially, only during its own 30s-interval
+	// sweep — still comfortably within budget. Configurable via TIMADORUS_ENGINE_POOL_MAX_CONNS
+	// (internal/config.LoadTimadorusEngine) if a 3rd processor or heavier load ever needs more
+	// headroom, with no code change required.
 	poolCfg, err := pgxpool.ParseConfig(cfg.DatabaseURL)
 	if err != nil {
 		return err
@@ -97,6 +102,9 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		timadorusengine.NewCharacterProcessor(pool, cache, logger),
 		timadorusengine.NewCampaignProcessor(pool, cache),
 	}
+
+	reconciler := timadorusengine.NewReconciler(pool, logger)
+	go reconciler.Run(ctx, timadorusengine.ReconcilerInterval)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", observability.HealthzHandler())
