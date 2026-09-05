@@ -151,23 +151,9 @@ func (p *CharacterProcessor) Handle(ctx context.Context, tx pgx.Tx, env bus.Enve
 // stats.statBudget from characterCreation.maxStatBudget — the engine derives this itself rather
 // than trusting a client-submitted value (design spec "Character Attributes", Decision 3), the
 // same "engine, not the SPA, is the source of truth" principle tryAddTrait already applies to
-// trait eligibility.
-//
-// CampaignCreated and CharacterCreated are handled by two independent NATS consumers with no
-// ordering relationship, even though CampaignProcessor's own handleCampaignCreated always seeds a
-// default characterCreation.maxStatBudget for a "timadorus" Campaign in reaction to the very same
-// CampaignCreated event — so a Character created immediately after its Campaign can race ahead of
-// that seeding and see campaigns_read_model.configuration before it's been updated (confirmed via
-// a real-cluster e2e run: the omission was permanent, not a slow-catchup delay). Returning an
-// error here — rather than silently omitting statBudget — makes that race retryable: the router
-// Nacks the message for redelivery (non-blocking; up to defaultMaxAttempts, see router.go — the
-// same mechanism this codebase already relies on elsewhere, since Handle is idempotent via the
-// checkpoint), which converges almost immediately in practice, since the Campaign's own seeding is
-// already in flight for the very same CampaignCreated event. A Campaign whose own maxStatBudget
-// seeding is permanently broken exhausts retries and dead-letters the whole CharacterCreated event
-// (visible in projection_dead_letters, not silent) — deliberately coupling
-// traitPoints/traits/attributes seeding to the same retry, so a Character's stats object is always
-// seeded completely or not at all, never partially.
+// trait eligibility. Omitted from stats entirely if the Campaign has no maxStatBudget configured
+// (not expected for a "timadorus" Campaign, since CampaignProcessor's own handleCampaignCreated
+// always seeds a default — but not treated as an error if it's ever missing).
 func (p *CharacterProcessor) handleCharacterCreated(ctx context.Context, tx pgx.Tx, env bus.Envelope) error {
 	var e events.CharacterCreated
 	if err := json.Unmarshal(env.Payload, &e); err != nil {
@@ -186,17 +172,17 @@ func (p *CharacterProcessor) handleCharacterCreated(ctx context.Context, tx pgx.
 	if err != nil {
 		return err
 	}
-	if config.CharacterCreation.MaxStatBudget == nil {
-		return fmt.Errorf(errPrefix+"campaign %s's characterCreation.maxStatBudget isn't set yet (CampaignProcessor may still be catching up on CampaignCreated) — retrying", e.CampaignID)
-	}
 
 	return p.mutateInfo(ctx, tx, env, env.AggregateID, func(info map[string]any) {
-		info["stats"] = map[string]any{
+		stats := map[string]any{
 			"traitPoints": defaultTraitPoints,
 			"traits":      []string{},
 			"attributes":  defaultAttributes(),
-			"statBudget":  *config.CharacterCreation.MaxStatBudget,
 		}
+		if config.CharacterCreation.MaxStatBudget != nil {
+			stats["statBudget"] = *config.CharacterCreation.MaxStatBudget
+		}
+		info["stats"] = stats
 	})
 }
 
