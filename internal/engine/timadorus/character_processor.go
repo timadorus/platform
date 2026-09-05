@@ -15,6 +15,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/timadorus/platform/internal/bus"
+	"github.com/timadorus/platform/internal/domain/campaign"
+	campaignevents "github.com/timadorus/platform/internal/domain/campaign/events"
 	"github.com/timadorus/platform/internal/domain/character"
 	"github.com/timadorus/platform/internal/domain/character/events"
 	"github.com/timadorus/platform/internal/eventsourcing"
@@ -81,8 +83,9 @@ func defaultAttributes() map[string]any {
 //
 // Reacts to two event types on a "timadorus"-ruleset Character's Campaign: CharacterCreated seeds
 // stats.traitPoints/stats.traits/stats.attributes with their starting defaults, plus
-// stats.statBudget read from the Campaign's own configuration (see handleCharacterCreated's doc
-// comment), and ActionRequested recognizes a {"action":"addTrait","trait":"<name>"} payload —
+// stats.statBudget read from the Campaign's own write-side configuration (see
+// handleCharacterCreated's doc comment), and ActionRequested recognizes a
+// {"action":"addTrait","trait":"<name>"} payload —
 // validating it against the Campaign's own configured trait list, the Character's current
 // traitPoints, and its existing traits before applying it, logging (and no-op'ing) any rejection
 // instead of erroring the event. Any other ActionRequested payload falls back to appending
@@ -102,6 +105,7 @@ func defaultAttributes() map[string]any {
 // silently skipped, not reprocessed.
 type CharacterProcessor struct {
 	characters *eventsourcing.Repository[*character.Character]
+	campaigns  *eventsourcing.Repository[*campaign.Campaign]
 	cache      *RulesetCache
 	logger     *slog.Logger
 }
@@ -109,15 +113,29 @@ type CharacterProcessor struct {
 // NewCharacterProcessor builds its own Registry scoped to just Character — the only aggregate
 // type this processor ever loads/saves — mirroring cmd/command-api/main.go's construction
 // pattern (registry -> postgres.NewStore(pool, registry) -> eventsourcing.NewRepository(store,
-// ...)). cache is shared with CampaignProcessor — see RulesetCache's doc comment.
+// ...)). Also builds a second, independent Repository scoped to Campaign, read-only in practice
+// (handleCharacterCreated only ever Loads it, never Saves) — needed to read a Campaign's own
+// characterCreation.maxStatBudget from its authoritative write-side state rather than the lagging
+// campaigns_read_model projection (see handleCharacterCreated's doc comment and
+// docs/superpowers/specs/2026-09-05-statbudget-race-reconciliation-design.md). Mirrors
+// CampaignProcessor's own construction of a second repository (its Ruleset one) for the same
+// reason: a second, narrowly-scoped read into a different aggregate type. cache is shared with
+// CampaignProcessor — see RulesetCache's doc comment.
 func NewCharacterProcessor(pool *pgxpool.Pool, cache *RulesetCache, logger *slog.Logger) *CharacterProcessor {
 	registry := eventsourcing.NewRegistry()
 	events.Register(registry)
 	store := postgres.NewStore(pool, registry)
 
+	campaignRegistry := eventsourcing.NewRegistry()
+	campaignevents.Register(campaignRegistry)
+	campaignStore := postgres.NewStore(pool, campaignRegistry)
+
 	return &CharacterProcessor{
 		characters: eventsourcing.NewRepository(store, character.AggregateType, func() *character.Character {
 			return &character.Character{}
+		}),
+		campaigns: eventsourcing.NewRepository(campaignStore, campaign.AggregateType, func() *campaign.Campaign {
+			return &campaign.Campaign{}
 		}),
 		cache:  cache,
 		logger: logger,
@@ -147,13 +165,26 @@ func (p *CharacterProcessor) Handle(ctx context.Context, tx pgx.Tx, env bus.Enve
 // carry RulesetID the way CampaignCreated does, so — unlike CampaignProcessor.handleCampaignCreated's
 // event-store-based resolution — this cannot skip the read-model join on a cache miss.
 //
-// Also reads the Campaign's own configuration directly (loadCampaignConfiguration) to seed
-// stats.statBudget from characterCreation.maxStatBudget — the engine derives this itself rather
-// than trusting a client-submitted value (design spec "Character Attributes", Decision 3), the
-// same "engine, not the SPA, is the source of truth" principle tryAddTrait already applies to
-// trait eligibility. Omitted from stats entirely if the Campaign has no maxStatBudget configured
-// (not expected for a "timadorus" Campaign, since CampaignProcessor's own handleCampaignCreated
-// always seeds a default — but not treated as an error if it's ever missing).
+// Reads the Campaign's own characterCreation.maxStatBudget directly from the write-side Campaign
+// aggregate (p.campaigns.Load), NOT from campaigns_read_model — the engine derives this itself
+// rather than trusting a client-submitted value (the same "engine, not the SPA, is the source of
+// truth" principle tryAddTrait already applies to trait eligibility), and reading the aggregate
+// instead of the read-model projection matters here specifically: CampaignCreated and
+// CharacterCreated are handled by two independent NATS consumers with no ordering guarantee
+// between them, even though CampaignProcessor's own handleCampaignCreated always seeds a default
+// characterCreation.maxStatBudget for a "timadorus" Campaign in reaction to the very same
+// CampaignCreated event. Reading campaigns_read_model (as this function used to) added a second,
+// slower asynchronous hop on top of that race — ConfigurationChanged's own outbox-relay-poll-then-
+// projector round trip — that a Character created immediately after its Campaign could easily
+// lose, permanently missing statBudget with no error or trace (see BACKLOG.md's now-resolved
+// URGENT entry for the full history, including two reverted attempts to fix this via
+// Nack-based retry). Reading the aggregate directly removes that second hop, since it reflects
+// SetConfiguration the instant it's saved, with zero projection lag — narrowing the remaining race
+// to just the two same-binary consumers' own relative scheduling, which ordinary usage doesn't
+// hit. Any residual case (or a Campaign/Character that predates this fix) self-heals via
+// Reconciler (reconcile.go), a completely independent periodic sweep — not via retrying here.
+// If the Campaign has no maxStatBudget yet, statBudget is simply omitted from stats this time;
+// Reconciler fills it in once available.
 func (p *CharacterProcessor) handleCharacterCreated(ctx context.Context, tx pgx.Tx, env bus.Envelope) error {
 	var e events.CharacterCreated
 	if err := json.Unmarshal(env.Payload, &e); err != nil {
@@ -168,10 +199,11 @@ func (p *CharacterProcessor) handleCharacterCreated(ctx context.Context, tx pgx.
 		return nil // not our ruleset — no-op, still checkpointed as handled
 	}
 
-	config, err := loadCampaignConfiguration(ctx, tx, e.CampaignID)
+	campaignAgg, err := p.campaigns.Load(ctx, e.CampaignID)
 	if err != nil {
-		return err
+		return fmt.Errorf(errPrefix+"load campaign %s: %w", e.CampaignID, err)
 	}
+	config := parseCampaignConfiguration(campaignAgg.Configuration())
 
 	return p.mutateInfo(ctx, tx, env, env.AggregateID, func(info map[string]any) {
 		stats := map[string]any{
@@ -325,11 +357,24 @@ type campaignConfiguration struct {
 	} `json:"characterCreation"`
 }
 
-// loadCampaignConfiguration reads and parses a Campaign's own configuration column directly from
-// campaigns_read_model. Best-effort on parse failure or an absent/empty column: an unparseable or
-// absent configuration yields a zero-value campaignConfiguration (not an error) — same "start
+// parseCampaignConfiguration parses a Campaign's raw configuration JSON into campaignConfiguration,
+// best-effort: an unparseable or empty string yields a zero value (not an error) — same "start
 // fresh rather than error" philosophy mutateInfo/mutateConfiguration already use for a malformed
-// opaque JSON field.
+// opaque JSON field. Shared by loadCampaignConfiguration (reads campaigns_read_model, used by
+// tryAddTrait) and handleCharacterCreated (reads the write-side Campaign aggregate directly).
+func parseCampaignConfiguration(raw string) campaignConfiguration {
+	var config campaignConfiguration
+	if raw != "" {
+		_ = json.Unmarshal([]byte(raw), &config) // best-effort; zero value on failure
+	}
+	return config
+}
+
+// loadCampaignConfiguration reads and parses a Campaign's own configuration column directly from
+// campaigns_read_model — used by tryAddTrait's trait-eligibility check (loadCampaignTraits), which
+// only ever runs well after Campaign creation (an addTrait action on an existing Character), so
+// read-model lag is not a correctness concern there, unlike handleCharacterCreated's own need
+// (see that function's doc comment for why it reads the aggregate directly instead).
 func loadCampaignConfiguration(ctx context.Context, tx pgx.Tx, campaignID uuid.UUID) (campaignConfiguration, error) {
 	var raw string
 	if err := tx.QueryRow(ctx,
@@ -337,11 +382,7 @@ func loadCampaignConfiguration(ctx context.Context, tx pgx.Tx, campaignID uuid.U
 	).Scan(&raw); err != nil {
 		return campaignConfiguration{}, fmt.Errorf(errPrefix+"look up configuration for campaign %s: %w", campaignID, err)
 	}
-	var config campaignConfiguration
-	if raw != "" {
-		_ = json.Unmarshal([]byte(raw), &config) // best-effort; zero value on failure
-	}
-	return config, nil
+	return parseCampaignConfiguration(raw), nil
 }
 
 // loadCampaignTraits extracts the Campaign's own configured trait list — see

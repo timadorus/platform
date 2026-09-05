@@ -18,6 +18,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/timadorus/platform/internal/bus"
+	"github.com/timadorus/platform/internal/domain/campaign"
+	campaignevents "github.com/timadorus/platform/internal/domain/campaign/events"
 	"github.com/timadorus/platform/internal/domain/character"
 	"github.com/timadorus/platform/internal/domain/character/events"
 	"github.com/timadorus/platform/internal/engine/timadorus"
@@ -44,6 +46,40 @@ func seedCampaignAndRuleset(t *testing.T, pool *pgxpool.Pool, campaignID, rulese
 	); err != nil {
 		t.Fatalf("seed campaign: %v", err)
 	}
+}
+
+// seedRealCampaign creates a real Campaign aggregate (via campaign.New, with SetConfiguration
+// applied if configuration is non-empty) and saves it through the real event store, then seeds
+// the matching campaigns_read_model/rulesets_read_model rows via seedCampaignAndRuleset (still
+// needed for RulesetCache.resolve's ruleset-name lookup, unchanged by this fix) — needed now that
+// handleCharacterCreated loads the write-side Campaign aggregate directly instead of reading
+// campaigns_read_model.configuration.
+func seedRealCampaign(t *testing.T, pool *pgxpool.Pool, rulesetID uuid.UUID, rulesetName, configuration string) uuid.UUID {
+	t.Helper()
+	ctx := context.Background()
+
+	registry := eventsourcing.NewRegistry()
+	campaignevents.Register(registry)
+	store := postgres.NewStore(pool, registry)
+	repo := eventsourcing.NewRepository(store, campaign.AggregateType, func() *campaign.Campaign {
+		return &campaign.Campaign{}
+	})
+
+	c, err := campaign.New(uuid.New(), rulesetID, "Test Campaign", []uuid.UUID{uuid.New()})
+	if err != nil {
+		t.Fatalf("campaign.New: %v", err)
+	}
+	if configuration != "" {
+		if err := c.SetConfiguration(configuration); err != nil {
+			t.Fatalf("set configuration: %v", err)
+		}
+	}
+	if err := repo.Save(ctx, c); err != nil {
+		t.Fatalf("save campaign: %v", err)
+	}
+
+	seedCampaignAndRuleset(t, pool, c.AggregateID(), rulesetID, rulesetName)
+	return c.AggregateID()
 }
 
 // createCharacter drives a real Character through the real event store (postgres.NewStore) —
@@ -401,8 +437,8 @@ func TestCharacterProcessor_PreservesCorrelationID(t *testing.T) {
 func TestCharacterProcessor_CharacterCreated_MatchingRuleset_SeedsStats(t *testing.T) {
 	pool := newTestPool(t)
 
-	campaignID, rulesetID := uuid.New(), uuid.New()
-	seedCampaignAndRuleset(t, pool, campaignID, rulesetID, "TIMADORUS") // exact-case mismatch on purpose
+	rulesetID := uuid.New()
+	campaignID := seedRealCampaign(t, pool, rulesetID, "TIMADORUS", "") // exact-case mismatch on purpose
 	characterID := uuid.New()
 
 	registry := eventsourcing.NewRegistry()
@@ -510,9 +546,8 @@ func TestCharacterProcessor_CharacterCreated_MatchingRuleset_SeedsStats(t *testi
 func TestCharacterProcessor_CharacterCreated_MatchingRuleset_SeedsStatBudgetFromCampaign(t *testing.T) {
 	pool := newTestPool(t)
 
-	campaignID, rulesetID := uuid.New(), uuid.New()
-	seedCampaignAndRuleset(t, pool, campaignID, rulesetID, "Timadorus")
-	seedCampaignConfiguration(t, pool, campaignID, `{"characterCreation":{"maxStatBudget":40}}`)
+	rulesetID := uuid.New()
+	campaignID := seedRealCampaign(t, pool, rulesetID, "Timadorus", `{"characterCreation":{"maxStatBudget":40}}`)
 
 	registry := eventsourcing.NewRegistry()
 	events.Register(registry)
