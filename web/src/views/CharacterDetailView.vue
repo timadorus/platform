@@ -61,6 +61,13 @@ const availableTraits = computed<string[]>(() => {
   }
   return campaignTraits.filter((t: string) => !traits.value.includes(t))
 })
+const attributes = computed<Record<string, { temp: number; pot: number; bonus: number }>>(() => {
+  try {
+    return JSON.parse(character.value?.info || '{}')?.stats?.attributes ?? {}
+  } catch {
+    return {}
+  }
+})
 
 // loadController is aborted both on unmount and at the start of every new load() call — the
 // latter matters because vue-router reuses this component instance across param-only route
@@ -150,7 +157,7 @@ async function onSubmitReassignPlayer(userId: string) {
     <BaseTabs :tabs="tabs" v-model="activeTab" class="mb-4" />
 
     <div v-if="activeTab === 'Stats'" class="flex flex-wrap gap-4">
-      <AttributesTable class="flex-1" />
+      <AttributesTable class="flex-1" :attributes="attributes" />
       <BaseInfoTable
         :key="character.id"
         class="flex-1"

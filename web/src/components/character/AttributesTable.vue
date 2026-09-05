@@ -1,7 +1,12 @@
 <script setup lang="ts">
-// Attribute values/bonuses are placeholders: no backend field exists yet for Character
-// attributes. Every attribute reads 75/+0 until a real data source is wired up.
-const attributes = [
+const props = defineProps<{
+  attributes: Record<string, { temp: number; pot: number; bonus: number }>
+}>()
+
+// Display metadata only (name + abbreviation) — fixed for every Character regardless of Ruleset,
+// unlike the per-Character temp/pot/bonus values themselves. Named ATTRIBUTES (not `attributes`)
+// to avoid shadowing the `attributes` prop above.
+const ATTRIBUTES = [
   { name: 'Strength', abbr: 'ST' },
   { name: 'Agility', abbr: 'AG' },
   { name: 'Constitution', abbr: 'CO' },
@@ -12,27 +17,43 @@ const attributes = [
   { name: 'Empathy', abbr: 'EM' },
   { name: 'Presence', abbr: 'PR' },
   { name: 'Intuition', abbr: 'IN' },
-].map((a) => ({ ...a, value: 75, bonus: '+0' }))
+]
+
+// '—' distinguishes "not yet seeded" (non-Timadorus Character, or the engine hasn't caught up
+// right after creation — the same async-settling window traits/traitPoints already tolerate)
+// from a genuinely-zero value.
+function cell(abbr: string, field: 'temp' | 'pot'): string {
+  const value = props.attributes[abbr]?.[field]
+  return value === undefined ? '—' : String(value)
+}
+
+function bonusCell(abbr: string): string {
+  const value = props.attributes[abbr]?.bonus
+  if (value === undefined) return '—'
+  return value >= 0 ? `+${value}` : String(value)
+}
 </script>
 
 <template>
-  <div class="rounded-md border border-slate-200 p-4">
+  <div class="rounded-md border border-slate-200 p-4" data-testid="attributes-card">
     <h2 class="mb-3 text-sm font-semibold text-slate-900">Attributes</h2>
     <table class="w-full text-sm">
       <thead>
         <tr class="border-b border-slate-100 text-left text-xs font-medium text-slate-500">
           <th class="pb-1.5">Attribute</th>
           <th class="pb-1.5">Abbr</th>
-          <th class="pb-1.5">Value</th>
+          <th class="pb-1.5">Temp</th>
+          <th class="pb-1.5">Pot</th>
           <th class="pb-1.5">Bonus</th>
         </tr>
       </thead>
       <tbody>
-        <tr v-for="a in attributes" :key="a.abbr" class="border-b border-slate-50 last:border-0">
+        <tr v-for="a in ATTRIBUTES" :key="a.abbr" class="border-b border-slate-50 last:border-0">
           <td class="py-1.5 text-slate-900">{{ a.name }}</td>
           <td class="py-1.5 text-slate-500">{{ a.abbr }}</td>
-          <td class="py-1.5 text-slate-900">{{ a.value }}</td>
-          <td class="py-1.5 text-slate-900">{{ a.bonus }}</td>
+          <td class="py-1.5 text-slate-900" :data-testid="`attribute-${a.abbr}-temp`">{{ cell(a.abbr, 'temp') }}</td>
+          <td class="py-1.5 text-slate-900" :data-testid="`attribute-${a.abbr}-pot`">{{ cell(a.abbr, 'pot') }}</td>
+          <td class="py-1.5 text-slate-900" :data-testid="`attribute-${a.abbr}-bonus`">{{ bonusCell(a.abbr) }}</td>
         </tr>
       </tbody>
     </table>
