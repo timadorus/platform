@@ -63,6 +63,12 @@ test('the Attributes table shows the Character\'s real seeded Temp/Pot/Bonus val
   const attributesCard = page.getByTestId('attributes-card')
   await expect(attributesCard).toBeVisible()
 
+  // Column order: Attribute | Abbr | Temp | Pot | Bonus — Temp replaces the old "Value" column
+  // and Pot is new between Temp and Bonus. Asserted by position (not just presence) so swapping
+  // Temp/Pot's header labels, or reordering the header row independently of the data cells,
+  // would fail this test even though the per-cell data-testid assertions below would not.
+  await expect(attributesCard.locator('thead th')).toHaveText(['Attribute', 'Abbr', 'Temp', 'Pot', 'Bonus'])
+
   await expect(attributesCard.getByTestId('attribute-ST-temp')).toHaveText('50')
   await expect(attributesCard.getByTestId('attribute-ST-pot')).toHaveText('50')
   await expect(attributesCard.getByTestId('attribute-ST-bonus')).toHaveText('+0')

@@ -7,6 +7,61 @@ up; don't grow this file into a design doc.
 
 ## `timadorus-engine` (`internal/engine/timadorus`, `cmd/timadorus-engine`)
 
+- [ ] **URGENT — a Character created immediately after its Campaign can permanently miss
+  `stats.statBudget`, and the obvious fix (retry via Nack) is unsafe with this codebase's
+  checkpoint model.** `handleCharacterCreated` (`internal/engine/timadorus/character_processor.go`)
+  seeds a new Character's `stats.statBudget` by reading the Campaign's own `configuration`
+  (`characterCreation.maxStatBudget`) directly from `campaigns_read_model`. That column is filled
+  in by a completely independent, asynchronous event chain (`CampaignCreated` →
+  `CampaignProcessor.handleCampaignCreated` → `ConfigurationChanged` → the outbox relay's own
+  ~200ms poll cycle → NATS → the projector → the read-model row) with no ordering guarantee
+  relative to `CharacterCreated`. A Character created immediately after its Campaign (a real,
+  plausible workflow, not just a test artifact) can read the Campaign's configuration before that
+  default has landed and permanently miss `statBudget` — silently, with `traitPoints`/`traits`/
+  `attributes` seeded normally. **Accepted as-is for now** (this is the shipped behavior on the
+  `character-attributes` branch); `test/e2e/e2e_test.go`'s own coverage waits for the Campaign's
+  default to land before creating its Character specifically to avoid hitting this gap, rather
+  than asserting it away.
+
+  **Two attempts to fix this properly were made and reverted on the `character-attributes` branch
+  — do not repeat either:**
+  1. Make `handleCharacterCreated` return an error (triggering the router's existing
+     Nack/redelivery, `internal/projection/router.go`, up to `defaultMaxAttempts = 5`) instead of
+     silently omitting `statBudget`, coupling `traitPoints`/`traits`/`attributes` seeding to the
+     same retry. This alone didn't converge: the shared NATS subscriber
+     (`internal/bus.NewSubscriber`) configured no `NakDelay`, so all 5 retries exhausted in
+     milliseconds — far faster than the real cross-service chain above ever completes.
+  2. Adding `NakDelay: nats.NewStaticDelay(500 * time.Millisecond)` to give retries real backoff.
+     This is platform-wide (affects all 12 read-model projectors plus both `timadorus-engine`
+     processors) and did make the specific real-cluster e2e scenario pass. **But it is unsafe in
+     general**: `internal/projection/checkpoint` tracks a single scalar watermark
+     (`last_global_seq`) per projector, not per-message applied state.
+     `CharacterProcessor.Subjects()` is one shared subject (`events_character`) for *every*
+     Character in the platform. If any other Character's event (a different Character's
+     `CharacterCreated`, or an unrelated `addTrait`/rename) is successfully handled during the
+     ~500ms-to-2.5s retry window, the checkpoint advances past the retrying message's `GlobalSeq`.
+     When that message is finally redelivered, `router.go`'s `env.GlobalSeq <= lastSeq` branch
+     treats it as "already applied," Acks it without ever calling `Handle` again, and clears the
+     retry-attempt counter — **no dead-letter row, no error, no trace.** The Character ends up
+     with *no* `stats` object at all (not even `traitPoints`/`traits`/`attributes`), which is
+     *worse* than the original silent gap this was meant to fix. This was caught only by a final
+     whole-branch review reasoning about concurrent Character traffic — the Go unit test for the
+     retry path uses Watermill's in-memory `gochannel` pubsub (which resends a Nacked message
+     in-place, blocking, no interleaving possible) and the real-cluster e2e test creates exactly
+     one Character in an otherwise-idle cluster, so neither test layer can reproduce this failure
+     mode.
+
+  **A real fix needs one of:** (a) per-aggregate applied-state tracking in the checkpoint model
+  instead of a single watermark, so a redelivered message can be distinguished from "some later
+  message already succeeded"; (b) a decoupled, out-of-band reconciliation/backfill job that
+  periodically finds Characters missing `stats.statBudget` whose Campaign now has one, and patches
+  them directly — sidestepping the event-processing retry path entirely; or (c) some other
+  mechanism that doesn't rely on Nack-based redelivery for a business-logic (not infrastructure)
+  retry on a shared, multi-aggregate subject. This is bigger than a single-branch fix and needs
+  its own design pass — flagged urgent because the current behavior (silent, undetectable
+  `statBudget` loss on fast Campaign→Character creation) is a real, if narrow, correctness gap in
+  shipped behavior, not merely a defect in a fix attempt.
+
 - [x] **Fixed** (`f8fadc6`). `TestRulesetCache_ConcurrentGetSet_Race` (`internal/engine/timadorus/cache_test.go`)
   drives `RulesetCache.get`/`set` directly from 50 goroutines against 3 shared keys, no DB
   round-trip or processor in the way — confirmed to actually catch a regression by temporarily

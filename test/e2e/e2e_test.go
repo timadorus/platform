@@ -387,6 +387,26 @@ var _ = Describe("Timadorus platform aggregates", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(resp.StatusCode).To(Equal(http.StatusCreated))
 
+		// Wait for the Campaign's own default characterCreation.maxStatBudget to land before
+		// creating a Character under it — CampaignCreated's own default-seeding
+		// (CampaignProcessor) and CharacterCreated's stats.statBudget seeding
+		// (CharacterProcessor) are two independent, unordered event chains (see BACKLOG.md,
+		// "timadorus-engine": a Character created immediately after its Campaign can race ahead
+		// of the Campaign's own default and permanently miss statBudget — a known, accepted gap,
+		// not something this test exercises). Waiting here first matches the realistic workflow
+		// (a Campaign is set up before Characters are added to it) rather than the pathological
+		// back-to-back case.
+		Eventually(func(g Gomega) {
+			var got querygen.Campaign
+			resp, err := doJSON(http.MethodGet, fmt.Sprintf("%s/campaigns/%s", env.QueryAPIBaseURL, campaignResp.Id), env.BearerToken, nil, &got)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			var config map[string]any
+			g.Expect(json.Unmarshal([]byte(got.Configuration), &config)).To(Succeed())
+			cc, _ := config["characterCreation"].(map[string]any)
+			g.Expect(cc["maxStatBudget"]).To(Equal(float64(35)))
+		}, time.Minute, time.Second).Should(Succeed())
+
 		var characterResp commandgen.CharacterCreatedResponse
 		resp, err = doJSON(http.MethodPost, fmt.Sprintf("%s/campaigns/%s/characters", env.CommandAPIBaseURL, campaignResp.Id), env.BearerToken,
 			commandgen.CreateCharacterRequest{Name: "e2e-traits-character", PlayerUserId: user.Id}, &characterResp)
