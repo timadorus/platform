@@ -765,3 +765,78 @@ func TestCharacterProcessor_AddTrait_AlreadyHasTrait_RejectedAndLogged(t *testin
 		t.Fatalf("router.Run: %v", err)
 	}
 }
+
+// TestCharacterProcessor_AddTrait_Archived_RejectedAndLogged covers final-review fix 3: unlike
+// the other three tryAddTrait rejection paths above, the character.ErrArchived race (the
+// Character gets archived between its PUT .../action request and this engine processing the
+// resulting ActionRequested) used to be a silent return nil — this proves it now logs too,
+// exactly like the other rejection paths in this function.
+func TestCharacterProcessor_AddTrait_Archived_RejectedAndLogged(t *testing.T) {
+	pool := newTestPool(t)
+	logger, logs := newTestLogger()
+
+	campaignID, rulesetID := uuid.New(), uuid.New()
+	seedCampaignAndRuleset(t, pool, campaignID, rulesetID, "timadorus")
+	seedCampaignConfiguration(t, pool, campaignID, `{"traits":["strong","agile","quick"]}`)
+	characterID := createCharacter(t, pool, campaignID)
+	seedCharacterInfo(t, pool, characterID, `{"stats":{"traitPoints":2,"traits":[]}}`)
+	archiveCharacter(t, pool, characterID)
+
+	p := timadorus.NewCharacterProcessor(pool, timadorus.NewRulesetCache(), logger)
+	ctx, cancel := context.WithCancel(context.Background())
+	inMemory := gochannel.NewGoChannel(gochannel.Config{Persistent: true}, watermill.NopLogger{})
+	t.Cleanup(func() { _ = inMemory.Close() })
+	router := projection.NewRouter(pool, func(string) (message.Subscriber, error) {
+		return inMemory, nil
+	}, discardLogger())
+	done := make(chan error, 1)
+	go func() { done <- router.Run(ctx, []projection.Projector{p}) }()
+
+	body := mustMarshal(t, bus.Envelope{
+		GlobalSeq: 1, AggregateID: characterID, AggregateType: events.AggregateType, Version: 2,
+		EventType: events.TypeActionRequested,
+		Payload: mustMarshal(t, events.ActionRequested{
+			Payload: `{"action":"addTrait","trait":"strong"}`, OccurredAt: time.Now().UTC(),
+		}),
+	})
+	msg := message.NewMessage(watermill.NewUUID(), message.Payload(body))
+	if err := inMemory.Publish(bus.Subject(events.AggregateType), msg); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+
+	time.Sleep(500 * time.Millisecond)
+
+	// seedCharacterInfo's own SetInfo already leaves exactly one character.info_changed.v1 event
+	// in place before this publish, so "no additional mutation happened" means the count stays at
+	// that baseline of 1, not 0.
+	var count int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM events WHERE aggregate_id = $1 AND event_type = $2`,
+		characterID, events.TypeInfoChanged,
+	).Scan(&count); err != nil {
+		t.Fatalf("count info_changed events: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("got %d character.info_changed.v1 events, want 1 (character is archived, so no additional mutation)", count)
+	}
+	if !strings.Contains(logs.String(), "archived") {
+		t.Fatalf("expected a log line naming the Character as archived, got: %s", logs.String())
+	}
+
+	// And the router must have kept processing cleanly — no dead-letter row for this event.
+	var deadLetterCount int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM projection_dead_letters WHERE aggregate_id = $1`,
+		characterID,
+	).Scan(&deadLetterCount); err != nil {
+		t.Fatalf("count dead letters: %v", err)
+	}
+	if deadLetterCount != 0 {
+		t.Fatalf("got %d dead-lettered events, want 0 (archived Character should be a clean no-op)", deadLetterCount)
+	}
+
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("router.Run: %v", err)
+	}
+}

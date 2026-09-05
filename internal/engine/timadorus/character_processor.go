@@ -234,6 +234,8 @@ func (p *CharacterProcessor) tryAddTrait(ctx context.Context, tx pgx.Tx, env bus
 	}
 	if err := c.SetInfo(string(newInfo)); err != nil {
 		if errors.Is(err, character.ErrArchived) {
+			p.logger.Warn("addTrait rejected: Character is archived",
+				"characterID", characterID, "campaignID", campaignID, "trait", trait)
 			return nil
 		}
 		return fmt.Errorf(errPrefix+"set info for character %s: %w", characterID, err)
