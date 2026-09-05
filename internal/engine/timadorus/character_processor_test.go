@@ -462,8 +462,10 @@ func TestCharacterProcessor_CharacterCreated_MatchingRuleset_SeedsStats(t *testi
 	}
 	var decoded struct {
 		Stats struct {
-			TraitPoints int      `json:"traitPoints"`
-			Traits      []string `json:"traits"`
+			TraitPoints int            `json:"traitPoints"`
+			Traits      []string       `json:"traits"`
+			Attributes  map[string]any `json:"attributes"`
+			StatBudget  *float64       `json:"statBudget"`
 		} `json:"stats"`
 	}
 	if err := json.Unmarshal([]byte(infoEvent.Info), &decoded); err != nil {
@@ -474,6 +476,112 @@ func TestCharacterProcessor_CharacterCreated_MatchingRuleset_SeedsStats(t *testi
 	}
 	if len(decoded.Stats.Traits) != 0 {
 		t.Fatalf("got traits %v, want none", decoded.Stats.Traits)
+	}
+	wantAbbreviations := []string{"ST", "AG", "CO", "QU", "SD", "ME", "RE", "EM", "PR", "IN"}
+	if len(decoded.Stats.Attributes) != len(wantAbbreviations) {
+		t.Fatalf("got %d attributes, want %d: %v", len(decoded.Stats.Attributes), len(wantAbbreviations), decoded.Stats.Attributes)
+	}
+	for _, abbr := range wantAbbreviations {
+		raw, ok := decoded.Stats.Attributes[abbr]
+		if !ok {
+			t.Fatalf("missing attribute %q", abbr)
+		}
+		attr, ok := raw.(map[string]any)
+		if !ok {
+			t.Fatalf("attribute %q is not an object: %v", abbr, raw)
+		}
+		if attr["temp"] != float64(50) {
+			t.Fatalf("attribute %q temp = %v, want 50", abbr, attr["temp"])
+		}
+		if attr["pot"] != float64(50) {
+			t.Fatalf("attribute %q pot = %v, want 50", abbr, attr["pot"])
+		}
+		if attr["bonus"] != float64(0) {
+			t.Fatalf("attribute %q bonus = %v, want 0", abbr, attr["bonus"])
+		}
+	}
+	if decoded.Stats.StatBudget != nil {
+		t.Fatalf("got statBudget %v, want none (Campaign has no characterCreation configured)", *decoded.Stats.StatBudget)
+	}
+
+	wait()
+}
+
+func TestCharacterProcessor_CharacterCreated_MatchingRuleset_SeedsStatBudgetFromCampaign(t *testing.T) {
+	pool := newTestPool(t)
+
+	campaignID, rulesetID := uuid.New(), uuid.New()
+	seedCampaignAndRuleset(t, pool, campaignID, rulesetID, "Timadorus")
+	seedCampaignConfiguration(t, pool, campaignID, `{"characterCreation":{"maxStatBudget":40}}`)
+
+	registry := eventsourcing.NewRegistry()
+	events.Register(registry)
+	store := postgres.NewStore(pool, registry)
+	repo := eventsourcing.NewRepository(store, character.AggregateType, func() *character.Character {
+		return &character.Character{}
+	})
+	c, err := character.New(campaignID, uuid.New(), uuid.New(), "Elminster")
+	if err != nil {
+		t.Fatalf("character.New: %v", err)
+	}
+	characterID := c.AggregateID()
+	if err := repo.Save(context.Background(), c); err != nil {
+		t.Fatalf("save character: %v", err)
+	}
+
+	publish, wait := runEngine(t, pool)
+
+	publish(bus.Envelope{
+		GlobalSeq:     1,
+		AggregateID:   characterID,
+		AggregateType: events.AggregateType,
+		Version:       1,
+		EventType:     events.TypeCharacterCreated,
+		Payload: mustMarshal(t, events.CharacterCreated{
+			ID: characterID, Name: "Elminster", CampaignID: campaignID, EntityID: uuid.New(),
+			PlayerUserID: uuid.New(), OccurredAt: time.Now().UTC(),
+		}),
+	})
+
+	deadline := time.Now().Add(5 * time.Second)
+	var payload []byte
+	for time.Now().Before(deadline) {
+		err := pool.QueryRow(context.Background(),
+			`SELECT payload FROM events WHERE aggregate_id = $1 AND event_type = $2
+			 ORDER BY version DESC LIMIT 1`,
+			characterID, events.TypeInfoChanged,
+		).Scan(&payload)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			t.Fatalf("query info_changed event: %v", err)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if payload == nil {
+		t.Fatal("timed out waiting for a character.info_changed.v1 event")
+	}
+
+	var infoEvent struct {
+		Info string `json:"info"`
+	}
+	if err := json.Unmarshal(payload, &infoEvent); err != nil {
+		t.Fatalf("info_changed payload %s is not the expected shape: %v", payload, err)
+	}
+	var decoded struct {
+		Stats struct {
+			StatBudget *float64 `json:"statBudget"`
+		} `json:"stats"`
+	}
+	if err := json.Unmarshal([]byte(infoEvent.Info), &decoded); err != nil {
+		t.Fatalf("info %q is not the expected shape: %v", infoEvent.Info, err)
+	}
+	if decoded.Stats.StatBudget == nil {
+		t.Fatal("got no statBudget, want 40")
+	}
+	if *decoded.Stats.StatBudget != 40 {
+		t.Fatalf("got statBudget %v, want 40", *decoded.Stats.StatBudget)
 	}
 
 	wait()

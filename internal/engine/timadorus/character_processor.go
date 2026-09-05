@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"strings"
 	"time"
 
@@ -38,6 +39,40 @@ const targetRulesetName = "timadorus"
 // const on its own.
 var defaultTraitPoints = 2
 
+// attributeAbbreviations is timadorus-engine's own hardcoded canonical list of the ten
+// character-sheet attributes a Character starts with — mirrors defaultTraits' shape as a
+// package-level default seed list, not something read from anywhere in the Campaign's
+// configuration.
+var attributeAbbreviations = []string{"ST", "AG", "CO", "QU", "SD", "ME", "RE", "EM", "PR", "IN"}
+
+// initialAttributeValue is both Temp and Pot's starting value for every attribute of a newly
+// created "timadorus"-ruleset Character.
+var initialAttributeValue = 50
+
+// attributeBonus computes an attribute's Bonus from its current Temp value. This is a
+// placeholder formula (floor((temp-50)/10), zero at the baseline Temp of 50) standing in for the
+// real timadorus-engine rules formula, which is not yet specified — see design spec "Character
+// Attributes (Temp/Pot/Bonus)", Decision 4. Written generally (not hardcoded to 0) so it stays
+// correct once something other than character creation can change Temp.
+func attributeBonus(temp int) int {
+	return int(math.Floor(float64(temp-50) / 10))
+}
+
+// defaultAttributes builds the starting attributes object for a newly created
+// "timadorus"-ruleset Character: all ten of the engine's own hardcoded attributes, Temp and Pot
+// both at initialAttributeValue, Bonus computed from Temp via attributeBonus.
+func defaultAttributes() map[string]any {
+	attrs := make(map[string]any, len(attributeAbbreviations))
+	for _, abbr := range attributeAbbreviations {
+		attrs[abbr] = map[string]any{
+			"temp":  initialAttributeValue,
+			"pot":   initialAttributeValue,
+			"bonus": attributeBonus(initialAttributeValue),
+		}
+	}
+	return attrs
+}
+
 // CharacterProcessor implements projection.Projector unmodified, but — unlike every read-model
 // projector — legitimately re-enters the write side (loads and saves a Character aggregate).
 // This is why it lives in its own binary (cmd/timadorus-engine) rather than alongside the
@@ -45,12 +80,13 @@ var defaultTraitPoints = 2
 // here would break that binary's documented "never imports domain invariant code" guarantee.
 //
 // Reacts to two event types on a "timadorus"-ruleset Character's Campaign: CharacterCreated seeds
-// stats.traitPoints/stats.traits with their starting defaults, and ActionRequested recognizes a
-// {"action":"addTrait","trait":"<name>"} payload — validating it against the Campaign's own
-// configured trait list, the Character's current traitPoints, and its existing traits before
-// applying it, logging (and no-op'ing) any rejection instead of erroring the event. Any other
-// ActionRequested payload falls back to appending occurredAt to info's "actions" array, exactly
-// as before.
+// stats.traitPoints/stats.traits/stats.attributes with their starting defaults, plus
+// stats.statBudget read from the Campaign's own configuration (see handleCharacterCreated's doc
+// comment), and ActionRequested recognizes a {"action":"addTrait","trait":"<name>"} payload —
+// validating it against the Campaign's own configured trait list, the Character's current
+// traitPoints, and its existing traits before applying it, logging (and no-op'ing) any rejection
+// instead of erroring the event. Any other ActionRequested payload falls back to appending
+// occurredAt to info's "actions" array, exactly as before.
 //
 // Each action rewrites the entire "actions" array into a new event payload (see
 // appendActionTimestamp), so the cost of N actions on one Character is O(N^2) bytes across
@@ -110,6 +146,14 @@ func (p *CharacterProcessor) Handle(ctx context.Context, tx pgx.Tx, env bus.Enve
 // Character's own id and needs an extra characters_read_model hop to find it), but it does NOT
 // carry RulesetID the way CampaignCreated does, so — unlike CampaignProcessor.handleCampaignCreated's
 // event-store-based resolution — this cannot skip the read-model join on a cache miss.
+//
+// Also reads the Campaign's own configuration directly (loadCampaignConfiguration) to seed
+// stats.statBudget from characterCreation.maxStatBudget — the engine derives this itself rather
+// than trusting a client-submitted value (design spec "Character Attributes", Decision 3), the
+// same "engine, not the SPA, is the source of truth" principle tryAddTrait already applies to
+// trait eligibility. Omitted from stats entirely if the Campaign has no maxStatBudget configured
+// (not expected for a "timadorus" Campaign, since CampaignProcessor's own handleCampaignCreated
+// always seeds a default — but not treated as an error if it's ever missing).
 func (p *CharacterProcessor) handleCharacterCreated(ctx context.Context, tx pgx.Tx, env bus.Envelope) error {
 	var e events.CharacterCreated
 	if err := json.Unmarshal(env.Payload, &e); err != nil {
@@ -124,8 +168,21 @@ func (p *CharacterProcessor) handleCharacterCreated(ctx context.Context, tx pgx.
 		return nil // not our ruleset — no-op, still checkpointed as handled
 	}
 
+	config, err := loadCampaignConfiguration(ctx, tx, e.CampaignID)
+	if err != nil {
+		return err
+	}
+
 	return p.mutateInfo(ctx, tx, env, env.AggregateID, func(info map[string]any) {
-		info["stats"] = map[string]any{"traitPoints": defaultTraitPoints, "traits": []string{}}
+		stats := map[string]any{
+			"traitPoints": defaultTraitPoints,
+			"traits":      []string{},
+			"attributes":  defaultAttributes(),
+		}
+		if config.CharacterCreation.MaxStatBudget != nil {
+			stats["statBudget"] = *config.CharacterCreation.MaxStatBudget
+		}
+		info["stats"] = stats
 	})
 }
 
@@ -255,24 +312,45 @@ func containsString(list []string, s string) bool {
 	return false
 }
 
-// loadCampaignTraits reads the Campaign's own configured trait list directly from
-// campaigns_read_model — a plain cross-projection read-model query, matching
-// RulesetCache.resolve's own already-established pattern. Best-effort on parse failure (an
-// unparseable or absent configuration yields an empty trait list, rejecting any addTrait request
-// rather than erroring the whole event) — same "start fresh rather than error" philosophy
-// mutateInfo/mutateConfiguration already use for a malformed opaque JSON field.
-func loadCampaignTraits(ctx context.Context, tx pgx.Tx, campaignID uuid.UUID) ([]string, error) {
+// campaignConfiguration is the subset of a Campaign's own opaque configuration JSON this package
+// reads: its own configured trait list (tryAddTrait's trait-eligibility check) and its
+// character-creation stat budget (handleCharacterCreated's stats.statBudget seeding). Both are
+// read from the same campaigns_read_model.configuration column via loadCampaignConfiguration —
+// one query serving both call sites, matching RulesetCache.resolve's own already-established
+// cross-projection read pattern.
+type campaignConfiguration struct {
+	Traits            []string `json:"traits"`
+	CharacterCreation struct {
+		MaxStatBudget *float64 `json:"maxStatBudget"`
+	} `json:"characterCreation"`
+}
+
+// loadCampaignConfiguration reads and parses a Campaign's own configuration column directly from
+// campaigns_read_model. Best-effort on parse failure or an absent/empty column: an unparseable or
+// absent configuration yields a zero-value campaignConfiguration (not an error) — same "start
+// fresh rather than error" philosophy mutateInfo/mutateConfiguration already use for a malformed
+// opaque JSON field.
+func loadCampaignConfiguration(ctx context.Context, tx pgx.Tx, campaignID uuid.UUID) (campaignConfiguration, error) {
 	var raw string
 	if err := tx.QueryRow(ctx,
 		`SELECT configuration FROM campaigns_read_model WHERE id = $1`, campaignID,
 	).Scan(&raw); err != nil {
-		return nil, fmt.Errorf(errPrefix+"look up configuration for campaign %s: %w", campaignID, err)
+		return campaignConfiguration{}, fmt.Errorf(errPrefix+"look up configuration for campaign %s: %w", campaignID, err)
 	}
-	var config struct {
-		Traits []string `json:"traits"`
-	}
+	var config campaignConfiguration
 	if raw != "" {
-		_ = json.Unmarshal([]byte(raw), &config) // best-effort; empty list on failure
+		_ = json.Unmarshal([]byte(raw), &config) // best-effort; zero value on failure
+	}
+	return config, nil
+}
+
+// loadCampaignTraits extracts the Campaign's own configured trait list — see
+// loadCampaignConfiguration for the underlying read this package shares with
+// handleCharacterCreated's stats.statBudget seeding.
+func loadCampaignTraits(ctx context.Context, tx pgx.Tx, campaignID uuid.UUID) ([]string, error) {
+	config, err := loadCampaignConfiguration(ctx, tx, campaignID)
+	if err != nil {
+		return nil, err
 	}
 	return config.Traits, nil
 }
