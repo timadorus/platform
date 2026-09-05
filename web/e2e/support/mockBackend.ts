@@ -36,7 +36,7 @@ export interface MockCharacter {
   playerUserId: string
   isArchived: boolean
   // Optional so existing seeds don't need updating — CharacterConfigurationPanel.vue already
-  // renders "No configuration set yet." when this is absent, matching the real backend's default
+  // renders "No info set yet." when this is absent, matching the real backend's default
   // empty string.
   info?: string
   // visibleAt (epoch ms) simulates read-model lag: unset means "always visible" (the default,

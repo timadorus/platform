@@ -62,9 +62,17 @@ test('the traits row shows the held traits and an Add Trait control whose picker
   expect(optionValues.filter(Boolean)).toEqual(['strong', 'quick'])
 
   await select.selectOption('strong')
+  const addTraitRequest = page.waitForRequest(
+    (req) => req.method() === 'PUT' && req.url().endsWith('/api/command/characters/ch1/action'),
+  )
   await baseInfo.getByRole('button', { name: 'Add', exact: true }).click()
 
-  // 1. the request actually fired with the right payload
+  // 1. the request actually fired, AND with the right payload — asserting only firing (as this
+  // test used to) would still pass if BaseInfoTable.vue sent the wrong JSON key (e.g. "traitName"
+  // instead of "trait"): the engine fails closed on an unrecognized payload, so every real Add
+  // Trait click would silently no-op in production while this whole suite stayed green.
+  const request = await addTraitRequest
+  expect(request.postDataJSON()).toEqual({ action: 'addTrait', trait: 'strong' })
   await expect(async () => {
     expect(apiCalls).toContain('PUT /api/command/characters/ch1/action')
   }).toPass()
@@ -114,6 +122,80 @@ test('a Character with no traitPoints left shows no Add Trait button', async ({ 
   const baseInfo = page.getByTestId('base-info-card')
   await expect(baseInfo.getByText('agile', { exact: true })).toBeVisible()
   await expect(baseInfo.getByRole('button', { name: 'Add Trait' })).not.toBeVisible()
+})
+
+test('an unrelated Character change while an Add Trait request is pending does not revert the still-pending status', async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  const base = baseURL!
+  const authority = `${base}/oidc`
+  const state = seedState()
+  await seedAuth(context, { baseURL: base, authority, clientId: CLIENT_ID })
+  await installMockBackend(page, state, { baseURL: base, authority, clientId: CLIENT_ID })
+
+  await page.goto('/universes/u1/campaigns/c1/characters/ch1')
+
+  const baseInfo = page.getByTestId('base-info-card')
+  await baseInfo.getByRole('button', { name: 'Add Trait' }).click()
+  const select = baseInfo.getByRole('combobox')
+  await select.selectOption('strong')
+  await baseInfo.getByRole('button', { name: 'Add', exact: true }).click()
+  await expect(page.getByText('Update requested — refreshing…')).toBeVisible()
+
+  // An unrelated Character change lands (e.g. a rename) — the Character's traits themselves are
+  // UNCHANGED, so CharacterDetailView.vue's silent reload of this event must not be mistaken for
+  // confirmation of the still-pending Add Trait, exactly like campaign-configuration.spec.ts's
+  // sibling test for the Max Stat Budget save.
+  const character = state.characters.find((c) => c.id === 'ch1')!
+  character.name = 'Renamed Unrelated'
+  state.changes.push({
+    globalSeq: (state.changes.at(-1)?.globalSeq ?? 0) + 1,
+    universeId: 'u1',
+    aggregateType: 'character',
+    aggregateId: 'ch1',
+    eventType: 'character.renamed.v1',
+    occurredAt: new Date().toISOString(),
+  })
+
+  // Give the change-feed poll (5s interval) time to land and be (mis)handled.
+  await page.waitForTimeout(6000)
+
+  await expect(page.getByText('Update requested — refreshing…')).toBeVisible()
+})
+
+test('an Add Trait request that never gets confirmed times out with an error and re-enables Add Trait', async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  // The pending-timeout itself is real (ADD_TRAIT_TIMEOUT_MS = 10s in BaseInfoTable.vue) — mirrors
+  // campaign-configuration.spec.ts's own identical pattern (and, in turn,
+  // character-creation-lag.spec.ts's) of waiting out a real, short, production timeout rather than
+  // injecting a test-only one.
+  test.setTimeout(30_000)
+  const base = baseURL!
+  const authority = `${base}/oidc`
+  const state = seedState()
+  await seedAuth(context, { baseURL: base, authority, clientId: CLIENT_ID })
+  await installMockBackend(page, state, { baseURL: base, authority, clientId: CLIENT_ID })
+
+  await page.goto('/universes/u1/campaigns/c1/characters/ch1')
+
+  const baseInfo = page.getByTestId('base-info-card')
+  await baseInfo.getByRole('button', { name: 'Add Trait' }).click()
+  const select = baseInfo.getByRole('combobox')
+  await select.selectOption('strong')
+  await baseInfo.getByRole('button', { name: 'Add', exact: true }).click()
+  await expect(page.getByText('Update requested — refreshing…')).toBeVisible()
+
+  // Never push a confirming change — simulates a rejected addTrait (not a Campaign trait, no
+  // points remaining, already has it, or an archived Character), all of which the engine logs and
+  // silently no-ops on, never emitting a change that would let the traits list catch up.
+  await expect(baseInfo.getByText('No confirmation received', { exact: false })).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByText('Update requested — refreshing…')).not.toBeVisible()
+  await expect(baseInfo.getByRole('button', { name: 'Add Trait' })).toBeVisible()
 })
 
 test('a Character with no traits selected shows the empty-traits placeholder', async ({ page, context, baseURL }) => {

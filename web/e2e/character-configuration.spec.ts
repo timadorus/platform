@@ -27,7 +27,7 @@ function seedState(overrides: Partial<MockState> = {}): MockState {
   })
 }
 
-test('the Character detail page has a Configuration tab showing the pretty-printed info field', async ({
+test('the Character detail page has an Info tab showing the pretty-printed info field', async ({
   page,
   context,
   baseURL,
@@ -67,5 +67,5 @@ test('a Character with no info shows the empty-configuration message', async ({ 
   await page.getByRole('tab', { name: 'Info', exact: true }).click()
 
   const configPanel = page.locator('div.rounded-md').filter({ hasText: 'Info' })
-  await expect(configPanel.getByText('No configuration set yet.')).toBeVisible()
+  await expect(configPanel.getByText('No info set yet.')).toBeVisible()
 })
