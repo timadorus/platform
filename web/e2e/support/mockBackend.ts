@@ -275,6 +275,13 @@ export async function installMockBackend(page: Page, state: MockState, auth: Moc
       return route.fulfill({ status: 204, body: '' })
     }
 
+    // Same fire-and-forget semantics as the configure route above — no state mutation here. A
+    // test wanting to see the eventual effect (e.g. a trait actually added) updates
+    // `state.characters`/`state.changes` itself.
+    if (method === 'PUT' && matchPath('/api/command/characters/:characterId/action', p)) {
+      return route.fulfill({ status: 204, body: '' })
+    }
+
     // Unlike the real backend, which rejects an empty name with a 422 (ErrNameRequired, see
     // internal/domain/universe/universe.go), this mock route accepts any body including an empty
     // name — do not rely on it as a validation oracle for that case.

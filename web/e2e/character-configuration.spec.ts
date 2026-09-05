@@ -45,9 +45,12 @@ test('the Character detail page has a Configuration tab showing the pretty-print
 
   // BaseTabs.vue's tab buttons carry an explicit role="tab", overriding the implicit "button"
   // role — getByRole('button', ...) would not match them (matches campaign-manage.spec.ts's own
-  // established convention for the sibling Configuration tab on Campaign).
-  await page.getByRole('tab', { name: 'Configuration', exact: true }).click()
-  const configPanel = page.locator('div.rounded-md').filter({ hasText: 'Configuration' })
+  // established convention for the sibling Configuration tab on Campaign). The tab itself (and
+  // CharacterConfigurationPanel.vue's own heading) were renamed from "Configuration" to "Info"
+  // when the Character detail page grew a Stats tab holding the traits list (Task 3) — the tab
+  // still shows this same pretty-printed info field, just relabeled.
+  await page.getByRole('tab', { name: 'Info', exact: true }).click()
+  const configPanel = page.locator('div.rounded-md').filter({ hasText: 'Info' })
   await expect(configPanel.locator('pre')).toContainText('"maxStatBudget": 40')
 })
 
@@ -61,8 +64,8 @@ test('a Character with no info shows the empty-configuration message', async ({ 
   await installMockBackend(page, state, { baseURL: base, authority, clientId: CLIENT_ID })
 
   await page.goto('/universes/u1/campaigns/c1/characters/ch1')
-  await page.getByRole('tab', { name: 'Configuration', exact: true }).click()
+  await page.getByRole('tab', { name: 'Info', exact: true }).click()
 
-  const configPanel = page.locator('div.rounded-md').filter({ hasText: 'Configuration' })
+  const configPanel = page.locator('div.rounded-md').filter({ hasText: 'Info' })
   await expect(configPanel.getByText('No configuration set yet.')).toBeVisible()
 })
