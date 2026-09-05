@@ -15,19 +15,22 @@ up; don't grow this file into a design doc.
   including historical ones — this also closes the separate "no backfill for pre-existing
   Campaigns" item below, which the sweep uses the same mechanism to fix. Full history of why the
   two earlier retry-based attempts failed is preserved below for anyone who reaches for that
-  approach again. `handleCharacterCreated` (`internal/engine/timadorus/character_processor.go`)
-  seeds a new Character's `stats.statBudget` by reading the Campaign's own `configuration`
-  (`characterCreation.maxStatBudget`) directly from `campaigns_read_model`. That column is filled
+  approach again.
+
+  **Original bug, kept for historical context:** `handleCharacterCreated`
+  (`internal/engine/timadorus/character_processor.go`) used to seed a new Character's
+  `stats.statBudget` by reading the Campaign's own `configuration`
+  (`characterCreation.maxStatBudget`) directly from `campaigns_read_model`. That column was filled
   in by a completely independent, asynchronous event chain (`CampaignCreated` →
   `CampaignProcessor.handleCampaignCreated` → `ConfigurationChanged` → the outbox relay's own
   ~200ms poll cycle → NATS → the projector → the read-model row) with no ordering guarantee
   relative to `CharacterCreated`. A Character created immediately after its Campaign (a real,
-  plausible workflow, not just a test artifact) can read the Campaign's configuration before that
-  default has landed and permanently miss `statBudget` — silently, with `traitPoints`/`traits`/
-  `attributes` seeded normally. **Accepted as-is for now** (this is the shipped behavior on the
-  `character-attributes` branch); `test/e2e/e2e_test.go`'s own coverage waits for the Campaign's
-  default to land before creating its Character specifically to avoid hitting this gap, rather
-  than asserting it away.
+  plausible workflow, not just a test artifact) could read the Campaign's configuration before that
+  default had landed and permanently miss `statBudget` — silently, with `traitPoints`/`traits`/
+  `attributes` seeded normally. This was the shipped behavior on the `character-attributes` branch,
+  before the direct-aggregate-read fix and Reconciler above closed it; at the time,
+  `test/e2e/e2e_test.go`'s own coverage waited for the Campaign's default to land before creating
+  its Character specifically to avoid hitting this gap, rather than asserting it away.
 
   **Two attempts to fix this properly were made and reverted on the `character-attributes` branch
   — do not repeat either:**
@@ -63,10 +66,12 @@ up; don't grow this file into a design doc.
   periodically finds Characters missing `stats.statBudget` whose Campaign now has one, and patches
   them directly — sidestepping the event-processing retry path entirely; or (c) some other
   mechanism that doesn't rely on Nack-based redelivery for a business-logic (not infrastructure)
-  retry on a shared, multi-aggregate subject. This is bigger than a single-branch fix and needs
-  its own design pass — flagged urgent because the current behavior (silent, undetectable
-  `statBudget` loss on fast Campaign→Character creation) is a real, if narrow, correctness gap in
-  shipped behavior, not merely a defect in a fix attempt.
+  retry on a shared, multi-aggregate subject. This would have been bigger than a single-branch fix
+  and would have needed its own design pass — it was flagged urgent at the time because the
+  behavior it described (silent, undetectable `statBudget` loss on fast Campaign→Character
+  creation) was a real, if narrow, correctness gap in shipped behavior, not merely a defect in a
+  fix attempt. Kept here for the reasoning; the direct-aggregate-read fix and Reconciler above took
+  a different path and closed the gap itself without needing this checkpoint-model rework.
 
 - [x] **Fixed** (`f8fadc6`). `TestRulesetCache_ConcurrentGetSet_Race` (`internal/engine/timadorus/cache_test.go`)
   drives `RulesetCache.get`/`set` directly from 50 goroutines against 3 shared keys, no DB
