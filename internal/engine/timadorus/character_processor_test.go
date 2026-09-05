@@ -403,6 +403,7 @@ func TestCharacterProcessor_CharacterCreated_MatchingRuleset_SeedsStats(t *testi
 
 	campaignID, rulesetID := uuid.New(), uuid.New()
 	seedCampaignAndRuleset(t, pool, campaignID, rulesetID, "TIMADORUS") // exact-case mismatch on purpose
+	seedCampaignConfiguration(t, pool, campaignID, `{"characterCreation":{"maxStatBudget":40}}`)
 	characterID := uuid.New()
 
 	registry := eventsourcing.NewRegistry()
@@ -500,19 +501,29 @@ func TestCharacterProcessor_CharacterCreated_MatchingRuleset_SeedsStats(t *testi
 			t.Fatalf("attribute %q bonus = %v, want 0", abbr, attr["bonus"])
 		}
 	}
-	if decoded.Stats.StatBudget != nil {
-		t.Fatalf("got statBudget %v, want none (Campaign has no characterCreation configured)", *decoded.Stats.StatBudget)
+	if decoded.Stats.StatBudget == nil {
+		t.Fatal("got no statBudget, want 40")
+	}
+	if *decoded.Stats.StatBudget != 40 {
+		t.Fatalf("got statBudget %v, want 40", *decoded.Stats.StatBudget)
 	}
 
 	wait()
 }
 
-func TestCharacterProcessor_CharacterCreated_MatchingRuleset_SeedsStatBudgetFromCampaign(t *testing.T) {
+// TestCharacterProcessor_CharacterCreated_MissingMaxStatBudget_RetriesThenDeadLetters proves the
+// fix for the real-cluster race described in handleCharacterCreated's own doc comment: a "timadorus"
+// Campaign with no characterCreation.maxStatBudget yet must never silently produce a
+// partially-seeded stats object. This Campaign never gets a configuration seeded at all (unlike
+// every other test in this file), so every one of the router's retry attempts fails identically,
+// and the event ends up dead-lettered instead of ever producing an InfoChanged event.
+func TestCharacterProcessor_CharacterCreated_MissingMaxStatBudget_RetriesThenDeadLetters(t *testing.T) {
 	pool := newTestPool(t)
 
 	campaignID, rulesetID := uuid.New(), uuid.New()
 	seedCampaignAndRuleset(t, pool, campaignID, rulesetID, "Timadorus")
-	seedCampaignConfiguration(t, pool, campaignID, `{"characterCreation":{"maxStatBudget":40}}`)
+	// Deliberately no seedCampaignConfiguration call — characterCreation.maxStatBudget is
+	// permanently absent, simulating CampaignProcessor's own seeding never landing.
 
 	registry := eventsourcing.NewRegistry()
 	events.Register(registry)
@@ -543,45 +554,33 @@ func TestCharacterProcessor_CharacterCreated_MatchingRuleset_SeedsStatBudgetFrom
 		}),
 	})
 
-	deadline := time.Now().Add(5 * time.Second)
-	var payload []byte
+	deadline := time.Now().Add(10 * time.Second)
+	var deadLetterCount int
 	for time.Now().Before(deadline) {
-		err := pool.QueryRow(context.Background(),
-			`SELECT payload FROM events WHERE aggregate_id = $1 AND event_type = $2
-			 ORDER BY version DESC LIMIT 1`,
-			characterID, events.TypeInfoChanged,
-		).Scan(&payload)
-		if err == nil {
-			break
+		if err := pool.QueryRow(context.Background(),
+			`SELECT count(*) FROM projection_dead_letters WHERE aggregate_id = $1`,
+			characterID,
+		).Scan(&deadLetterCount); err != nil {
+			t.Fatalf("count dead letters: %v", err)
 		}
-		if !errors.Is(err, pgx.ErrNoRows) {
-			t.Fatalf("query info_changed event: %v", err)
+		if deadLetterCount > 0 {
+			break
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	if payload == nil {
-		t.Fatal("timed out waiting for a character.info_changed.v1 event")
+	if deadLetterCount == 0 {
+		t.Fatal("timed out waiting for the CharacterCreated event to be dead-lettered")
 	}
 
-	var infoEvent struct {
-		Info string `json:"info"`
+	var infoChangedCount int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM events WHERE aggregate_id = $1 AND event_type = $2`,
+		characterID, events.TypeInfoChanged,
+	).Scan(&infoChangedCount); err != nil {
+		t.Fatalf("count info_changed events: %v", err)
 	}
-	if err := json.Unmarshal(payload, &infoEvent); err != nil {
-		t.Fatalf("info_changed payload %s is not the expected shape: %v", payload, err)
-	}
-	var decoded struct {
-		Stats struct {
-			StatBudget *float64 `json:"statBudget"`
-		} `json:"stats"`
-	}
-	if err := json.Unmarshal([]byte(infoEvent.Info), &decoded); err != nil {
-		t.Fatalf("info %q is not the expected shape: %v", infoEvent.Info, err)
-	}
-	if decoded.Stats.StatBudget == nil {
-		t.Fatal("got no statBudget, want 40")
-	}
-	if *decoded.Stats.StatBudget != 40 {
-		t.Fatalf("got statBudget %v, want 40", *decoded.Stats.StatBudget)
+	if infoChangedCount != 0 {
+		t.Fatalf("got %d character.info_changed.v1 events, want 0 (retries should never leave a partial stats object)", infoChangedCount)
 	}
 
 	wait()
