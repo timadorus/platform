@@ -354,7 +354,7 @@ var _ = Describe("Timadorus platform aggregates", func() {
 		}, time.Minute, time.Second).Should(Succeed())
 	})
 
-	It("adding a trait to a Character validates against its Campaign's own trait list and eventually lands", func() {
+	It("creating a Character seeds its default stats (traitPoints, attributes, statBudget), and adding a trait validates against its Campaign's own trait list and eventually lands", func() {
 		var rulesets []querygen.Ruleset
 		resp, err := doJSON(http.MethodGet, env.QueryAPIBaseURL+"/rulesets", env.BearerToken, nil, &rulesets)
 		Expect(err).NotTo(HaveOccurred())
@@ -405,6 +405,19 @@ var _ = Describe("Timadorus platform aggregates", func() {
 			stats, _ := info["stats"].(map[string]any)
 			g.Expect(stats["traitPoints"]).To(Equal(float64(2)))
 			g.Expect(stats["traits"]).To(BeEmpty())
+
+			attributes, _ := stats["attributes"].(map[string]any)
+			g.Expect(attributes).To(HaveLen(10))
+			for _, abbr := range []string{"ST", "AG", "CO", "QU", "SD", "ME", "RE", "EM", "PR", "IN"} {
+				attr, _ := attributes[abbr].(map[string]any)
+				g.Expect(attr).To(HaveKeyWithValue("temp", float64(50)), "attribute %s", abbr)
+				g.Expect(attr).To(HaveKeyWithValue("pot", float64(50)), "attribute %s", abbr)
+				g.Expect(attr).To(HaveKeyWithValue("bonus", float64(0)), "attribute %s", abbr)
+			}
+
+			// This Campaign never called the configure trigger, so its characterCreation.maxStatBudget
+			// is still the engine's own CampaignCreated default (35) — see the Max Stat Budget design.
+			g.Expect(stats["statBudget"]).To(Equal(float64(35)))
 		}, time.Minute, time.Second).Should(Succeed())
 
 		// A trait NOT in the Campaign's own list must be rejected — no mutation.
