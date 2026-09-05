@@ -172,7 +172,7 @@ type UnprocessableEntity = Problem
 type RequestCampaignConfigurationJSONBody map[string]interface{}
 
 // RequestCharacterActionJSONBody defines parameters for RequestCharacterAction.
-type RequestCharacterActionJSONBody = map[string]interface{}
+type RequestCharacterActionJSONBody map[string]interface{}
 
 // RenameCampaignJSONRequestBody defines body for RenameCampaign for application/json ContentType.
 type RenameCampaignJSONRequestBody = RenameRequest
@@ -190,7 +190,7 @@ type RequestCampaignConfigurationJSONRequestBody RequestCampaignConfigurationJSO
 type RenameCharacterJSONRequestBody = RenameRequest
 
 // RequestCharacterActionJSONRequestBody defines body for RequestCharacterAction for application/json ContentType.
-type RequestCharacterActionJSONRequestBody = RequestCharacterActionJSONBody
+type RequestCharacterActionJSONRequestBody RequestCharacterActionJSONBody
 
 // SetCharacterInfoJSONRequestBody defines body for SetCharacterInfo for application/json ContentType.
 type SetCharacterInfoJSONRequestBody = SetCharacterInfoRequest
@@ -4499,18 +4499,18 @@ var swaggerSpec = []string{
 	"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",
-	"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",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,
