@@ -1,17 +1,24 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { onUnmounted, ref, watch } from 'vue'
 import BaseButton from '@/components/common/BaseButton.vue'
 import UserPicker from '@/components/pickers/UserPicker.vue'
+import ErrorBanner from '@/components/common/ErrorBanner.vue'
+import { useCharacters } from '@/composables/useCharacters'
 
-const props = defineProps<{ name: string; playerName: string }>()
+const props = defineProps<{
+  characterId: string
+  name: string
+  playerName: string
+  traits: string[]
+  traitPoints: number
+  availableTraits: string[]
+}>()
 const emit = defineEmits<{
   'submit-rename': [name: string]
   'submit-reassign-player': [userId: string]
   archive: []
 }>()
-
-// Placeholder — no backend field exists yet for Traits.
-const traits = 'Brave, Cunning, Loyal'
+const { requestAction } = useCharacters()
 
 const editingName = ref(false)
 const nameDraft = ref('')
@@ -45,6 +52,66 @@ function onSelectPlayer(userId: string) {
   emit('submit-reassign-player', userId)
   editingPlayer.value = false
 }
+
+const showAddTrait = ref(false)
+const traitToAdd = ref('')
+type AddTraitStatus = 'idle' | 'pending' | 'error'
+const addTraitStatus = ref<AddTraitStatus>('idle')
+const addTraitError = ref<string | null>(null)
+// The trait most recently submitted, so the watch below can tell "the loaded traits now include
+// my own request" apart from "someone else changed something unrelated".
+let pendingTrait: string | null = null
+
+// A rejected addTrait (not a Campaign trait / no points left / already has it) is a clean, logged
+// engine-side no-op — no ActionChanged-equivalent event distinguishes "rejected" from "still
+// processing," so this timeout is what guarantees the control always resolves, exactly like
+// ConfigurationPanel.vue's identical PENDING_TIMEOUT_MS for Max Stat Budget.
+const ADD_TRAIT_TIMEOUT_MS = 10000
+let addTraitTimeoutHandle: ReturnType<typeof setTimeout> | null = null
+function clearAddTraitTimeout() {
+  if (addTraitTimeoutHandle) {
+    clearTimeout(addTraitTimeoutHandle)
+    addTraitTimeoutHandle = null
+  }
+}
+
+async function submitAddTrait() {
+  if (!traitToAdd.value) return
+  const trait = traitToAdd.value
+  addTraitStatus.value = 'pending'
+  addTraitError.value = null
+  pendingTrait = trait
+  showAddTrait.value = false
+  traitToAdd.value = ''
+  clearAddTraitTimeout()
+  addTraitTimeoutHandle = setTimeout(() => {
+    if (addTraitStatus.value === 'pending') {
+      addTraitStatus.value = 'error'
+      addTraitError.value = 'No confirmation received — this trait may not have been added.'
+      pendingTrait = null
+    }
+  }, ADD_TRAIT_TIMEOUT_MS)
+  try {
+    await requestAction(props.characterId, { action: 'addTrait', trait })
+  } catch (err) {
+    clearAddTraitTimeout()
+    addTraitStatus.value = 'error'
+    addTraitError.value = err instanceof Error ? err.message : 'Failed to request adding this trait.'
+  }
+}
+
+watch(
+  () => props.traits,
+  (traits) => {
+    if (addTraitStatus.value === 'pending' && pendingTrait !== null && traits.includes(pendingTrait)) {
+      clearAddTraitTimeout()
+      addTraitStatus.value = 'idle'
+      pendingTrait = null
+    }
+  },
+)
+
+onUnmounted(clearAddTraitTimeout)
 </script>
 
 <template>
@@ -84,7 +151,26 @@ function onSelectPlayer(userId: string) {
         </tr>
         <tr class="border-b border-slate-50">
           <td class="py-1.5 pr-3 font-medium text-slate-500">Traits</td>
-          <td class="py-1.5" colspan="2">{{ traits }}</td>
+          <td class="py-1.5" colspan="2">
+            <div class="flex flex-wrap items-center gap-2">
+              <span>{{ traits.length > 0 ? traits.join(', ') : '(no traits selected)' }}</span>
+              <template v-if="traitPoints > 0">
+                <button v-if="!showAddTrait" class="text-xs text-indigo-600 hover:underline" @click="showAddTrait = true">
+                  Add Trait
+                </button>
+                <template v-else>
+                  <select v-model="traitToAdd" class="rounded-md border border-slate-300 px-2 py-1 text-xs">
+                    <option value="" disabled>Select a trait…</option>
+                    <option v-for="t in availableTraits" :key="t" :value="t">{{ t }}</option>
+                  </select>
+                  <button class="text-xs text-indigo-600 hover:underline" :disabled="!traitToAdd" @click="submitAddTrait">Add</button>
+                  <button class="text-xs text-slate-400 hover:underline" @click="showAddTrait = false">Cancel</button>
+                </template>
+              </template>
+              <span v-if="addTraitStatus === 'pending'" class="text-xs text-slate-400">Update requested — refreshing…</span>
+            </div>
+            <ErrorBanner v-if="addTraitStatus === 'error'" :message="addTraitError" @dismiss="addTraitStatus = 'idle'" />
+          </td>
         </tr>
         <tr>
           <td></td>

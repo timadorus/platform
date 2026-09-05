@@ -73,6 +73,14 @@ export function useCharacters() {
     if (apiError) throw new Error(problemMessage(apiError) ?? 'Failed to reassign Player.')
   }
 
+  async function requestAction(id: string, payload: Record<string, unknown>): Promise<void> {
+    const { error: apiError } = await getCommandClient().PUT('/characters/{characterId}/action', {
+      params: { path: { characterId: id } },
+      body: payload,
+    })
+    if (apiError) throw new Error(problemMessage(apiError) ?? 'Failed to request action.')
+  }
+
   // waitForCharacter polls get(id) until it succeeds or timeoutMs elapses. Unlike waitForUser
   // (useUsers.ts), this cannot distinguish "the projector hasn't caught up yet" from "this id
   // doesn't exist" — get() 404s identically either way — so every failed attempt is treated the
@@ -128,6 +136,7 @@ export function useCharacters() {
     rename,
     archive,
     setPlayer,
+    requestAction,
     waitForCharacter,
     waitForCharacterInList,
   }

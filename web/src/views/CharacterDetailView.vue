@@ -2,6 +2,7 @@
 import { computed, inject, onMounted, onUnmounted, ref, watch, type Ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useCharacters, type CharacterSummary } from '@/composables/useCharacters'
+import { useCampaigns, type CampaignSummary } from '@/composables/useCampaigns'
 import type { AggregateChange } from '@/composables/useChangeFeed'
 import { useUsers } from '@/composables/useUsers'
 import BaseButton from '@/components/common/BaseButton.vue'
@@ -20,20 +21,46 @@ const router = useRouter()
 const characterId = computed(() => route.params.characterId as string)
 
 const { get, rename, archive, setPlayer, waitForCharacter } = useCharacters()
+const { get: getCampaign } = useCampaigns()
 const { users, list: listUsers } = useUsers()
 const bumpSidebarRefresh = inject<() => void>('bumpSidebarRefresh')
 
 const character = ref<CharacterSummary | null>(null)
+const campaign = ref<CampaignSummary | null>(null)
 const error = ref<string | null>(null)
 const showArchiveConfirm = ref(false)
 const loadTimedOut = ref(false)
 
 const activeTab = ref('Stats')
-const tabs = ['Stats', 'Skills', 'Equipment', 'Journal', 'Configuration']
+const tabs = ['Stats', 'Skills', 'Equipment', 'Journal', 'Info']
 
 const playerName = computed(
   () => users.value.find((u) => u.id === character.value?.playerUserId)?.name ?? character.value?.playerUserId ?? '',
 )
+
+const traits = computed<string[]>(() => {
+  try {
+    return JSON.parse(character.value?.info || '{}')?.stats?.traits ?? []
+  } catch {
+    return []
+  }
+})
+const traitPoints = computed<number>(() => {
+  try {
+    return JSON.parse(character.value?.info || '{}')?.stats?.traitPoints ?? 0
+  } catch {
+    return 0
+  }
+})
+const availableTraits = computed<string[]>(() => {
+  let campaignTraits: string[] = []
+  try {
+    campaignTraits = JSON.parse(campaign.value?.configuration || '{}')?.traits ?? []
+  } catch {
+    campaignTraits = []
+  }
+  return campaignTraits.filter((t: string) => !traits.value.includes(t))
+})
 
 // loadController is aborted both on unmount and at the start of every new load() call — the
 // latter matters because vue-router reuses this component instance across param-only route
@@ -42,12 +69,17 @@ const playerName = computed(
 // page with the wrong data.
 let loadController: AbortController | null = null
 
-async function load() {
+// silent: true for a background reload triggered by the change-feed (see the lastAggregateChange
+// watch below) — must NOT toggle the full-page loading state, since the template's
+// `v-if="character"` gate would otherwise unmount the entire page (including BaseInfoTable's own
+// pending-add-trait state) on every unrelated background change. A genuine character switch (the
+// watch further down) stays non-silent. Mirrors CampaignOverviewPanel.vue's identical fix.
+async function load(opts: { silent?: boolean } = {}) {
   loadController?.abort()
   const controller = new AbortController()
   loadController = controller
   loadTimedOut.value = false
-  character.value = null
+  if (!opts.silent) character.value = null
 
   const found = await waitForCharacter(characterId.value, { signal: controller.signal })
   if (controller.signal.aborted) return
@@ -55,18 +87,22 @@ async function load() {
   if (controller.signal.aborted) return
   if (found) {
     character.value = found
-  } else {
+    campaign.value = await getCampaign(found.campaignId)
+    if (controller.signal.aborted) return
+  } else if (!opts.silent) {
     loadTimedOut.value = true
   }
 }
-onMounted(load)
-watch(characterId, load)
+onMounted(() => load())
+watch(characterId, () => load())
 onUnmounted(() => loadController?.abort())
 
 const lastAggregateChange = inject<Ref<AggregateChange | null>>('lastAggregateChange')
 if (lastAggregateChange) {
   watch(lastAggregateChange, (change) => {
-    if (change?.aggregateType === 'character' && change.aggregateId.toLowerCase() === characterId.value.toLowerCase()) load()
+    if (change?.aggregateType === 'character' && change.aggregateId.toLowerCase() === characterId.value.toLowerCase()) {
+      load({ silent: true })
+    }
   })
 }
 
@@ -118,8 +154,12 @@ async function onSubmitReassignPlayer(userId: string) {
       <BaseInfoTable
         :key="character.id"
         class="flex-1"
+        :character-id="character.id"
         :name="character.name"
         :player-name="playerName"
+        :traits="traits"
+        :trait-points="traitPoints"
+        :available-traits="availableTraits"
         @submit-rename="onSubmitRename"
         @submit-reassign-player="onSubmitReassignPlayer"
         @archive="showArchiveConfirm = true"
@@ -128,7 +168,7 @@ async function onSubmitReassignPlayer(userId: string) {
     <div v-else-if="activeTab === 'Skills'" class="text-sm text-slate-500">Skills coming soon.</div>
     <div v-else-if="activeTab === 'Equipment'" class="text-sm text-slate-500">Equipment coming soon.</div>
     <div v-else-if="activeTab === 'Journal'" class="text-sm text-slate-500">Journal coming soon.</div>
-    <CharacterConfigurationPanel v-else-if="activeTab === 'Configuration'" :key="character.id" :info="character.info" />
+    <CharacterConfigurationPanel v-else-if="activeTab === 'Info'" :key="character.id" :info="character.info" />
 
     <ConfirmDialog
       v-if="showArchiveConfirm"

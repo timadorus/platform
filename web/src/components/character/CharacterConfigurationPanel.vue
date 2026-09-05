@@ -19,7 +19,7 @@ const prettyPrinted = computed(() => {
 
 <template>
   <div class="rounded-md border border-slate-200 p-4">
-    <h2 class="mb-3 text-sm font-semibold text-slate-900">Configuration</h2>
+    <h2 class="mb-3 text-sm font-semibold text-slate-900">Info</h2>
     <p v-if="!prettyPrinted" class="text-sm text-slate-500">No configuration set yet.</p>
     <pre v-else class="overflow-x-auto rounded-md bg-slate-50 p-3 text-xs text-slate-800">{{ prettyPrinted }}</pre>
   </div>
