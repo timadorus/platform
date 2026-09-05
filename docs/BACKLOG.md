@@ -7,9 +7,15 @@ up; don't grow this file into a design doc.
 
 ## `timadorus-engine` (`internal/engine/timadorus`, `cmd/timadorus-engine`)
 
-- [ ] **URGENT — a Character created immediately after its Campaign can permanently miss
-  `stats.statBudget`, and the obvious fix (retry via Nack) is unsafe with this codebase's
-  checkpoint model.** `handleCharacterCreated` (`internal/engine/timadorus/character_processor.go`)
+- [x] **Fixed.** `handleCharacterCreated` now reads `characterCreation.maxStatBudget` from the
+  write-side Campaign aggregate directly (not `campaigns_read_model`), removing the
+  `ConfigurationChanged`-projection hop that made the race easy to lose. A new periodic
+  `Reconciler` (`internal/engine/timadorus/reconcile.go`, no NATS/Router/checkpoint involvement —
+  see its own doc comment) sweeps every 30 seconds and additively backfills any residual gap,
+  including historical ones — this also closes the separate "no backfill for pre-existing
+  Campaigns" item below, which the sweep uses the same mechanism to fix. Full history of why the
+  two earlier retry-based attempts failed is preserved below for anyone who reaches for that
+  approach again. `handleCharacterCreated` (`internal/engine/timadorus/character_processor.go`)
   seeds a new Character's `stats.statBudget` by reading the Campaign's own `configuration`
   (`characterCreation.maxStatBudget`) directly from `campaigns_read_model`. That column is filled
   in by a completely independent, asynchronous event chain (`CampaignCreated` →
@@ -99,7 +105,9 @@ up; don't grow this file into a design doc.
   small interface. Two instances of copy-adapt is correct by this codebase's own convention; three
   would earn the abstraction.
 
-- [ ] **No backfill for pre-existing Campaigns — default traits only apply going forward.**
+- [x] **Fixed** (same commits as the URGENT statBudget entry above). Reconciler's Campaign pass
+  backfills `traits`/`characterCreation.maxStatBudget` onto any Timadorus Campaign missing them,
+  regardless of when it was created — additively, never overwriting a GM's own customization.
   Campaigns created before this branch's engine is deployed get no default traits: the merge is
   triggered by `CampaignCreated`, not by a backfill pass, so only Campaigns created *after* the
   new engine is running are affected. Resetting `CampaignProcessor`'s checkpoint to force a

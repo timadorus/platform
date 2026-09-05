@@ -474,4 +474,80 @@ var _ = Describe("Timadorus platform aggregates", func() {
 			g.Expect(stats["traits"]).To(ConsistOf("strong"))
 		}, time.Minute, time.Second).Should(Succeed())
 	})
+
+	It("a Character whose statBudget is missing is healed by the reconciliation sweep", func() {
+		var rulesets []querygen.Ruleset
+		resp, err := doJSON(http.MethodGet, env.QueryAPIBaseURL+"/rulesets", env.BearerToken, nil, &rulesets)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		var timadorusRuleset *querygen.Ruleset
+		for i := range rulesets {
+			if rulesets[i].Name == "Timadorus" {
+				timadorusRuleset = &rulesets[i]
+				break
+			}
+		}
+		Expect(timadorusRuleset).NotTo(BeNil(), "expected timadorus-engine to have registered a Ruleset named \"Timadorus\" at startup")
+
+		var user commandgen.UserCreatedResponse
+		resp, err = doJSON(http.MethodPost, env.CommandAPIBaseURL+"/users", env.BearerToken,
+			commandgen.CreateUserRequest{Name: "e2e-reconcile-user"}, &user)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+
+		var universe commandgen.UniverseCreatedResponse
+		resp, err = doJSON(http.MethodPost, env.CommandAPIBaseURL+"/universes", env.BearerToken,
+			commandgen.CreateUniverseRequest{Name: "e2e-reconcile-universe", CreatorUserIds: []uuid.UUID{user.Id}}, &universe)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+
+		var campaignResp commandgen.CampaignCreatedResponse
+		resp, err = doJSON(http.MethodPost, fmt.Sprintf("%s/universes/%s/campaigns", env.CommandAPIBaseURL, universe.Id), env.BearerToken,
+			commandgen.CreateCampaignRequest{Name: "e2e-reconcile-campaign", RulesetId: timadorusRuleset.Id, GamemasterUserIds: []uuid.UUID{user.Id}}, &campaignResp)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+
+		var characterResp commandgen.CharacterCreatedResponse
+		resp, err = doJSON(http.MethodPost, fmt.Sprintf("%s/campaigns/%s/characters", env.CommandAPIBaseURL, campaignResp.Id), env.BearerToken,
+			commandgen.CreateCharacterRequest{Name: "e2e-reconcile-character", PlayerUserId: user.Id}, &characterResp)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+
+		// Wait for the engine's normal CharacterCreated seeding to land first, then deliberately
+		// overwrite info with a hand-crafted shape that simulates exactly the gap the
+		// reconciliation sweep exists to close: stats present (traitPoints/traits/attributes as
+		// usual), but statBudget missing.
+		Eventually(func(g Gomega) {
+			var got querygen.Character
+			resp, err := doJSON(http.MethodGet, fmt.Sprintf("%s/characters/%s", env.QueryAPIBaseURL, characterResp.CharacterId), env.BearerToken, nil, &got)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			g.Expect(got.Info).NotTo(BeEmpty())
+		}, time.Minute, time.Second).Should(Succeed())
+
+		gappedInfo, err := json.Marshal(map[string]any{
+			"stats": map[string]any{
+				"traitPoints": 2,
+				"traits":      []string{},
+				"attributes":  map[string]any{},
+			},
+		})
+		Expect(err).NotTo(HaveOccurred())
+		resp, err = doJSON(http.MethodPut, fmt.Sprintf("%s/characters/%s/info", env.CommandAPIBaseURL, characterResp.CharacterId), env.BearerToken,
+			commandgen.SetCharacterInfoRequest{Info: string(gappedInfo)}, nil)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
+
+		Eventually(func(g Gomega) {
+			var got querygen.Character
+			resp, err := doJSON(http.MethodGet, fmt.Sprintf("%s/characters/%s", env.QueryAPIBaseURL, characterResp.CharacterId), env.BearerToken, nil, &got)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			var info map[string]any
+			g.Expect(json.Unmarshal([]byte(got.Info), &info)).To(Succeed())
+			stats, _ := info["stats"].(map[string]any)
+			g.Expect(stats["statBudget"]).To(Equal(float64(35)))
+		}, time.Minute, time.Second).Should(Succeed())
+	})
 })
