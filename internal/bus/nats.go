@@ -7,6 +7,7 @@ package bus
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill-nats/v2/pkg/nats"
@@ -48,6 +49,17 @@ func NewSubscriber(url, durableName string, logger watermill.LoggerAdapter) (mes
 		URL:              url,
 		SubscribersCount: 1, // serial processing per projection, see docs/adr/0002
 		Unmarshaler:      &nats.NATSMarshaler{},
+		// A bare Nak() (the default when NakDelay is unset) redelivers essentially
+		// immediately, giving the router's retry budget (projection.defaultMaxAttempts) far
+		// less real wall-clock time than a cross-service event chain typically needs to
+		// resolve — the outbox relay alone polls on a ~200ms interval (see docs/adr/0002).
+		// A fixed per-attempt delay gives every projector's Nack/redelivery retry path (e.g.
+		// CharacterProcessor.handleCharacterCreated waiting on CampaignProcessor's own async
+		// seeding of a Campaign's default configuration) a real chance to converge instead of
+		// exhausting retries and dead-lettering almost instantly. Confirmed via a real-cluster
+		// e2e reproduction: with no delay, all 5 retries exhausted before the cross-service
+		// chain could possibly complete, every single time.
+		NakDelay: nats.NewStaticDelay(500 * time.Millisecond),
 		JetStream: nats.JetStreamConfig{
 			AutoProvision: true,
 			DurablePrefix: durableName,
