@@ -35,7 +35,7 @@ func TestSharedRulesetCache_ServesBothProcessors(t *testing.T) {
 
 	cache := timadorus.NewRulesetCache()
 	campaignProcessor := timadorus.NewCampaignProcessor(pool, cache)
-	characterProcessor := timadorus.NewCharacterProcessor(pool, cache)
+	characterProcessor := timadorus.NewCharacterProcessor(pool, cache, discardLogger())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	inMemory := gochannel.NewGoChannel(gochannel.Config{Persistent: true}, watermill.NopLogger{})
@@ -129,7 +129,7 @@ func TestSharedRulesetCache_ConcurrentAccess(t *testing.T) {
 
 	cache := timadorus.NewRulesetCache()
 	campaignProcessor := timadorus.NewCampaignProcessor(pool, cache)
-	characterProcessor := timadorus.NewCharacterProcessor(pool, cache)
+	characterProcessor := timadorus.NewCharacterProcessor(pool, cache, discardLogger())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	inMemory := gochannel.NewGoChannel(gochannel.Config{Persistent: true}, watermill.NopLogger{})

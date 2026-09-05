@@ -1,9 +1,12 @@
 package timadorus_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -75,6 +78,51 @@ func createCharacter(t *testing.T, pool *pgxpool.Pool, campaignID uuid.UUID) uui
 	return c.AggregateID()
 }
 
+// seedCampaignConfiguration overwrites a Campaign's own configuration column directly — the
+// Processor never touches the Campaign aggregate or its own event stream, so building a real
+// ConfigurationChanged event here would test more than this package owns, matching
+// seedCampaignAndRuleset's own read-model-seeding shape.
+func seedCampaignConfiguration(t *testing.T, pool *pgxpool.Pool, campaignID uuid.UUID, configuration string) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(),
+		`UPDATE campaigns_read_model SET configuration = $2 WHERE id = $1`, campaignID, configuration,
+	); err != nil {
+		t.Fatalf("seed campaign configuration: %v", err)
+	}
+}
+
+// seedCharacterInfo loads the real aggregate and calls SetInfo/Save through the event store — the
+// Processor's own p.characters.Load reads through postgres.Store, not characters_read_model, so
+// seeding characters_read_model alone (as createCharacter's own INSERT does) would not be visible
+// to tryAddTrait's/mutateInfo's Load call.
+func seedCharacterInfo(t *testing.T, pool *pgxpool.Pool, characterID uuid.UUID, info string) {
+	t.Helper()
+	registry := eventsourcing.NewRegistry()
+	events.Register(registry)
+	store := postgres.NewStore(pool, registry)
+	repo := eventsourcing.NewRepository(store, character.AggregateType, func() *character.Character {
+		return &character.Character{}
+	})
+	ctx := context.Background()
+	c, err := repo.Load(ctx, characterID)
+	if err != nil {
+		t.Fatalf("load character: %v", err)
+	}
+	if err := c.SetInfo(info); err != nil {
+		t.Fatalf("set info: %v", err)
+	}
+	if err := repo.Save(ctx, c); err != nil {
+		t.Fatalf("save character info: %v", err)
+	}
+}
+
+// newTestLogger returns a slog.Logger that writes to an in-memory buffer, for tests asserting a
+// rejection was actually logged (not just "no mutation happened").
+func newTestLogger() (*slog.Logger, *bytes.Buffer) {
+	var buf bytes.Buffer
+	return slog.New(slog.NewTextHandler(&buf, nil)), &buf
+}
+
 // archiveCharacter loads characterID through the same repository pattern createCharacter
 // uses, archives it, and saves it back through the real event store — exactly what
 // command-api's own ArchiveCharacter flow does — so the Processor sees a genuinely archived
@@ -109,7 +157,7 @@ func runEngine(t *testing.T, pool *pgxpool.Pool) (publish func(env bus.Envelope)
 	inMemory := gochannel.NewGoChannel(gochannel.Config{Persistent: true}, watermill.NopLogger{})
 	t.Cleanup(func() { _ = inMemory.Close() })
 
-	p := timadorus.NewCharacterProcessor(pool, timadorus.NewRulesetCache())
+	p := timadorus.NewCharacterProcessor(pool, timadorus.NewRulesetCache(), discardLogger())
 	router := projection.NewRouter(pool, func(string) (message.Subscriber, error) {
 		return inMemory, nil
 	}, discardLogger())
@@ -348,4 +396,372 @@ func TestCharacterProcessor_PreservesCorrelationID(t *testing.T) {
 	}
 
 	wait()
+}
+
+func TestCharacterProcessor_CharacterCreated_MatchingRuleset_SeedsStats(t *testing.T) {
+	pool := newTestPool(t)
+
+	campaignID, rulesetID := uuid.New(), uuid.New()
+	seedCampaignAndRuleset(t, pool, campaignID, rulesetID, "TIMADORUS") // exact-case mismatch on purpose
+	characterID := uuid.New()
+
+	registry := eventsourcing.NewRegistry()
+	events.Register(registry)
+	store := postgres.NewStore(pool, registry)
+	repo := eventsourcing.NewRepository(store, character.AggregateType, func() *character.Character {
+		return &character.Character{}
+	})
+	c, err := character.New(campaignID, uuid.New(), uuid.New(), "Elminster")
+	if err != nil {
+		t.Fatalf("character.New: %v", err)
+	}
+	characterID = c.AggregateID()
+	if err := repo.Save(context.Background(), c); err != nil {
+		t.Fatalf("save character: %v", err)
+	}
+
+	publish, wait := runEngine(t, pool)
+
+	publish(bus.Envelope{
+		GlobalSeq:     1,
+		AggregateID:   characterID,
+		AggregateType: events.AggregateType,
+		Version:       1,
+		EventType:     events.TypeCharacterCreated,
+		Payload: mustMarshal(t, events.CharacterCreated{
+			ID: characterID, Name: "Elminster", CampaignID: campaignID, EntityID: uuid.New(),
+			PlayerUserID: uuid.New(), OccurredAt: time.Now().UTC(),
+		}),
+	})
+
+	deadline := time.Now().Add(5 * time.Second)
+	var payload []byte
+	for time.Now().Before(deadline) {
+		err := pool.QueryRow(context.Background(),
+			`SELECT payload FROM events WHERE aggregate_id = $1 AND event_type = $2
+			 ORDER BY version DESC LIMIT 1`,
+			characterID, events.TypeInfoChanged,
+		).Scan(&payload)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			t.Fatalf("query info_changed event: %v", err)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if payload == nil {
+		t.Fatal("timed out waiting for a character.info_changed.v1 event")
+	}
+
+	var infoEvent struct {
+		Info string `json:"info"`
+	}
+	if err := json.Unmarshal(payload, &infoEvent); err != nil {
+		t.Fatalf("info_changed payload %s is not the expected shape: %v", payload, err)
+	}
+	var decoded struct {
+		Stats struct {
+			TraitPoints int      `json:"traitPoints"`
+			Traits      []string `json:"traits"`
+		} `json:"stats"`
+	}
+	if err := json.Unmarshal([]byte(infoEvent.Info), &decoded); err != nil {
+		t.Fatalf("info %q is not the expected shape: %v", infoEvent.Info, err)
+	}
+	if decoded.Stats.TraitPoints != 2 {
+		t.Fatalf("got traitPoints %d, want 2", decoded.Stats.TraitPoints)
+	}
+	if len(decoded.Stats.Traits) != 0 {
+		t.Fatalf("got traits %v, want none", decoded.Stats.Traits)
+	}
+
+	wait()
+}
+
+func TestCharacterProcessor_CharacterCreated_NonMatchingRuleset_NoOp(t *testing.T) {
+	pool := newTestPool(t)
+
+	campaignID, rulesetID := uuid.New(), uuid.New()
+	seedCampaignAndRuleset(t, pool, campaignID, rulesetID, "SomethingElse")
+
+	registry := eventsourcing.NewRegistry()
+	events.Register(registry)
+	store := postgres.NewStore(pool, registry)
+	repo := eventsourcing.NewRepository(store, character.AggregateType, func() *character.Character {
+		return &character.Character{}
+	})
+	c, err := character.New(campaignID, uuid.New(), uuid.New(), "Elminster")
+	if err != nil {
+		t.Fatalf("character.New: %v", err)
+	}
+	characterID := c.AggregateID()
+	if err := repo.Save(context.Background(), c); err != nil {
+		t.Fatalf("save character: %v", err)
+	}
+
+	publish, wait := runEngine(t, pool)
+
+	publish(bus.Envelope{
+		GlobalSeq: 1, AggregateID: characterID, AggregateType: events.AggregateType, Version: 1,
+		EventType: events.TypeCharacterCreated,
+		Payload: mustMarshal(t, events.CharacterCreated{
+			ID: characterID, Name: "Elminster", CampaignID: campaignID, EntityID: uuid.New(),
+			PlayerUserID: uuid.New(), OccurredAt: time.Now().UTC(),
+		}),
+	})
+
+	time.Sleep(500 * time.Millisecond)
+
+	var count int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM events WHERE aggregate_id = $1 AND event_type = $2`,
+		characterID, events.TypeInfoChanged,
+	).Scan(&count); err != nil {
+		t.Fatalf("count info_changed events: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("got %d character.info_changed.v1 events, want 0 (ruleset doesn't match)", count)
+	}
+
+	wait()
+}
+
+func TestCharacterProcessor_AddTrait_ValidTrait_Succeeds(t *testing.T) {
+	pool := newTestPool(t)
+
+	campaignID, rulesetID := uuid.New(), uuid.New()
+	seedCampaignAndRuleset(t, pool, campaignID, rulesetID, "timadorus")
+	seedCampaignConfiguration(t, pool, campaignID, `{"traits":["strong","agile","quick"]}`)
+	characterID := createCharacter(t, pool, campaignID)
+	seedCharacterInfo(t, pool, characterID, `{"stats":{"traitPoints":2,"traits":[]}}`)
+
+	publish, wait := runEngine(t, pool)
+
+	publish(bus.Envelope{
+		GlobalSeq: 1, AggregateID: characterID, AggregateType: events.AggregateType, Version: 2,
+		EventType: events.TypeActionRequested,
+		Payload: mustMarshal(t, events.ActionRequested{
+			Payload: `{"action":"addTrait","trait":"strong"}`, OccurredAt: time.Now().UTC(),
+		}),
+	})
+
+	// createCharacter (version 1) + seedCharacterInfo's own SetInfo (version 2) already leave one
+	// character.info_changed.v1 event in place before the router ever runs, so a plain "does any
+	// row exist" poll would trivially match that seeded baseline instead of waiting for the
+	// processor's own mutation — require version > 2 so this genuinely waits for a NEW event.
+	deadline := time.Now().Add(5 * time.Second)
+	var payload []byte
+	for time.Now().Before(deadline) {
+		err := pool.QueryRow(context.Background(),
+			`SELECT payload FROM events WHERE aggregate_id = $1 AND event_type = $2 AND version > 2
+			 ORDER BY version DESC LIMIT 1`,
+			characterID, events.TypeInfoChanged,
+		).Scan(&payload)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			t.Fatalf("query info_changed event: %v", err)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if payload == nil {
+		t.Fatal("timed out waiting for a character.info_changed.v1 event")
+	}
+
+	var infoEvent struct {
+		Info string `json:"info"`
+	}
+	if err := json.Unmarshal(payload, &infoEvent); err != nil {
+		t.Fatalf("info_changed payload %s is not the expected shape: %v", payload, err)
+	}
+	var decoded struct {
+		Stats struct {
+			TraitPoints int      `json:"traitPoints"`
+			Traits      []string `json:"traits"`
+		} `json:"stats"`
+	}
+	if err := json.Unmarshal([]byte(infoEvent.Info), &decoded); err != nil {
+		t.Fatalf("info %q is not the expected shape: %v", infoEvent.Info, err)
+	}
+	if decoded.Stats.TraitPoints != 1 {
+		t.Fatalf("got traitPoints %d, want 1", decoded.Stats.TraitPoints)
+	}
+	if len(decoded.Stats.Traits) != 1 || decoded.Stats.Traits[0] != "strong" {
+		t.Fatalf("got traits %v, want [strong]", decoded.Stats.Traits)
+	}
+
+	wait()
+}
+
+func TestCharacterProcessor_AddTrait_NotACampaignTrait_RejectedAndLogged(t *testing.T) {
+	pool := newTestPool(t)
+	logger, logs := newTestLogger()
+
+	campaignID, rulesetID := uuid.New(), uuid.New()
+	seedCampaignAndRuleset(t, pool, campaignID, rulesetID, "timadorus")
+	seedCampaignConfiguration(t, pool, campaignID, `{"traits":["strong","agile","quick"]}`)
+	characterID := createCharacter(t, pool, campaignID)
+	seedCharacterInfo(t, pool, characterID, `{"stats":{"traitPoints":2,"traits":[]}}`)
+
+	p := timadorus.NewCharacterProcessor(pool, timadorus.NewRulesetCache(), logger)
+	ctx, cancel := context.WithCancel(context.Background())
+	inMemory := gochannel.NewGoChannel(gochannel.Config{Persistent: true}, watermill.NopLogger{})
+	t.Cleanup(func() { _ = inMemory.Close() })
+	router := projection.NewRouter(pool, func(string) (message.Subscriber, error) {
+		return inMemory, nil
+	}, discardLogger())
+	done := make(chan error, 1)
+	go func() { done <- router.Run(ctx, []projection.Projector{p}) }()
+
+	body := mustMarshal(t, bus.Envelope{
+		GlobalSeq: 1, AggregateID: characterID, AggregateType: events.AggregateType, Version: 2,
+		EventType: events.TypeActionRequested,
+		Payload: mustMarshal(t, events.ActionRequested{
+			Payload: `{"action":"addTrait","trait":"not-a-real-trait"}`, OccurredAt: time.Now().UTC(),
+		}),
+	})
+	msg := message.NewMessage(watermill.NewUUID(), message.Payload(body))
+	if err := inMemory.Publish(bus.Subject(events.AggregateType), msg); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+
+	time.Sleep(500 * time.Millisecond)
+
+	// seedCharacterInfo's own SetInfo already leaves exactly one character.info_changed.v1 event
+	// in place before this publish, so "no additional mutation happened" means the count stays at
+	// that baseline of 1, not 0.
+	var count int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM events WHERE aggregate_id = $1 AND event_type = $2`,
+		characterID, events.TypeInfoChanged,
+	).Scan(&count); err != nil {
+		t.Fatalf("count info_changed events: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("got %d character.info_changed.v1 events, want 1 (trait is not in the Campaign's list, so no additional mutation)", count)
+	}
+	if !strings.Contains(logs.String(), "not-a-real-trait") {
+		t.Fatalf("expected a log line naming the rejected trait, got: %s", logs.String())
+	}
+
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("router.Run: %v", err)
+	}
+}
+
+func TestCharacterProcessor_AddTrait_NoPointsRemaining_RejectedAndLogged(t *testing.T) {
+	pool := newTestPool(t)
+	logger, logs := newTestLogger()
+
+	campaignID, rulesetID := uuid.New(), uuid.New()
+	seedCampaignAndRuleset(t, pool, campaignID, rulesetID, "timadorus")
+	seedCampaignConfiguration(t, pool, campaignID, `{"traits":["strong","agile","quick"]}`)
+	characterID := createCharacter(t, pool, campaignID)
+	seedCharacterInfo(t, pool, characterID, `{"stats":{"traitPoints":0,"traits":[]}}`)
+
+	p := timadorus.NewCharacterProcessor(pool, timadorus.NewRulesetCache(), logger)
+	ctx, cancel := context.WithCancel(context.Background())
+	inMemory := gochannel.NewGoChannel(gochannel.Config{Persistent: true}, watermill.NopLogger{})
+	t.Cleanup(func() { _ = inMemory.Close() })
+	router := projection.NewRouter(pool, func(string) (message.Subscriber, error) {
+		return inMemory, nil
+	}, discardLogger())
+	done := make(chan error, 1)
+	go func() { done <- router.Run(ctx, []projection.Projector{p}) }()
+
+	body := mustMarshal(t, bus.Envelope{
+		GlobalSeq: 1, AggregateID: characterID, AggregateType: events.AggregateType, Version: 2,
+		EventType: events.TypeActionRequested,
+		Payload: mustMarshal(t, events.ActionRequested{
+			Payload: `{"action":"addTrait","trait":"strong"}`, OccurredAt: time.Now().UTC(),
+		}),
+	})
+	msg := message.NewMessage(watermill.NewUUID(), message.Payload(body))
+	if err := inMemory.Publish(bus.Subject(events.AggregateType), msg); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+
+	time.Sleep(500 * time.Millisecond)
+
+	// seedCharacterInfo's own SetInfo already leaves exactly one character.info_changed.v1 event
+	// in place before this publish, so "no additional mutation happened" means the count stays at
+	// that baseline of 1, not 0.
+	var count int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM events WHERE aggregate_id = $1 AND event_type = $2`,
+		characterID, events.TypeInfoChanged,
+	).Scan(&count); err != nil {
+		t.Fatalf("count info_changed events: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("got %d character.info_changed.v1 events, want 1 (no traitPoints remaining, so no additional mutation)", count)
+	}
+	if !strings.Contains(logs.String(), "traitPoints") {
+		t.Fatalf("expected a log line naming the rejection reason, got: %s", logs.String())
+	}
+
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("router.Run: %v", err)
+	}
+}
+
+func TestCharacterProcessor_AddTrait_AlreadyHasTrait_RejectedAndLogged(t *testing.T) {
+	pool := newTestPool(t)
+	logger, logs := newTestLogger()
+
+	campaignID, rulesetID := uuid.New(), uuid.New()
+	seedCampaignAndRuleset(t, pool, campaignID, rulesetID, "timadorus")
+	seedCampaignConfiguration(t, pool, campaignID, `{"traits":["strong","agile","quick"]}`)
+	characterID := createCharacter(t, pool, campaignID)
+	seedCharacterInfo(t, pool, characterID, `{"stats":{"traitPoints":2,"traits":["strong"]}}`)
+
+	p := timadorus.NewCharacterProcessor(pool, timadorus.NewRulesetCache(), logger)
+	ctx, cancel := context.WithCancel(context.Background())
+	inMemory := gochannel.NewGoChannel(gochannel.Config{Persistent: true}, watermill.NopLogger{})
+	t.Cleanup(func() { _ = inMemory.Close() })
+	router := projection.NewRouter(pool, func(string) (message.Subscriber, error) {
+		return inMemory, nil
+	}, discardLogger())
+	done := make(chan error, 1)
+	go func() { done <- router.Run(ctx, []projection.Projector{p}) }()
+
+	body := mustMarshal(t, bus.Envelope{
+		GlobalSeq: 1, AggregateID: characterID, AggregateType: events.AggregateType, Version: 2,
+		EventType: events.TypeActionRequested,
+		Payload: mustMarshal(t, events.ActionRequested{
+			Payload: `{"action":"addTrait","trait":"strong"}`, OccurredAt: time.Now().UTC(),
+		}),
+	})
+	msg := message.NewMessage(watermill.NewUUID(), message.Payload(body))
+	if err := inMemory.Publish(bus.Subject(events.AggregateType), msg); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+
+	time.Sleep(500 * time.Millisecond)
+
+	// seedCharacterInfo's own SetInfo already leaves exactly one character.info_changed.v1 event
+	// in place before this publish, so "no additional mutation happened" means the count stays at
+	// that baseline of 1, not 0.
+	var count int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM events WHERE aggregate_id = $1 AND event_type = $2`,
+		characterID, events.TypeInfoChanged,
+	).Scan(&count); err != nil {
+		t.Fatalf("count info_changed events: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("got %d character.info_changed.v1 events, want 1 (already has this trait, so no additional mutation)", count)
+	}
+	if !strings.Contains(logs.String(), "already has") {
+		t.Fatalf("expected a log line naming the rejection reason, got: %s", logs.String())
+	}
+
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("router.Run: %v", err)
+	}
 }

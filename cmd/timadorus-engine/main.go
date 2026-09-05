@@ -94,7 +94,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 
 	cache := timadorusengine.NewRulesetCache()
 	processors := []projection.Projector{
-		timadorusengine.NewCharacterProcessor(pool, cache),
+		timadorusengine.NewCharacterProcessor(pool, cache, logger),
 		timadorusengine.NewCampaignProcessor(pool, cache),
 	}
 
