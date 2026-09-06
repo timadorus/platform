@@ -101,13 +101,11 @@ test('creating a Campaign from the Universe panel navigates into its workspace',
   await page.goto('/universes/u1/manage')
 
   await page.getByRole('button', { name: '+ Create Campaign' }).click()
-  // CreateCampaignModal.vue's <label> elements have no for/id pairing with their input/select, so
-  // getByLabel does not find them (verified empirically) — use positional/structural locators
-  // scoped to the modal's form instead.
-  const form = page.locator('form')
-  await form.getByRole('textbox').first().fill('New Campaign')
-  await form.getByRole('combobox').selectOption({ label: 'Test Ruleset' })
-  await expect(page.getByRole('checkbox').first()).toBeChecked()
+  await expect(page.getByRole('dialog', { name: 'Create Campaign' })).toBeVisible()
+  await page.getByLabel('Name').fill('New Campaign')
+  await page.getByLabel('Ruleset').selectOption({ label: 'Test Ruleset' })
+  const gamemasterGroup = page.getByRole('group', { name: 'Gamemasters (at least one)' })
+  await expect(gamemasterGroup.getByRole('checkbox').first()).toBeChecked()
   await page.getByRole('button', { name: 'Create', exact: true }).click()
 
   await expect(page).toHaveURL(/\/universes\/u1\/campaigns\/[^/]+$/)

@@ -40,16 +40,16 @@ async function submit() {
     <ErrorBanner :message="error" @dismiss="error = null" />
     <form class="space-y-3" @submit.prevent="submit">
       <div>
-        <label class="mb-1 block text-xs font-medium text-slate-600">Name</label>
-        <input v-model="name" type="text" class="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
+        <label for="campaign-name" class="mb-1 block text-xs font-medium text-slate-600">Name</label>
+        <input id="campaign-name" v-model="name" type="text" class="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
       </div>
       <div>
-        <label class="mb-1 block text-xs font-medium text-slate-600">Ruleset</label>
-        <RulesetSelect v-model="rulesetId" />
+        <label id="campaign-ruleset-label" for="campaign-ruleset" class="mb-1 block text-xs font-medium text-slate-600">Ruleset</label>
+        <RulesetSelect id="campaign-ruleset" v-model="rulesetId" />
       </div>
       <div>
-        <label class="mb-1 block text-xs font-medium text-slate-600">Gamemasters (at least one)</label>
-        <UserMultiSelect v-model="gamemasterUserIds" />
+        <label id="campaign-gamemasters-label" class="mb-1 block text-xs font-medium text-slate-600">Gamemasters (at least one)</label>
+        <UserMultiSelect labelledby="campaign-gamemasters-label" v-model="gamemasterUserIds" />
       </div>
       <div class="flex justify-end gap-2 pt-2">
         <BaseButton variant="secondary" type="button" @click="emit('close')">Cancel</BaseButton>

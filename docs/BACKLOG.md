@@ -245,16 +245,20 @@ up; don't grow this file into a design doc.
   in the background, silently exposed to the same transient-network-blip collapse with no user
   action involved at all.
 
-- [ ] **`CreateCampaignModal.vue`'s labels have no `for`/`id` pairing with their inputs — a real
-  accessibility gap that has now also forced two separate test-writing passes to route around
-  `page.getByLabel(...)` not working.** Its `<label>` elements are bare, with no `for`, and the
-  `<input>`/`RulesetSelect`/`UserMultiSelect` have no matching `id`, so `getByLabel` cannot locate
-  them; `universe-manage.spec.ts` falls back to `page.locator('form').getByRole(...)` instead,
-  which is unscoped and strict-mode-dependent (works today only because no other `<form>` or
-  input-bearing widget is mounted in that test). Fixing the pairing (plus adding `role="dialog"` to
-  `BaseModal.vue`) would resolve both the accessibility gap and the test brittleness at the source,
-  restoring `getByLabel` for every future test against every modal in the app. Out of scope for
-  `universe-panel-create-campaign` per its plan's Global Constraints.
+- [x] **Fixed.** `CreateCampaignModal.vue`'s labels now have proper `for`/`id` pairing with their
+  `<input>`/`RulesetSelect`, and its `UserMultiSelect` group is tied to its label via
+  `aria-labelledby`/`role="group"` (using the `id`/`labelledby` props `RulesetSelect.vue`/
+  `UserMultiSelect.vue` now accept, plus `BaseModal.vue`'s `role="dialog"`/`aria-labelledby`).
+  `universe-manage.spec.ts`'s Create Campaign test now uses `page.getByLabel(...)` and
+  `page.getByRole('dialog'/'group', ...)` instead of the unscoped, strict-mode-dependent
+  `page.locator('form').getByRole(...)` workaround.
+
+- [ ] **The same `for`/`id`/`role="group"` gap flagged above for `CreateCampaignModal.vue` still
+  exists in the other 6 modals under `web/src/components/modals/`:** `CreateCharacterModal.vue`,
+  `CreateEntityModal.vue`, `CreateObjectModal.vue`, `CreateUniverseModal.vue`,
+  `CreateUserModal.vue`, and `CreatingUserModal.vue`. Each needs the same mechanical fix — pair
+  `<label for>` with its input's/select's `id`, and wire any multi-select/group widgets up via
+  `aria-labelledby`/`role="group"` — but none of that was done here; flagging only.
 
 - [x] **Fixed.** `UniverseOverviewPanel.vue` now owns its own `useChangeFeed()` instance (started/
   stopped on mount/unmount and re-scoped on `universeId` change), rather than relying on
