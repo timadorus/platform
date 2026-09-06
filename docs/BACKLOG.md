@@ -265,9 +265,7 @@ up; don't grow this file into a design doc.
   their change rows would be lost. Rebuild base read models first, then reset the
   `universe-changes-*` checkpoints, if a full rebuild is ever needed.
 
-- [ ] **No CI check that `web/src/api/{query,command}.types.ts` stay in sync with the OpenAPI
-  specs.** `web/package.json`'s `npm run generate` (via `web/scripts/generate-api-clients.mjs`)
-  already regenerates both files from `api/query/openapi.yaml` and `api/command/openapi.yaml` —
-  that command already exists and is current. What's still missing is a CI step that runs it and
-  fails the build on a diff, so a spec change without a regenerate can land unnoticed (as it did
-  under an earlier, already-merged branch).
+- [x] **Already fixed** (`05a84b7`, predates this entry). `.github/workflows/ci.yml`'s `web-build`
+  job already has a "verify generated API clients are up to date" step: `npm run generate` followed
+  by `git diff --exit-code -- src/api/command.types.ts src/api/query.types.ts`. This entry was
+  simply never reconciled against that existing check — no code change needed.
