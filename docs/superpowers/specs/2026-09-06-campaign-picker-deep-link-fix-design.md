@@ -50,3 +50,30 @@ No new mock-backend route arms are needed — `GET /universes/:universeId`,
 
 Any other selection-store call site; `UniverseOverviewPanel.goToCampaign` itself (already correct,
 unchanged).
+
+## Addendum: a second, adjacent bug found during implementation
+
+Writing the regression test's final step (reload from `/`, confirm the restored pair is no longer
+mismatched) exposed a second, real bug in the same family, in a sibling file:
+`UniversePickerView.vue`'s own stored-selection restore path (`onMounted`) called
+`goTo(existing.id)` even when restoring an *already-correct* existing Universe id — and `goTo` calls
+`selection.setUniverse(id)`, which unconditionally nulls `selectedCampaignId`. So reloading from `/`
+with a valid, matching stored Campaign selection would silently wipe it before `CampaignPickerView`
+ever got a chance to restore it — the exact same bug shape this branch exists to fix, on the
+"restore an existing selection" path rather than the "select from the grid" path.
+
+Fixed by replacing that call with a plain `router.push({ name: 'campaign-picker', params:
+{ universeId: existing.id } })` — no `selection.setUniverse` call at all, since the Universe id
+being restored is by definition already the one already stored; `CampaignPickerView`'s own
+`onMounted` then correctly restores the paired Campaign selection.
+
+This was independently verified (not just trusted from the implementer's report): no other e2e spec
+exercises `UniversePickerView`'s restore path or asserts on `selectedCampaignId`, so nothing relied
+on the old, buggy clearing behavior; the full 26-test e2e suite passes.
+
+A related test-infrastructure fix was also needed: Playwright's `context.addInitScript` re-runs on
+*every* navigation in a context, not just the first — so this test's second `page.goto('/')` call
+re-seeded `localStorage` back to the stale `{selectedUniverseId: 'u1', ...}` value, clobbering
+whatever the app had legitimately persisted after the first navigation. Fixed by guarding the seed
+script to only write if the key doesn't already exist.
+
