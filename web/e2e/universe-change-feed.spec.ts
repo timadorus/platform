@@ -113,3 +113,34 @@ test('a multi-change poll batch updates every affected sidebar, not just the las
   await expect(entitiesSection.getByText('Gimli')).toBeVisible({ timeout: 10000 })
   await expect(charactersSection.getByText('Legolas')).toBeVisible({ timeout: 10000 })
 })
+
+test('an externally-made Universe rename is picked up by the Universe panel without any local action', async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  const base = baseURL!
+  const authority = `${base}/oidc`
+  const state = seedState()
+  await seedAuth(context, { baseURL: base, authority, clientId: CLIENT_ID })
+  await installMockBackend(page, state, { baseURL: base, authority, clientId: CLIENT_ID })
+
+  await page.goto('/universes/u1/manage')
+  await expect(page.getByRole('heading', { name: 'Test Universe' })).toBeVisible()
+
+  // Simulate another tab/user renaming the Universe: mutate state directly (bypassing the rename
+  // command route — this test is about the change feed noticing it, not about renaming itself)
+  // and record a matching change-log row the poller will pick up.
+  state.universes[0].name = 'Renamed Elsewhere'
+  state.changes.push({
+    globalSeq: 1,
+    universeId: 'u1',
+    aggregateType: 'universe',
+    aggregateId: 'u1',
+    eventType: 'universe.renamed.v1',
+    occurredAt: new Date().toISOString(),
+  })
+
+  // useChangeFeed polls every 5s — wait comfortably past that instead of asserting immediately.
+  await expect(page.getByRole('heading', { name: 'Renamed Elsewhere' })).toBeVisible({ timeout: 10000 })
+})

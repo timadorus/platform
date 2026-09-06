@@ -1,14 +1,10 @@
 <script setup lang="ts">
-// This panel is a top-level route (/universes/:universeId/manage), outside WorkspaceView's
-// provide scope, so it does not currently receive lastAggregateChange change-feed events — see
-// docs/BACKLOG.md. If a future need arises to react to Universe-level changes here, it needs its
-// own useChangeFeed instance scoped to its own universeId, or the provide needs to move to a
-// shared ancestor.
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUniverses, type UniverseSummary } from '@/composables/useUniverses'
 import { useUsers } from '@/composables/useUsers'
 import { useCampaigns } from '@/composables/useCampaigns'
+import { useChangeFeed } from '@/composables/useChangeFeed'
 import { useSelectionStore } from '@/stores/selection'
 import AppHeader from '@/components/layout/AppHeader.vue'
 import BaseButton from '@/components/common/BaseButton.vue'
@@ -41,17 +37,28 @@ const creators = computed(() =>
   creatorIds.value.map((id) => ({ id, name: users.value.find((u) => u.id === id)?.name ?? id })),
 )
 
-async function load() {
-  loading.value = true
+async function load(opts: { silent?: boolean } = {}) {
+  if (!opts.silent) loading.value = true
   universe.value = await getUniverse(universeId.value)
   await listUsers()
   creatorIds.value = await listCreators(universeId.value)
   await listByUniverse(universeId.value)
   if (campaignsError.value) error.value = campaignsError.value
-  loading.value = false
+  if (!opts.silent) loading.value = false
 }
-onMounted(load)
-watch(universeId, load)
+onMounted(() => load())
+watch(universeId, () => load())
+
+const { lastChange: lastAggregateChange, start: startChangeFeed, stop: stopChangeFeed } = useChangeFeed()
+onMounted(() => startChangeFeed(universeId.value))
+watch(universeId, startChangeFeed)
+onUnmounted(stopChangeFeed)
+
+watch(lastAggregateChange, (change) => {
+  if (change?.aggregateType === 'universe' && change.aggregateId.toLowerCase() === universeId.value.toLowerCase()) {
+    load({ silent: true })
+  }
+})
 
 function startEditName() {
   if (!universe.value) return
