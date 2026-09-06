@@ -254,11 +254,14 @@ up; don't grow this file into a design doc.
   `page.locator('form').getByRole(...)` workaround.
 
 - [ ] **The same `for`/`id`/`role="group"` gap flagged above for `CreateCampaignModal.vue` still
-  exists in the other 6 modals under `web/src/components/modals/`:** `CreateCharacterModal.vue`,
-  `CreateEntityModal.vue`, `CreateObjectModal.vue`, `CreateUniverseModal.vue`,
-  `CreateUserModal.vue`, and `CreatingUserModal.vue`. Each needs the same mechanical fix — pair
-  `<label for>` with its input's/select's `id`, and wire any multi-select/group widgets up via
+  exists in 5 of the other modals under `web/src/components/modals/`:** `CreateCharacterModal.vue`,
+  `CreateEntityModal.vue`, `CreateObjectModal.vue`, `CreateUniverseModal.vue`, and
+  `CreateUserModal.vue`. Each needs the same mechanical fix — pair `<label for>` with its
+  input's/select's `id`, and wire any multi-select/group widgets up via
   `aria-labelledby`/`role="group"` — but none of that was done here; flagging only.
+  (`CreatingUserModal.vue` was originally listed too, but it has no `<label>`/`<input>`/`<select>`
+  at all — it's a progress/wait modal with only text and a Close button — so there's nothing to
+  fix there; corrected here after the task reviewer caught the inaccuracy.)
 
 - [x] **Fixed.** `UniverseOverviewPanel.vue` now owns its own `useChangeFeed()` instance (started/
   stopped on mount/unmount and re-scoped on `universeId` change), rather than relying on
