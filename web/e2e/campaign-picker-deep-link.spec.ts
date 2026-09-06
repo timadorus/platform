@@ -33,8 +33,14 @@ test('a deep link to a different Universe\'s campaign picker does not corrupt th
 
   // Simulate a prior session that had u1 selected — seedAuth's subject is always 'test-sub'
   // (support/auth.ts), so this is the exact storage key selection.ts's storageKey() computes.
+  // Only set this on the first load; don't overwrite it on subsequent page.goto() calls.
+  let firstLoad = true
   await context.addInitScript(
-    ([key, value]) => window.localStorage.setItem(key, value),
+    ([key, value]) => {
+      if (!window.localStorage.getItem(key)) {
+        window.localStorage.setItem(key, value)
+      }
+    },
     [
       'timadorus:selection:test-sub',
       JSON.stringify({ selectedUniverseId: 'u1', selectedCampaignId: null }),
@@ -43,7 +49,7 @@ test('a deep link to a different Universe\'s campaign picker does not corrupt th
 
   // Deep link straight to u2's campaign picker — skips u1 and the Universe picker entirely, the
   // exact scenario that previously corrupted the persisted pair (BACKLOG.md, Web SPA section).
-  await page.goto('/universes/u2/campaigns')
+  await page.goto('/universes/u2')
   await expect(page.getByRole('button', { name: 'Campaign Two' })).toBeVisible()
   await page.getByRole('button', { name: 'Campaign Two' }).click()
   await expect(page).toHaveURL(/\/universes\/u2\/campaigns\/c2$/)

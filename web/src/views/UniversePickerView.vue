@@ -28,7 +28,9 @@ onMounted(async () => {
       // about to unmount as router.push navigates away, and flipping it first would flash
       // the (still empty, list() never ran) picker grid for a frame before the navigation
       // completes.
-      goTo(existing.id)
+      // Do NOT call goTo() here because it would clear the stored campaign ID. Instead,
+      // just navigate to the campaign picker and let it restore from localStorage.
+      router.push({ name: 'campaign-picker', params: { universeId: existing.id } })
       return
     }
     selection.clearUniverse()
