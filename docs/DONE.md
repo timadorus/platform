@@ -174,6 +174,68 @@ live with a real headless-Chromium session.
   against the route param's own `.toLowerCase()`, so a hand-typed or pasted uppercase UUID no
   longer silently disables that view's change reactions.
 
+- [x] **Fixed** (`5604992`). The poll-with-timeout skeleton duplicated across `useUsers.ts`'s
+  `waitForUser`, `useCharacters.ts`'s `waitForCharacter`/`waitForCharacterInList`, and
+  `useEntities.ts`'s `waitForEntityInList` is now a single shared `pollUntil` helper
+  (`web/src/composables/usePolling.ts`), extracted once `useCampaigns.ts`'s new `waitForCampaign`
+  became the fifth copy — exactly the trigger the original BACKLOG entry named. All five call sites
+  now share the same 750ms/15000ms defaults, `AbortSignal` handling, and deadline check.
+
+- [x] **Fixed** (`701ba98`). A freshly created Campaign now gets the same retry/timeout parity
+  Character creation already had: `WorkspaceView.vue`'s header badge polls via the new
+  `waitForCampaign` instead of a single `get()` (so read-model lag no longer permanently blanks the
+  badge), and `CampaignOverviewPanel.vue`'s `load()` polls via `waitForCampaign` with an
+  `AbortController` (aborted on unmount and at the start of every new `load()`, mirroring
+  `CharacterDetailView.vue`), showing the same Retry/Back-to-Universe timeout UI when the Campaign
+  never becomes visible in time. Regression tests: `web/e2e/campaign-creation-lag.spec.ts`.
+
+  **A pre-existing routing bug, found while writing that regression test and fixed in the same
+  commit:** `UniverseOverviewPanel.vue`'s `goToCampaign` and `CampaignPickerView.vue`'s `goTo` both
+  pushed `{ name: 'workspace' }` — the *parent* route — instead of `{ name: 'campaign-overview' }`,
+  its default child (path `''`). A named push resolves `matched` by walking up the target record's
+  own ancestors; it does not descend into a default-path child. Pushing the parent by name
+  therefore resolved `matched` to `[workspace]` only, leaving `WorkspaceView`'s nested
+  `<router-view>` (`CampaignOverviewPanel`) permanently unmounted after the client-side navigation
+  — only a hard reload of the same URL happened to render it, since a full page load resolves the
+  whole path fresh. This predated this branch and would have silently blanked the panel for every
+  real Create-Campaign or pick-a-Campaign flow, not just the delayed-visibility case the new test
+  targets — not merely a symptom of the lag-handling work being added alongside it. Both call sites
+  now push `{ name: 'campaign-overview' }` instead. Regression coverage:
+  `universe-manage.spec.ts`'s "creating a Campaign from the Universe panel navigates into its
+  workspace" and `campaign-picker-deep-link.spec.ts` both now assert a heading actually renders
+  after navigating, not just that the URL changed.
+
+- [x] **Fixed.** Two further state-machine bugs in `CampaignOverviewPanel.vue`'s `load()`, found by
+  a final whole-branch review of the `poll-until-and-campaign-retry` branch:
+  1. A silent (change-feed-triggered) reload used to unconditionally `abort()` whatever load was
+     already in flight. If that in-flight load was the initial non-silent one (which alone owns
+     `loading`), its own early `if (controller.signal.aborted) return` fired before it ever reached
+     `loading.value = false` — and the silent reload itself never touches `loading` at all — so the
+     panel stayed on "Loading…" forever, even though the silent reload went on to populate
+     `campaign.value` successfully. Fixed by having a silent `load()` return immediately, before
+     aborting anything, whenever a non-silent load already owns `loading`.
+  2. `campaign.value = found` used to run unconditionally, so a *silent* reload that timed out
+     (`found === null`) unconditionally nulled out an already-rendered Campaign, dropping the panel
+     straight to the dead-end "Campaign not found." view — directly contradicting the design intent
+     that a background reload must never blow away an already-rendered page, and diverging from
+     `CharacterDetailView.vue`'s matching silent-failure handling. Fixed by moving the assignment
+     into the `found` branch and only nulling `campaign`/setting `loadTimedOut` on a *non-silent*
+     failure.
+
+  Regression test: `web/e2e/campaign-creation-lag.spec.ts`'s "a change-feed reload during the
+  initial lag neither strands the panel on 'Loading…' nor blanks it once rendered" — seeds an
+  8-second creation-visibility delay plus a matching `campaign`/`CampaignCreated` change-feed entry
+  so a silent reload genuinely fires while the initial non-silent load is still polling (bug 1),
+  then forces the already-rendered Campaign to stop resolving and fires a second matching change so
+  a silent reload times out against it (bug 2). Confirmed to fail against the pre-fix code with the
+  exact described symptom (the heading never appears; the panel stays on "Loading…") before the fix
+  was restored.
+
+  Additionally, the same `AbortController`-on-unmount/abort-and-replace-per-`load()` pattern was
+  added to `WorkspaceView.vue`'s `load()` — it was the only remaining `waitForCampaign` caller
+  without it, so an in-flight poll could otherwise keep running for up to 15s after unmount, and
+  `watch(sidebarRefreshSignal, load)` could spawn a second concurrent poller during a lag window.
+
 ## projector
 
 - [x] **Fixed.** `cmd/projector` now builds its pool via `pgxpool.ParseConfig` +

@@ -39,16 +39,30 @@ provide('pendingEntityId', pendingEntityId)
 const { lastChange: lastAggregateChange, start: startChangeFeed, stop: stopChangeFeed } = useChangeFeed()
 provide('lastAggregateChange', lastAggregateChange)
 
+// loadController is aborted both on unmount and at the start of every new load() call — mirrors
+// CampaignOverviewPanel.vue/CharacterDetailView.vue's identical fix. Without it, an in-flight
+// waitForCampaign keeps polling for up to 15s after this component unmounts (every other
+// waitForCampaign/waitForCharacter caller already guards against this; this was the last one that
+// didn't), and watch(sidebarRefreshSignal, load) firing mid-poll would spawn a second concurrent
+// 15s poller instead of replacing the first.
+let loadController: AbortController | null = null
 async function load() {
+  loadController?.abort()
+  const controller = new AbortController()
+  loadController = controller
   universe.value = await getUniverse(universeId.value)
-  campaign.value = await waitForCampaign(campaignId.value)
+  if (controller.signal.aborted) return
+  campaign.value = await waitForCampaign(campaignId.value, { signal: controller.signal })
 }
 
 onMounted(load)
 watch([universeId, campaignId], load)
 onMounted(() => startChangeFeed(universeId.value))
 watch(universeId, startChangeFeed)
-onUnmounted(stopChangeFeed)
+onUnmounted(() => {
+  stopChangeFeed()
+  loadController?.abort()
+})
 // Campaign rename/archive now happen inside CampaignOverviewPanel.vue (the workspace route's
 // default child), not a modal owned here — it bumps the same shared signal
 // CharactersPanel/EntitiesPanel already react to, so re-running load() here keeps the header's

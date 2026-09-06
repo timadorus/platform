@@ -52,6 +52,11 @@ test('a deep link to a different Universe\'s campaign picker does not corrupt th
   await expect(page.getByRole('button', { name: 'Campaign Two' })).toBeVisible()
   await page.getByRole('button', { name: 'Campaign Two' }).click()
   await expect(page).toHaveURL(/\/universes\/u2\/campaigns\/c2$/)
+  // Proves content actually rendered, not just that the URL changed — CampaignPickerView.goTo's
+  // router.push({name:'campaign-overview'}) fix (see its own comment) currently has zero direct
+  // coverage; pushing the parent 'workspace' route by name instead would leave this heading's
+  // nested <router-view> permanently empty despite an identical URL.
+  await expect(page.getByRole('heading', { name: 'Campaign Two' })).toBeVisible()
 
   const stored = await page.evaluate(
     (key) => window.localStorage.getItem(key),
@@ -64,4 +69,5 @@ test('a deep link to a different Universe\'s campaign picker does not corrupt th
   // existing.universeId ('u2's stored campaign) !== universeId.value ('u1') and clear it.
   await page.goto('/')
   await expect(page).toHaveURL(/\/universes\/u2\/campaigns\/c2$/)
+  await expect(page.getByRole('heading', { name: 'Campaign Two' })).toBeVisible()
 })

@@ -59,6 +59,10 @@ const gamemasters = computed(() =>
 // with the wrong data. Mirrors CharacterDetailView.vue's identical fix.
 let loadController: AbortController | null = null
 async function load(opts: { silent?: boolean } = {}) {
+  // A change-feed reload must not cancel a full load in flight — the aborted load owns `loading`,
+  // and its early `if (controller.signal.aborted) return` below would strand the panel on
+  // "Loading…" forever, since a silent load never touches `loading` itself.
+  if (opts.silent && loading.value) return
   loadController?.abort()
   const controller = new AbortController()
   loadController = controller
@@ -67,8 +71,8 @@ async function load(opts: { silent?: boolean } = {}) {
 
   const found = await waitForCampaign(campaignId.value, { signal: controller.signal })
   if (controller.signal.aborted) return
-  campaign.value = found
   if (found) {
+    campaign.value = found
     await listUsers()
     if (controller.signal.aborted) return
     const [ruleset, ids] = await Promise.all([getRuleset(found.rulesetId), listGamemasters(campaignId.value)])
@@ -86,6 +90,9 @@ async function load(opts: { silent?: boolean } = {}) {
     ])
     if (controller.signal.aborted) return
   } else if (!opts.silent) {
+    // Do NOT set campaign.value = null on a silent failure — a background reload that happens to
+    // time out must never blow away an already-rendered page. Mirrors CharacterDetailView.vue.
+    campaign.value = null
     loadTimedOut.value = true
   }
   if (!opts.silent) loading.value = false

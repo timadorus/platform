@@ -143,27 +143,24 @@ up; don't grow this file into a design doc.
   (by design); unmocked commands now fail loudly with a `501` (fixed in the final-review fix wave)
   rather than silently succeeding, so a missing arm surfaces immediately at the actual gap.
 
-- [ ] **The poll-with-timeout pattern is now duplicated four times.** `useUsers.ts`'s `waitForUser`,
-  `useCharacters.ts`'s `waitForCharacter` and `waitForCharacterInList`, and `useEntities.ts`'s
-  `waitForEntityInList` all share an identical skeleton — the same 750ms/15000ms defaults, the same
-  `opts` shape, the same `for (;;)` loop, the same pre-await/post-await abort guards, the same
-  deadline check — varying only in which fetch to call and what counts as success. Recommend
-  extracting a shared `pollUntil` helper (e.g. `web/src/composables/usePolling.ts`) once a fifth
-  copy is needed — the design spec for `character-creation-eventual-consistency` already
-  anticipates Universe/Campaign/Object creation having the same latent read-model-lag exposure, and
-  a fifth copy is the trigger to extract, not a requirement to do it now.
+- [x] **Fixed.** **The poll-with-timeout pattern used to be duplicated four times.** `useUsers.ts`'s
+  `waitForUser`, `useCharacters.ts`'s `waitForCharacter` and `waitForCharacterInList`, and
+  `useEntities.ts`'s `waitForEntityInList` used to share an identical skeleton — the same
+  750ms/15000ms defaults, the same `opts` shape, the same `for (;;)` loop, the same pre-await/
+  post-await abort guards, the same deadline check — varying only in which fetch to call and what
+  counts as success. The `poll-until-and-campaign-retry` branch's new `useCampaigns.ts` `waitForCampaign`
+  became the fifth copy this entry itself said would be the trigger to extract — so it extracted a
+  shared `pollUntil` helper (`web/src/composables/usePolling.ts`) instead, and migrated all five
+  call sites onto it. See `docs/DONE.md`.
 
-- [ ] **A freshly created Campaign has no retry/timeout handling for read-model lag, unlike
-  Character creation.** `CampaignPickerView.vue`'s `onCreated(id)` navigates straight to the
+- [x] **Fixed.** **A freshly created Campaign had no retry/timeout handling for read-model lag,
+  unlike Character creation.** `CampaignPickerView.vue`'s `onCreated(id)` navigates straight to the
   Campaign workspace, which lands by default on `CampaignOverviewPanel.vue` — so a lagging read
-  model shows the dead-end "Campaign not found." with no Retry, unlike the
+  model used to show the dead-end "Campaign not found." with no Retry, unlike the
   `character-creation-eventual-consistency` pattern (`waitForCharacter` plus
   `CharacterDetailView`'s Retry/Back-to-Campaign UI). `WorkspaceView.vue`'s own `getCampaign` call
-  has the identical exposure, which would leave the header badge blank instead. This is unchanged,
-  pre-existing behavior — `campaign-tabbed-panel` did not regress it — and deferring it was a
-  deliberate, reasonable scope decision (the panel "wasn't reported broken"). Recorded here, per
-  the poll-with-timeout entry above, so this specific instance of the latent exposure it already
-  anticipates for Campaign creation does not quietly evaporate as untracked follow-up.
+  had the identical exposure, leaving the header badge blank instead. Both are now fixed by the
+  `poll-until-and-campaign-retry` branch. See `docs/DONE.md`.
 
 - [ ] **`npm run typecheck` is a no-op and has been for some time.** `web/tsconfig.json` is a
   solution-style config with `"files": []`, so `vue-tsc --noEmit` run against it checks zero files
@@ -181,12 +178,16 @@ up; don't grow this file into a design doc.
   single richer shared signal payload (e.g. `sidebarEvent: Ref<{ kind: string; id: string } | null>`)
   rather than accumulating more one-off refs on `WorkspaceView.vue`.
 
-- [ ] **Three independent 750ms polls now fire after one Character creation** (the Characters
-  sidebar, the Entities sidebar, and the main pane), each with no shared coordination — roughly
-  tripling the SPA's request rate against a lagging backend for up to 15 seconds, precisely when it
-  is already struggling. Acceptable at this scale and an inherent consequence of the current design
-  (three independent consumers), not a defect to fix now — just a property worth knowing about if
-  this polling pattern is reused elsewhere.
+- [ ] **Independent 750ms polls now fire after one creation, with no shared coordination between
+  them** — three after a Character creation (the Characters sidebar, the Entities sidebar, and the
+  main pane), and, since the `poll-until-and-campaign-retry` branch added `waitForCampaign` retry
+  coverage to Campaign creation, two more after a Campaign creation (`WorkspaceView`'s header badge
+  and `CampaignOverviewPanel`'s Manage tab) — five independent pollers total across the two creation
+  flows. Each roughly multiplies the SPA's request rate against a lagging backend for up to 15
+  seconds, precisely when it is already struggling. Acceptable at this scale and an inherent
+  consequence of the current design (independent consumers, each needing its own eventual-
+  consistency wait), not a defect to fix now — just a property worth knowing about if this polling
+  pattern is reused elsewhere.
 
 - [ ] **A genuinely nonexistent Character id takes the full 15 seconds to report as such.**
   Navigating to a stale bookmark or a hand-typed bad `characterId` shows "Loading…" for the full
@@ -261,6 +262,16 @@ up; don't grow this file into a design doc.
   a top-level route, not `WorkspaceView`'s child). It filters for `universe`-type changes matching
   its own `universeId`, mirroring `CampaignOverviewPanel.vue`'s pattern, and triggers a `silent`
   reload on a match.
+
+- [ ] **`CampaignPickerView.vue`'s stored-selection restore path still uses single-shot
+  `getCampaign`, not `waitForCampaign`.** Its `onMounted` calls `getCampaign(selection.
+  selectedCampaignId)` directly to validate a restored bookmark, so a lagging read model for that
+  Campaign (e.g. right after creation) fails the restore check immediately and clears the stored
+  selection — unlike every other Campaign-lookup call site in this branch, which now retries via
+  `waitForCampaign`. Flagged, not fixed, by the `poll-until-and-campaign-retry` branch's final
+  review: it's genuinely unclear whether this is deliberate (a stale/bad bookmark arguably SHOULD
+  clear fast rather than stall the picker for up to 15s) or an oversight. Needs a product decision
+  before changing the behavior either way.
 
 ## Devcluster tooling (`test/e2e/internal`)
 

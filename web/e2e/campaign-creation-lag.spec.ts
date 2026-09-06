@@ -79,3 +79,82 @@ test('the Campaign panel shows a Retry/Back-to-Universe timeout state if the Cam
   await backLink.click()
   await expect(page).toHaveURL(/\/universes\/u1\/manage$/)
 })
+
+test('a change-feed reload during the initial lag neither strands the panel on "Loading…" nor blanks it once rendered', async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  test.setTimeout(60_000)
+  const base = baseURL!
+  const authority = `${base}/oidc`
+  // 8000ms is long enough that useChangeFeed's 5s poll interval lands mid-lag, well before the
+  // Campaign becomes visible — reproducing the exact race from the final-review fix brief: a
+  // background change-feed reload (silent: true) pre-empting the still-in-flight initial
+  // (non-silent) load.
+  const state = seedState({ createVisibilityDelayMs: 8000 })
+  await seedAuth(context, { baseURL: base, authority, clientId: CLIENT_ID })
+  await installMockBackend(page, state, { baseURL: base, authority, clientId: CLIENT_ID })
+
+  await page.goto('/universes/u1/manage')
+  await page.getByRole('button', { name: '+ Create Campaign' }).click()
+  const form = page.locator('form')
+  await form.getByRole('textbox').first().fill('Laggy Campaign')
+  await form.getByRole('combobox').selectOption({ label: 'Test Ruleset' })
+  await page.getByRole('checkbox').first().check()
+  await page.getByRole('button', { name: 'Create', exact: true }).click()
+
+  // Confirm the workspace has mounted (so useChangeFeed's start() has already fetched its initial
+  // cursor) before seeding the matching change below — seeding it any earlier would bake this
+  // change into that initial cursor fetch, and the poll would never see it as "new".
+  await expect(page.getByText('Loading…')).toBeVisible()
+  await page.waitForTimeout(300)
+
+  // This test's own state is fresh (nextId starts at 1) and this is the only create-Campaign
+  // command it issues, so the new Campaign is deterministically 'campaign-1'. Push a matching
+  // change directly onto state.changes, mirroring universe-change-feed.spec.ts's pattern of
+  // simulating an externally-made change for the poller to pick up rather than going through a
+  // command route.
+  state.changes.push({
+    globalSeq: 1,
+    universeId: 'u1',
+    aggregateType: 'campaign',
+    aggregateId: 'campaign-1',
+    eventType: 'campaign.created.v1',
+    occurredAt: new Date().toISOString(),
+  })
+
+  // Regression for Important #1 (a silent reload aborting an in-flight non-silent load and
+  // stranding the panel on "Loading…" forever): useChangeFeed's poll (every 5s) picks up the
+  // change above well before the 8s visibility delay elapses, firing load({silent:true}) while the
+  // original non-silent load is still polling waitForCampaign. Before the fix, that silent load
+  // unconditionally aborted the in-flight one, whose own early
+  // `if (controller.signal.aborted) return` fired before it ever cleared `loading` — and the
+  // silent load itself never touches `loading` — so the panel never left "Loading…". The timeout
+  // below covers the 8s visibility delay plus margin for the next 750ms poll attempt.
+  await expect(page.getByRole('heading', { name: 'Laggy Campaign' })).toBeVisible({ timeout: 15000 })
+
+  // Regression for Important #2 (a silent reload that times out blanking an already-rendered
+  // Campaign): make the now-rendered Campaign stop resolving again (simulating it going briefly
+  // unreachable) and fire another matching change-feed change. The resulting silent reload polls
+  // for the full 15s default timeout and gives up. Before the fix, `campaign.value = found` ran
+  // unconditionally, so this silent timeout (found === null) unconditionally nulled it out,
+  // dropping the panel straight to "Campaign not found." even though the already-rendered page
+  // itself was never actually invalidated.
+  const created = state.campaigns.find((c) => c.id === 'campaign-1')!
+  created.visibleAt = Date.now() + 999_999_999
+  state.changes.push({
+    globalSeq: 2,
+    universeId: 'u1',
+    aggregateType: 'campaign',
+    aggregateId: 'campaign-1',
+    eventType: 'campaign.renamed.v1',
+    occurredAt: new Date().toISOString(),
+  })
+
+  // Outlast the silent reload's full 15s poll-and-give-up window, then confirm the already-
+  // rendered page survived it untouched.
+  await page.waitForTimeout(16_000)
+  await expect(page.getByRole('heading', { name: 'Laggy Campaign' })).toBeVisible()
+  await expect(page.getByText('Campaign not found.')).not.toBeVisible()
+})

@@ -111,6 +111,12 @@ test('creating a Campaign from the Universe panel navigates into its workspace',
   await page.getByRole('button', { name: 'Create', exact: true }).click()
 
   await expect(page).toHaveURL(/\/universes\/u1\/campaigns\/[^/]+$/)
+  // Proves content actually rendered inside the new workspace, not just that the URL changed —
+  // regression coverage for the router.push({name:'workspace'}) vs. {name:'campaign-overview'}
+  // bug (see UniverseOverviewPanel.vue's goToCampaign comment): pushing the parent 'workspace'
+  // route by name resolves `matched` to [workspace] only, leaving the nested <router-view> (this
+  // heading) permanently empty even though the URL is identical to the fixed behavior.
+  await expect(page.getByRole('heading', { name: 'New Campaign' })).toBeVisible()
 
   // The checkbox assertion above only proves UserMultiSelect ticked a box in the DOM, not that
   // the selected user id actually reached the request body — the mock would 201 just as happily
