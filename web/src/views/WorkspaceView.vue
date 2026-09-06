@@ -18,7 +18,7 @@ const universeId = computed(() => route.params.universeId as string)
 const campaignId = computed(() => route.params.campaignId as string)
 
 const { get: getUniverse } = useUniverses()
-const { get: getCampaign } = useCampaigns()
+const { waitForCampaign } = useCampaigns()
 
 const universe = ref<UniverseSummary | null>(null)
 const campaign = ref<CampaignSummary | null>(null)
@@ -41,7 +41,7 @@ provide('lastAggregateChange', lastAggregateChange)
 
 async function load() {
   universe.value = await getUniverse(universeId.value)
-  campaign.value = await getCampaign(campaignId.value)
+  campaign.value = await waitForCampaign(campaignId.value)
 }
 
 onMounted(load)

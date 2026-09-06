@@ -24,7 +24,10 @@ const checkingStoredSelection = ref(true)
 function goTo(campaignId: string) {
   selection.setUniverse(universeId.value)
   selection.setCampaign(campaignId)
-  router.push({ name: 'workspace', params: { universeId: universeId.value, campaignId } })
+  // Push the *child* route ('campaign-overview'), not its parent ('workspace') — see
+  // UniverseOverviewPanel.vue's goToCampaign for why: a named push to the parent never descends
+  // into its default-path ('') child, leaving the workspace's nested <router-view> empty.
+  router.push({ name: 'campaign-overview', params: { universeId: universeId.value, campaignId } })
 }
 
 function goToUniverseOverview() {

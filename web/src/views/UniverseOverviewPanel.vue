@@ -122,7 +122,12 @@ async function confirmArchive() {
 function goToCampaign(campaignId: string) {
   selection.setUniverse(universeId.value)
   selection.setCampaign(campaignId)
-  router.push({ name: 'workspace', params: { universeId: universeId.value, campaignId } })
+  // Push the *child* route ('campaign-overview'), not its parent ('workspace'): vue-router
+  // builds `matched` for a named push by walking up from the resolved record's own ancestors,
+  // it does not descend into a target record's default-path ('') child. Pushing 'workspace'
+  // directly resolves matched to [workspace] only, leaving WorkspaceView's nested <router-view>
+  // permanently empty until a hard reload re-resolves the full path from scratch.
+  router.push({ name: 'campaign-overview', params: { universeId: universeId.value, campaignId } })
 }
 
 function onCampaignCreated(id: string) {

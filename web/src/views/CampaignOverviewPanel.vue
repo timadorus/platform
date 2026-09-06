@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, inject, onMounted, ref, watch, type Ref } from 'vue'
+import { computed, inject, onMounted, onUnmounted, ref, watch, type Ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useCampaigns, type CampaignSummary } from '@/composables/useCampaigns'
 import type { AggregateChange } from '@/composables/useChangeFeed'
@@ -8,6 +8,7 @@ import { useUsers } from '@/composables/useUsers'
 import { useCharacters } from '@/composables/useCharacters'
 import { useEntities } from '@/composables/useEntities'
 import { useObjects } from '@/composables/useObjects'
+import BaseButton from '@/components/common/BaseButton.vue'
 import ErrorBanner from '@/components/common/ErrorBanner.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import BaseTabs from '@/components/common/BaseTabs.vue'
@@ -22,7 +23,7 @@ const router = useRouter()
 const universeId = computed(() => route.params.universeId as string)
 const campaignId = computed(() => route.params.campaignId as string)
 
-const { get: getCampaign, rename, archive, listGamemasters, addGamemaster, removeGamemaster } = useCampaigns()
+const { waitForCampaign, rename, archive, listGamemasters, addGamemaster, removeGamemaster } = useCampaigns()
 const { get: getRuleset } = useRulesets()
 const { users, list: listUsers } = useUsers()
 const { characters, list: listCharacters } = useCharacters()
@@ -36,6 +37,7 @@ const gamemasterIds = ref<string[]>([])
 const error = ref<string | null>(null)
 const loading = ref(true)
 const showArchiveConfirm = ref(false)
+const loadTimedOut = ref(false)
 
 const activeTab = ref('Manage')
 const tabs = ['Manage', 'Configuration']
@@ -49,25 +51,43 @@ const gamemasters = computed(() =>
 // entire subtree including <ConfigurationPanel>, and unmounting it on every unrelated background
 // change would destroy its pending-save state and any unsaved draft. A genuine campaign switch
 // (the watch further down) stays non-silent so it still shows the full "Loading…" state.
+//
+// loadController is aborted both on unmount and at the start of every new load() call — the
+// latter matters because vue-router reuses this component instance across param-only route
+// changes (see campaignId's own comment above): switching to a different Campaign mid-poll must
+// not let a slow response for the *previous* one land after navigation and overwrite the page
+// with the wrong data. Mirrors CharacterDetailView.vue's identical fix.
+let loadController: AbortController | null = null
 async function load(opts: { silent?: boolean } = {}) {
+  loadController?.abort()
+  const controller = new AbortController()
+  loadController = controller
+  loadTimedOut.value = false
   if (!opts.silent) loading.value = true
-  campaign.value = await getCampaign(campaignId.value)
-  await listUsers()
-  const [ruleset, ids] = await Promise.all([
-    campaign.value ? getRuleset(campaign.value.rulesetId) : Promise.resolve(null),
-    listGamemasters(campaignId.value),
-  ])
-  rulesetName.value = ruleset?.name ?? '(unknown)'
-  gamemasterIds.value = ids
 
-  // Entities/Objects belong to the Universe, not the Campaign (docs/PLAN.md §2) — this count
-  // is Universe-wide, matching exactly what the sidebar's own Entities/Objects panels show
-  // for this Universe, not a Campaign-scoped subset that doesn't exist in the domain model.
-  await Promise.all([
-    listCharacters(campaignId.value),
-    searchEntities(universeId.value, ''),
-    searchObjects(universeId.value, ''),
-  ])
+  const found = await waitForCampaign(campaignId.value, { signal: controller.signal })
+  if (controller.signal.aborted) return
+  campaign.value = found
+  if (found) {
+    await listUsers()
+    if (controller.signal.aborted) return
+    const [ruleset, ids] = await Promise.all([getRuleset(found.rulesetId), listGamemasters(campaignId.value)])
+    if (controller.signal.aborted) return
+    rulesetName.value = ruleset?.name ?? '(unknown)'
+    gamemasterIds.value = ids
+
+    // Entities/Objects belong to the Universe, not the Campaign (docs/PLAN.md §2) — this count
+    // is Universe-wide, matching exactly what the sidebar's own Entities/Objects panels show
+    // for this Universe, not a Campaign-scoped subset that doesn't exist in the domain model.
+    await Promise.all([
+      listCharacters(campaignId.value),
+      searchEntities(universeId.value, ''),
+      searchObjects(universeId.value, ''),
+    ])
+    if (controller.signal.aborted) return
+  } else if (!opts.silent) {
+    loadTimedOut.value = true
+  }
   if (!opts.silent) loading.value = false
 }
 // Both call sites are wrapped in arrow functions deliberately, not cosmetically: passed directly,
@@ -75,6 +95,7 @@ async function load(opts: { silent?: boolean } = {}) {
 // `(newValue, oldValue, onCleanup)`) as load's first argument, silently shadowing `opts`.
 onMounted(() => load())
 watch([universeId, campaignId], () => load())
+onUnmounted(() => loadController?.abort())
 
 const lastAggregateChange = inject<Ref<AggregateChange | null>>('lastAggregateChange')
 if (lastAggregateChange) {
@@ -164,6 +185,21 @@ async function confirmArchive() {
       @confirm="confirmArchive"
       @cancel="showArchiveConfirm = false"
     />
+  </div>
+  <div v-else-if="loadTimedOut" class="p-6">
+    <p class="mb-4 text-sm text-slate-600">
+      Couldn't load this Campaign — it may not exist, or may still be taking longer than expected
+      to appear.
+    </p>
+    <div class="flex gap-2">
+      <BaseButton @click="load()">Retry</BaseButton>
+      <router-link
+        :to="{ name: 'universe-overview', params: { universeId } }"
+        class="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+      >
+        Back to Universe
+      </router-link>
+    </div>
   </div>
   <div v-else class="p-6 text-sm text-slate-500">Campaign not found.</div>
 </template>
