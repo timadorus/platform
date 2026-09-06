@@ -237,7 +237,12 @@ up; don't grow this file into a design doc.
   cold boot would produce the same `null` and wipe the user's entire stored selection over a
   hiccup, not a real archival. Same class of concern the codebase already accepts for read-model
   lag elsewhere (`character-creation-lag.spec.ts`) but not yet addressed here. Not fixed in the
-  `campaign-picker-deep-link-fix` branch that surfaced it — flagging only.
+  `campaign-picker-deep-link-fix` branch that surfaced it — flagging only. The
+  `universe-panel-change-feed` branch adds a second, unprompted trigger path into this same
+  exposure: previously `UniverseOverviewPanel.load()` only ran on mount/param-change, both
+  correlated with a user action, but now its own change-feed poll can also call `getUniverse()`
+  in the background, silently exposed to the same transient-network-blip collapse with no user
+  action involved at all.
 
 - [ ] **`CreateCampaignModal.vue`'s labels have no `for`/`id` pairing with their inputs — a real
   accessibility gap that has now also forced two separate test-writing passes to route around
@@ -250,12 +255,12 @@ up; don't grow this file into a design doc.
   restoring `getByLabel` for every future test against every modal in the app. Out of scope for
   `universe-panel-create-campaign` per its plan's Global Constraints.
 
-- [ ] **Universe-level change-feed events currently have no live SPA consumer.**
-  `UniverseOverviewPanel.vue` sits outside `WorkspaceView`'s provide scope (it's a top-level route,
-  not a child route of `WorkspaceView`), so `lastAggregateChange` is never injected there and the
-  panel never reacts to `universe`-aggregate changes. Wire it up (its own `useChangeFeed` instance
-  scoped to its own `universeId`, or hoist the `provide` to a shared ancestor) if a real need for
-  it surfaces.
+- [x] **Fixed.** `UniverseOverviewPanel.vue` now owns its own `useChangeFeed()` instance (started/
+  stopped on mount/unmount and re-scoped on `universeId` change), rather than relying on
+  `WorkspaceView`'s `lastAggregateChange` provide/inject (out of reach anyway, since this panel is
+  a top-level route, not `WorkspaceView`'s child). It filters for `universe`-type changes matching
+  its own `universeId`, mirroring `CampaignOverviewPanel.vue`'s pattern, and triggers a `silent`
+  reload on a match.
 
 ## Devcluster tooling (`test/e2e/internal`)
 

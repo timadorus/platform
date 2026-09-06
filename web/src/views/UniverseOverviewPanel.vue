@@ -37,6 +37,12 @@ const creators = computed(() =>
   creatorIds.value.map((id) => ({ id, name: users.value.find((u) => u.id === id)?.name ?? id })),
 )
 
+// silent: true for a background reload triggered by the change-feed (see the lastAggregateChange
+// watch below) — must NOT toggle `loading`, since the template's `v-if="loading"` gates the
+// entire subtree including the Add Creator <UserPicker>, and unmounting it on every unrelated
+// background change would destroy its pending-search state (an open picker would silently close).
+// A genuine universe switch (the watch further down) stays non-silent so it still shows the full
+// "Loading…" state.
 async function load(opts: { silent?: boolean } = {}) {
   if (!opts.silent) loading.value = true
   universe.value = await getUniverse(universeId.value)
@@ -46,6 +52,9 @@ async function load(opts: { silent?: boolean } = {}) {
   if (campaignsError.value) error.value = campaignsError.value
   if (!opts.silent) loading.value = false
 }
+// Both call sites are wrapped in arrow functions deliberately, not cosmetically: passed directly,
+// onMounted's and watch's callback signatures would pass their own arguments (e.g. watch's
+// `(newValue, oldValue, onCleanup)`) as load's first argument, silently shadowing `opts`.
 onMounted(() => load())
 watch(universeId, () => load())
 

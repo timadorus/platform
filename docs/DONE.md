@@ -216,6 +216,13 @@ live with a real headless-Chromium session.
   branch's final whole-branch review and fixed in the same wave; see
   `internal/rebuildreadmodels.ComputeTargets`.
 
+- [x] **Fixed.** `UniverseOverviewPanel.vue` now owns its own `useChangeFeed()` instance (started/
+  stopped on mount/unmount and re-scoped on `universeId` change), rather than relying on
+  `WorkspaceView`'s `lastAggregateChange` provide/inject (out of reach anyway, since this panel is
+  a top-level route, not `WorkspaceView`'s child). It filters for `universe`-type changes matching
+  its own `universeId`, mirroring `CampaignOverviewPanel.vue`'s pattern, and triggers a `silent`
+  reload on a match.
+
 - [x] **Already fixed** (`05a84b7`, predates this entry). `.github/workflows/ci.yml`'s `web-build`
   job already has a "verify generated API clients are up to date" step: `npm run generate` followed
   by `git diff --exit-code -- src/api/command.types.ts src/api/query.types.ts`. This entry was

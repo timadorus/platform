@@ -128,6 +128,16 @@ test('an externally-made Universe rename is picked up by the Universe panel with
   await page.goto('/universes/u1/manage')
   await expect(page.getByRole('heading', { name: 'Test Universe' })).toBeVisible()
 
+  // Open the Add Creator UserPicker before triggering the reload: this component lives inside
+  // the template's `v-if="loading"` gate, so it would be unmounted (destroying its own query-input
+  // state) if the change-feed-triggered reload below were not silent. A non-silent reload would
+  // also make the renamed heading appear within the 10s budget below — just with a `loading` flash
+  // that unmounts and remounts this picker in between — so asserting the heading alone would pass
+  // either way. Asserting the picker survives is what actually proves `silent` did its job.
+  await page.getByRole('button', { name: '+ Add' }).click()
+  const userPicker = page.getByTestId('user-picker')
+  await expect(userPicker).toBeVisible()
+
   // Simulate another tab/user renaming the Universe: mutate state directly (bypassing the rename
   // command route — this test is about the change feed noticing it, not about renaming itself)
   // and record a matching change-log row the poller will pick up.
@@ -143,4 +153,8 @@ test('an externally-made Universe rename is picked up by the Universe panel with
 
   // useChangeFeed polls every 5s — wait comfortably past that instead of asserting immediately.
   await expect(page.getByRole('heading', { name: 'Renamed Elsewhere' })).toBeVisible({ timeout: 10000 })
+  // The picker opened above must still be visible: if the reload were not silent, the `loading`
+  // gate would have unmounted and remounted this subtree, closing it back to `showAddCreator`'s
+  // default `false`.
+  await expect(userPicker).toBeVisible()
 })
