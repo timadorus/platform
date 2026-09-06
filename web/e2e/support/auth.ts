@@ -10,6 +10,13 @@ import type { MockAuthConfig } from './mockBackend'
 // Takes the same shared MockAuthConfig as installMockBackend for call-site symmetry (a caller
 // builds one config object and passes it to both) — but only reads `authority` and `clientId`;
 // `baseURL` is unused here and exists solely so the two functions share a signature.
+// selectionStorageKey mirrors web/src/stores/selection.ts's storageKey() for the fixed test
+// subject seedAuth always uses — lets tests seed/read the selection store's localStorage entry
+// without hardcoding the format twice.
+export function selectionStorageKey(): string {
+  return 'timadorus:selection:test-sub'
+}
+
 export async function seedAuth(context: BrowserContext, config: MockAuthConfig): Promise<void> {
   const now = Math.floor(Date.now() / 1000)
   const oidcUser = {

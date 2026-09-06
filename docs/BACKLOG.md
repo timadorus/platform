@@ -196,7 +196,7 @@ up; don't grow this file into a design doc.
   oversight — recorded here so the cost is visible in one place alongside the rest of this
   feature's known limitations.
 
-- [ ] **`CampaignPickerView.goTo` never records the selected Universe, unlike its sibling
+- [x] **Fixed.** **`CampaignPickerView.goTo` never records the selected Universe, unlike its sibling
   `UniverseOverviewPanel.goToCampaign` — a deep link can silently clear a user's restored Campaign
   selection.** `CampaignPickerView.vue`'s `goTo()` calls only `selection.setCampaign(id)`, while
   `UniverseOverviewPanel.vue`'s `goToCampaign()` (fixed in an earlier branch) correctly calls
@@ -211,12 +211,33 @@ up; don't grow this file into a design doc.
   cold boot, `UniversePickerView` restores `u1`, routes to `u1`'s campaign picker, and
   `CampaignPickerView` tries to load the stored campaign, finds `existing.universeId !==
   universeId.value`, and clears it — so the user's restored Campaign selection is silently lost.
-  This is pre-existing behavior in an unchanged file, out of scope for the branch
-  (`universe-panel-create-campaign`) that surfaced it, since that branch's own new entry point
-  already does the right thing. Recommended fix: add `selection.setUniverse(universeId.value)` to
-  `CampaignPickerView.goTo` before the existing `setCampaign` call — one line, matching
-  `UniverseOverviewPanel.goToCampaign`'s shape exactly — plus a deep-link regression test. Small
-  follow-up branch.
+  Fixed not with a per-call-site patch but by moving the guard into `selection.ts`'s `setUniverse`
+  itself: it now only nulls `selectedCampaignId` when the incoming Universe id actually differs
+  from the stored one. That single change closes the whole bug class at once, including a
+  previously-latent third instance the final review found in `UniversePickerView.goTo` (its own
+  grid-select/`onCreated` path, unreachable in practice today but a real landmine) — not just the
+  originally-reported `CampaignPickerView.goTo` call site. Regression test:
+  `web/e2e/campaign-picker-deep-link.spec.ts`.
+
+- [ ] **`WorkspaceView.vue`'s deep link never writes to the selection store at all.** Confirmed by
+  the final reviewer of the `campaign-picker-deep-link-fix` branch: navigating directly to
+  `/universes/:universeId/campaigns/:campaignId` (the URL an actual bookmark or shared link would
+  use) never calls `selection.setUniverse`/`setCampaign` — so on the next cold boot from `/`, the
+  user is NOT restored to the campaign they bookmarked; whatever was previously stored (or nothing)
+  wins instead. This is the deeper, more commonly bookmarked of the two deep-link entry points and
+  produces the same "restored to the wrong thing" symptom that branch's own fix addresses for the
+  Universe-picker deep link — but it's a different mechanism (a missing write, not an unconditional
+  clear) and out of that branch's scope. Recommended fix: `WorkspaceView.vue`'s `onMounted`/`load()`
+  should call `selection.setUniverse(universeId.value)` + `selection.setCampaign(campaignId.value)`
+  once the Campaign is confirmed to exist.
+
+- [ ] **`useUniverses().get()` collapses every API error to `null`, not just 404.**
+  `UniversePickerView.vue`'s restore path treats a `null` result as "this Universe doesn't
+  exist/is archived" and calls `selection.clearUniverse()` — but a transient network blip during
+  cold boot would produce the same `null` and wipe the user's entire stored selection over a
+  hiccup, not a real archival. Same class of concern the codebase already accepts for read-model
+  lag elsewhere (`character-creation-lag.spec.ts`) but not yet addressed here. Not fixed in the
+  `campaign-picker-deep-link-fix` branch that surfaced it — flagging only.
 
 - [ ] **`CreateCampaignModal.vue`'s labels have no `for`/`id` pairing with their inputs — a real
   accessibility gap that has now also forced two separate test-writing passes to route around

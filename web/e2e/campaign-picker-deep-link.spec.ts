@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { createMockState, installMockBackend, type MockState } from './support/mockBackend'
-import { seedAuth } from './support/auth'
+import { seedAuth, selectionStorageKey } from './support/auth'
 
 const CLIENT_ID = 'test-client'
 
@@ -34,7 +34,6 @@ test('a deep link to a different Universe\'s campaign picker does not corrupt th
   // Simulate a prior session that had u1 selected — seedAuth's subject is always 'test-sub'
   // (support/auth.ts), so this is the exact storage key selection.ts's storageKey() computes.
   // Only set this on the first load; don't overwrite it on subsequent page.goto() calls.
-  let firstLoad = true
   await context.addInitScript(
     ([key, value]) => {
       if (!window.localStorage.getItem(key)) {
@@ -42,7 +41,7 @@ test('a deep link to a different Universe\'s campaign picker does not corrupt th
       }
     },
     [
-      'timadorus:selection:test-sub',
+      selectionStorageKey(),
       JSON.stringify({ selectedUniverseId: 'u1', selectedCampaignId: null }),
     ],
   )
@@ -54,7 +53,10 @@ test('a deep link to a different Universe\'s campaign picker does not corrupt th
   await page.getByRole('button', { name: 'Campaign Two' }).click()
   await expect(page).toHaveURL(/\/universes\/u2\/campaigns\/c2$/)
 
-  const stored = await page.evaluate(() => window.localStorage.getItem('timadorus:selection:test-sub'))
+  const stored = await page.evaluate(
+    (key) => window.localStorage.getItem(key),
+    selectionStorageKey(),
+  )
   expect(JSON.parse(stored!)).toEqual({ selectedUniverseId: 'u2', selectedCampaignId: 'c2' })
 
   // Reload from the root and confirm the restored pair is no longer mismatched — before the fix,
