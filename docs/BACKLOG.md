@@ -243,27 +243,21 @@ up; don't grow this file into a design doc.
 
 ## projector
 
-- [ ] **`cmd/projector` now runs 12 projectors on a default-sized connection pool with no budget
-  note.** `cmd/timadorus-engine/main.go` carries an explicit "Connection budget" comment for its 2
-  processors; `cmd/projector/main.go`'s `pgxpool.New` has no equivalent, and the
-  `universe-change-feed` branch took it from 7 to 12 projectors (a 71% increase in concurrent
-  connection demand) with no explicit `pool_max_conns` (defaults to `max(4, NumCPU)`). Not a
-  correctness bug today — each `Router.handle` holds exactly one connection and the
-  `universechanges` projectors resolve on the ambient tx rather than acquiring a second pool
-  connection, so there's no deadlock risk — but on a small node a simultaneous cold-start replay
-  of all 12 could in principle queue long enough to trip Watermill's 30s `AckWaitTimeout` and
-  cause redelivery churn. Add a "Connection budget" comment near `cmd/projector/main.go`'s
-  `pgxpool.New` mirroring the engine's, and consider `pool_max_conns` if this is ever measured to
-  matter in practice.
+- [x] **Fixed.** `cmd/projector` now builds its pool via `pgxpool.ParseConfig` +
+  `pgxpool.NewWithConfig`, with `MaxConns` from the new `Projector.PoolMaxConns` config field
+  (default 16, overridable via `PROJECTOR_POOL_MAX_CONNS`), mirroring
+  `cmd/timadorus-engine`'s already-established pattern exactly.
 
-- [ ] **A full read-model rebuild (all checkpoints reset) is not safe with the change-feed
-  projectors in the mix.** Replay load at this platform's current scale is fine (cheap indexed
-  lookup + insert per event, small backlogs). But if every checkpoint were ever reset to rebuild
-  read models from scratch, the `universe-changes-*` projectors would race the base projectors
-  with no ordering guarantee between independent durables, and the 5-attempt Nack budget (no
-  `NakDelay`) would burn in milliseconds — non-`Created` events would dead-letter en masse and
-  their change rows would be lost. Rebuild base read models first, then reset the
-  `universe-changes-*` checkpoints, if a full rebuild is ever needed.
+- [x] **Fixed.** `cmd/rebuild-read-models` (new standalone binary) automates a safe full
+  read-model rebuild: it deletes each affected projector's JetStream durable consumer (a
+  checkpoint reset alone does not cause NATS to redeliver an already-acked message — see
+  `internal/rebuildreadmodels`'s own doc comment) and resets its Postgres checkpoint, in two
+  required phases (`--phase=base` then `--phase=change-feed`), refusing to run the second phase
+  until the base projectors have actually caught up to the first phase's captured target. Requires
+  `cmd/projector` to already be stopped (an explicit interactive confirmation, not detected
+  automatically). The shared list of "every registered projector" now lives in
+  `internal/projection/registry`, used by both `cmd/projector/main.go` and this tool, so they can
+  never drift out of sync.
 
 - [x] **Already fixed** (`05a84b7`, predates this entry). `.github/workflows/ci.yml`'s `web-build`
   job already has a "verify generated API clients are up to date" step: `npm run generate` followed
