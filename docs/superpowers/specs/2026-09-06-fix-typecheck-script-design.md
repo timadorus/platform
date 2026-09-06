@@ -42,6 +42,8 @@ full `web/src` tree, not just that the exit code happens to match).
 
 ## Out of Scope
 
-Any actual type-error fixes (none exist right now); CI workflow changes (`ci.yml`'s `web-build` job
-already runs `npm run build`, which already exercises `vue-tsc -b` — this fix makes a separately
-invokable `npm run typecheck` meaningful too, e.g. for local pre-commit use, not a new CI gate).
+Any actual type-error fixes (none exist right now); CI workflow changes. Note: `.github/workflows/ci.yml`'s
+`web-build` job runs `npm run typecheck` directly as its own dedicated step (before the `build` step),
+and this fix converts that existing vacuous CI gate into a live one at approximately zero net CI cost —
+the same `vue-tsc -b` work simply moves one step earlier and reuses its `.tsbuildinfo` cache in the
+later `build` step. This branch also makes `npm run typecheck` meaningful for local pre-commit use.

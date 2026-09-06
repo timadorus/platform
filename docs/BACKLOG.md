@@ -162,13 +162,12 @@ up; don't grow this file into a design doc.
   had the identical exposure, leaving the header badge blank instead. Both are now fixed by the
   `poll-until-and-campaign-retry` branch. See `docs/DONE.md`.
 
-- [ ] **`npm run typecheck` is a no-op and has been for some time.** `web/tsconfig.json` is a
-  solution-style config with `"files": []`, so `vue-tsc --noEmit` run against it checks zero files
-  and exits 0 in ~0.2s regardless of real type errors — every past plan's "typecheck must be clean"
-  gate has been vacuous; the actual type coverage has always ridden along inside `npm run build`'s
-  `vue-tsc -b`. Not fixed here because correcting it (e.g. `"typecheck": "vue-tsc -b --noEmit"`)
-  could surface a wave of pre-existing, unrelated type errors across `web/src` that have silently
-  accumulated — a separate, dedicated fix, not a one-liner to fold into an unrelated branch.
+- [x] **Fixed** (`04142ab`). `web/package.json`'s `typecheck` script now runs `vue-tsc -b --noEmit`,
+  making the CI gate meaningful by actually typechecking the full `web/src` tree. The fix surfaced
+  zero pre-existing type errors (the build's own `vue-tsc -b` was already keeping the tree clean).
+  This branch also activates the existing but-vacuous CI step described in the design spec's
+  Out of Scope section, converting that dormant gate into a live one at approximately zero net
+  CI cost.
 
 - [ ] **The `pendingEntityId` provide/inject pair has a two-way-coupling wart.**
   `CharactersPanel.vue` writes it (sets the new Entity's id); `EntitiesPanel.vue` also writes to it
@@ -289,6 +288,16 @@ up; don't grow this file into a design doc.
   regression in AT confusion specifically, even though `role="dialog"`/`aria-modal` overall is a
   clear improvement. Flagged by the `create-campaign-modal-a11y` branch's final review; not fixed
   here.
+
+- [ ] **`web/e2e/**` and `playwright.config.ts` are not typechecked by anything.** `web/tsconfig.app.json`
+  only includes `src/**/*.ts` and `src/**/*.vue`, and `web/tsconfig.node.json` only includes
+  `vite.config.ts` — so `npm run typecheck` exits 0 even with a deliberately broken type error
+  injected into an e2e spec file or into `playwright.config.ts`. This is pre-existing and out of
+  scope for this branch's fix. However, at least one existing plan document
+  (`docs/superpowers/plans/2026-08-30-spa-e2e-test-harness.md`) incorrectly asserts this coverage
+  already exists. Recommend either adding `e2e/**` + `playwright.config.ts` to `tsconfig.node.json`'s
+  `include`, or creating a third referenced project to cover them separately. Worth a permanent
+  record since the coverage gap is real and the plan's claim is demonstrably false.
 
 ## Devcluster tooling (`test/e2e/internal`)
 

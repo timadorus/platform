@@ -289,3 +289,10 @@ live with a real headless-Chromium session.
   job already has a "verify generated API clients are up to date" step: `npm run generate` followed
   by `git diff --exit-code -- src/api/command.types.ts src/api/query.types.ts`. This entry was
   simply never reconciled against that existing check — no code change needed.
+
+- [x] **Fixed** (`04142ab`). `web/package.json`'s `typecheck` script now runs `vue-tsc -b --noEmit`,
+  making the CI gate meaningful by actually typechecking the full `web/src` tree. The fix surfaced
+  zero pre-existing type errors (the build's own `vue-tsc -b` was already keeping the tree clean).
+  This branch also activates the existing but-vacuous CI step described in the design spec's
+  Out of Scope section, converting that dormant gate into a live one at approximately zero net
+  CI cost.
