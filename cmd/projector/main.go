@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -45,9 +46,24 @@ func main() {
 }
 
 func run(ctx context.Context, logger *slog.Logger) error {
-	cfg := config.LoadProjector()
+	cfg, err := config.LoadProjector()
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
 
-	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
+	// Connection budget: each in-flight Router.Handle call holds exactly one pool connection —
+	// the universechanges projectors resolve on the ambient tx rather than acquiring a second
+	// (see postgres.Store.Load), same as every other projector here. With 12 projectors
+	// registered below, a simultaneous cold-start replay of all of them could in principle need
+	// up to 12 connections at once; 16 gives headroom above that plus /readyz's own Ping.
+	// Configurable via PROJECTOR_POOL_MAX_CONNS (internal/config.LoadProjector) if the projector
+	// count grows further, with no code change required.
+	poolCfg, err := pgxpool.ParseConfig(cfg.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	poolCfg.MaxConns = cfg.PoolMaxConns
+	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
 		return err
 	}

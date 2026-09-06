@@ -64,14 +64,30 @@ type Projector struct {
 	HTTPAddr    string
 	DatabaseURL string
 	NATSURL     string
+	// PoolMaxConns caps the shared Postgres connection pool across all 12 projectors sharing
+	// this binary (see cmd/projector/main.go's "Connection budget" comment for the reasoning
+	// behind the default of 16). Configurable via PROJECTOR_POOL_MAX_CONNS so a growing
+	// projector count can be given headroom without a code change or redeploy of a new binary.
+	// Leaving the variable unset defaults to 16; explicitly setting it to something invalid
+	// (unparseable, zero, or negative) fails LoadProjector with a named error instead of
+	// silently substituting the default — see parsePoolMaxConns.
+	PoolMaxConns int32
 }
 
-func LoadProjector() Projector {
-	return Projector{
-		HTTPAddr:    getEnv("PROJECTOR_ADDR", ":8083"),
-		DatabaseURL: getEnv("DATABASE_URL", "postgres://timadorus:timadorus@localhost:5432/timadorus?sslmode=disable"),
-		NATSURL:     getEnv("NATS_URL", "nats://localhost:4222"),
+// LoadProjector returns an error only when PROJECTOR_POOL_MAX_CONNS is explicitly set to
+// something invalid (see parsePoolMaxConns) — every other field is best-effort, matching this
+// package's other Load* functions. Leaving the variable unset is not an error.
+func LoadProjector() (Projector, error) {
+	poolMaxConns, err := parsePoolMaxConns("PROJECTOR_POOL_MAX_CONNS", 16)
+	if err != nil {
+		return Projector{}, err
 	}
+	return Projector{
+		HTTPAddr:     getEnv("PROJECTOR_ADDR", ":8083"),
+		DatabaseURL:  getEnv("DATABASE_URL", "postgres://timadorus:timadorus@localhost:5432/timadorus?sslmode=disable"),
+		NATSURL:      getEnv("NATS_URL", "nats://localhost:4222"),
+		PoolMaxConns: poolMaxConns,
+	}, nil
 }
 
 type TimadorusEngine struct {
