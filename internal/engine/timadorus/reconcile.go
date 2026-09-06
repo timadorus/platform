@@ -46,6 +46,15 @@ const ReconcilerInterval = 30 * time.Second
 // read-model scan first to find *candidate* targets, then re-checks each target fresh against its
 // live write-side aggregate immediately before writing — so a scan based on a briefly stale read
 // model can never cause an incorrect write; correctness is enforced at write time, not scan time.
+//
+// One narrow, pre-existing interaction this design does not change: a Reconciler write can cause
+// a concurrently in-flight ActionRequested/ConfigurationRequested Handle call for the same
+// Campaign/Character to fail with a conflict, entering the router's own Nack/redelivery path —
+// which (like any Nack-triggered retry on a shared subject) can in principle be silently swallowed
+// if other traffic on the same subject advances the checkpoint first (see BACKLOG.md's URGENT
+// entry for the full mechanism). This is the same pre-existing hazard class documented there, not
+// a new one Reconciler introduces — command-api's own writes already create it whenever a user
+// action races an engine write — and is out of this design's scope to close.
 type Reconciler struct {
 	pool       *pgxpool.Pool
 	campaigns  *eventsourcing.Repository[*campaign.Campaign]
@@ -172,7 +181,10 @@ func (r *Reconciler) backfillCampaign(ctx context.Context, campaignID uuid.UUID)
 
 	config := map[string]any{}
 	if raw := c.Configuration(); raw != "" {
-		_ = json.Unmarshal([]byte(raw), &config)
+		if err := json.Unmarshal([]byte(raw), &config); err != nil {
+			r.logger.Warn(errPrefix+"reconcile: campaign configuration is not a JSON object, skipping", "campaignID", campaignID)
+			return nil
+		}
 	}
 
 	changed := false
@@ -221,7 +233,7 @@ func (r *Reconciler) reconcileCharacters(ctx context.Context) {
 		 FROM characters_read_model ch
 		 JOIN campaigns_read_model cp ON cp.id = ch.campaign_id
 		 JOIN rulesets_read_model rs ON rs.id = cp.ruleset_id
-		 WHERE rs.name ILIKE $1 AND ch.is_archived = false`, targetRulesetName)
+		 WHERE rs.name ILIKE $1 AND ch.is_archived = false AND cp.is_archived = false`, targetRulesetName)
 	if err != nil {
 		r.logger.Error(errPrefix+"reconcile: query characters", "error", err)
 		return
@@ -283,13 +295,7 @@ func (r *Reconciler) backfillCharacter(ctx context.Context, characterID uuid.UUI
 	if err != nil {
 		return fmt.Errorf(errPrefix+"reconcile: load character %s: %w", characterID, err)
 	}
-
-	var campaignID uuid.UUID
-	if err := r.pool.QueryRow(ctx,
-		`SELECT campaign_id FROM characters_read_model WHERE id = $1`, characterID,
-	).Scan(&campaignID); err != nil {
-		return fmt.Errorf(errPrefix+"reconcile: look up campaign for character %s: %w", characterID, err)
-	}
+	campaignID := c.CampaignID()
 
 	campaignAgg, err := r.campaigns.Load(ctx, campaignID)
 	if err != nil {
@@ -302,7 +308,10 @@ func (r *Reconciler) backfillCharacter(ctx context.Context, characterID uuid.UUI
 
 	info := map[string]any{}
 	if raw := c.Info(); raw != "" {
-		_ = json.Unmarshal([]byte(raw), &info)
+		if err := json.Unmarshal([]byte(raw), &info); err != nil {
+			r.logger.Warn(errPrefix+"reconcile: character info is not a JSON object, skipping", "characterID", characterID)
+			return nil
+		}
 	}
 	stats, _ := info["stats"].(map[string]any)
 	changed := false

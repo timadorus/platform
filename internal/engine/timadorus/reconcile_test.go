@@ -245,3 +245,116 @@ func TestReconciler_HealthyPlatform_NoOp(t *testing.T) {
 		t.Fatalf("got character version %d, want 2 (sweep must not touch an already-healthy Character)", characterAgg.Version())
 	}
 }
+
+func TestReconciler_Campaign_NonObjectConfiguration_NotTouched(t *testing.T) {
+	pool := newTestPool(t)
+	rulesetID := uuid.New()
+	campaignID := seedRealCampaign(t, pool, rulesetID, "Timadorus", `"gm notes: house rules, not json"`)
+
+	timadorus.NewReconciler(pool, discardLogger()).SweepOnce(context.Background())
+
+	registry := eventsourcing.NewRegistry()
+	campaignevents.Register(registry)
+	store := postgres.NewStore(pool, registry)
+	repo := eventsourcing.NewRepository(store, campaign.AggregateType, func() *campaign.Campaign {
+		return &campaign.Campaign{}
+	})
+	c, err := repo.Load(context.Background(), campaignID)
+	if err != nil {
+		t.Fatalf("load campaign: %v", err)
+	}
+	if c.Version() != 2 { // 1 for Create, 2 for seedRealCampaign's own SetConfiguration — no 3rd
+		t.Fatalf("got version %d, want 2 (sweep must not touch a non-JSON-object configuration)", c.Version())
+	}
+	if c.Configuration() != `"gm notes: house rules, not json"` {
+		t.Fatalf("got configuration %q, want the original string preserved untouched", c.Configuration())
+	}
+}
+
+func TestReconciler_Character_NonObjectInfo_NotTouched(t *testing.T) {
+	pool := newTestPool(t)
+	rulesetID := uuid.New()
+	campaignID := seedRealCampaign(t, pool, rulesetID, "Timadorus", `{"characterCreation":{"maxStatBudget":35}}`)
+	seedCampaignConfiguration(t, pool, campaignID, `{"characterCreation":{"maxStatBudget":35}}`)
+	characterID := createCharacter(t, pool, campaignID)
+	seedCharacterInfo(t, pool, characterID, `"player notes: not json at all"`)
+
+	timadorus.NewReconciler(pool, discardLogger()).SweepOnce(context.Background())
+
+	registry := eventsourcing.NewRegistry()
+	events.Register(registry)
+	store := postgres.NewStore(pool, registry)
+	repo := eventsourcing.NewRepository(store, character.AggregateType, func() *character.Character {
+		return &character.Character{}
+	})
+	c, err := repo.Load(context.Background(), characterID)
+	if err != nil {
+		t.Fatalf("load character: %v", err)
+	}
+	if c.Info() != `"player notes: not json at all"` {
+		t.Fatalf("got info %q, want the original string preserved untouched", c.Info())
+	}
+}
+
+func TestReconciler_Campaign_PartialGap_OnlyMissingFieldBackfilled(t *testing.T) {
+	pool := newTestPool(t)
+	rulesetID := uuid.New()
+	campaignID := seedRealCampaign(t, pool, rulesetID, "Timadorus", `{"traits":["custom-trait"]}`)
+
+	timadorus.NewReconciler(pool, discardLogger()).SweepOnce(context.Background())
+
+	registry := eventsourcing.NewRegistry()
+	campaignevents.Register(registry)
+	store := postgres.NewStore(pool, registry)
+	repo := eventsourcing.NewRepository(store, campaign.AggregateType, func() *campaign.Campaign {
+		return &campaign.Campaign{}
+	})
+	c, err := repo.Load(context.Background(), campaignID)
+	if err != nil {
+		t.Fatalf("load campaign: %v", err)
+	}
+	var config struct {
+		Traits            []string `json:"traits"`
+		CharacterCreation struct {
+			MaxStatBudget *float64 `json:"maxStatBudget"`
+		} `json:"characterCreation"`
+	}
+	if err := json.Unmarshal([]byte(c.Configuration()), &config); err != nil {
+		t.Fatalf("unmarshal configuration: %v", err)
+	}
+	if len(config.Traits) != 1 || config.Traits[0] != "custom-trait" {
+		t.Fatalf("got traits %v, want [custom-trait] preserved, not reset to the 3-item default", config.Traits)
+	}
+	if config.CharacterCreation.MaxStatBudget == nil || *config.CharacterCreation.MaxStatBudget != 35 {
+		t.Fatalf("got maxStatBudget %v, want 35 backfilled", config.CharacterCreation.MaxStatBudget)
+	}
+}
+
+func TestReconciler_Character_CampaignStillHasNoBudget_LeftAlone(t *testing.T) {
+	pool := newTestPool(t)
+	rulesetID := uuid.New()
+	// Deliberately no seedCampaignConfiguration call — the read-model scan's own pre-filter must
+	// skip this Character, and even if it somehow reached backfillCharacter, the fresh aggregate
+	// load must also see no budget and skip cleanly.
+	campaignID := seedRealCampaign(t, pool, rulesetID, "Timadorus", "")
+	characterID := createCharacter(t, pool, campaignID)
+
+	timadorus.NewReconciler(pool, discardLogger()).SweepOnce(context.Background())
+
+	registry := eventsourcing.NewRegistry()
+	events.Register(registry)
+	store := postgres.NewStore(pool, registry)
+	repo := eventsourcing.NewRepository(store, character.AggregateType, func() *character.Character {
+		return &character.Character{}
+	})
+	c, err := repo.Load(context.Background(), characterID)
+	if err != nil {
+		t.Fatalf("load character: %v", err)
+	}
+	if c.Version() != 1 {
+		t.Fatalf("got version %d, want 1 (no write while the Campaign still has no budget)", c.Version())
+	}
+	if c.Info() != "" {
+		t.Fatalf("got info %q, want empty (untouched)", c.Info())
+	}
+}
