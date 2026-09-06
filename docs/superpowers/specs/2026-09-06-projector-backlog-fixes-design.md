@@ -67,6 +67,14 @@ restart." The tool does not attempt to detect or coordinate with a running `cmd/
 (no reliable way to do so without adding new coordination machinery this fix doesn't need); it
 prints a loud warning and requires an explicit confirmation instead.
 
+> **Superseded by the final-review fix wave.** There *is* a reliable check, needing no new
+> coordination machinery: `nats.JetStreamManager.ConsumerInfo(stream, durable).PushBound` is true
+> exactly while a push subscription — which is what watermill's subscriber opens — is bound to the
+> consumer. The tool now calls it before deleting each consumer and aborts if anything is still
+> bound, so the operator's typed confirmation is verified rather than merely trusted. See
+> `internal/rebuildreadmodels.ConsumerPushBound`. The warning and the confirmation prompt stay;
+> the check is an additional guard, not a replacement.
+
 **Two-phase design, matching the BACKLOG item's own required ordering (bases before change-feed):**
 
 ```
@@ -95,6 +103,24 @@ rebuild-read-models --confirm --phase=change-feed --target-seq=<value from step 
 7. Same warning/confirmation as step 2.
 8. For each of the 5 `universe-changes-*` projectors: `DeleteConsumer` + `checkpoint.Set(tx, name, 0)`.
 9. Prints: "Change-feed projectors reset. Restart cmd/projector now."
+
+> **Superseded by the final-review fix wave — the `target` in steps 3, 5 and 6 above is a design
+> defect.** `MAX(global_seq)` over the whole `events` table is a *watermark*, not a target any
+> single projector can reach. A projector's checkpoint only ever advances from messages on its own
+> subject, and the outbox relay publishes each event to exactly one subject chosen by its aggregate
+> type, so a fully caught-up projector's checkpoint converges to the maximum `global_seq` among
+> events of *its own* aggregate type. Unless the very last event in the table happens to belong to
+> that type, that is strictly below the whole-table maximum — so at most one of the 7 base
+> projectors could ever satisfy the target as specified. In practice step 5 polled forever on a
+> rebuild that had already finished, and step 6 refused to proceed on any real workload.
+>
+> The tool now captures the whole-table maximum once as a *bound* (still the single value printed
+> and passed as `--target-seq`, so the operator-facing UX is unchanged) and derives a per-projector
+> target from it: `MAX(global_seq) WHERE aggregate_type = <the projector's own type> AND global_seq
+> <= watermark`. Steps 5 and 6 both compare against that per-projector target. See
+> `internal/rebuildreadmodels.ComputeTargets`, `MaxGlobalSeqForAggregateType`, `VerifyCaughtUp`,
+> and `bus.AggregateTypeFromSubject`; `TestComputeTargets_UnequalEventCountsPerAggregateType`
+> pins the behaviour against a workload with deliberately unequal per-type event counts.
 
 ## Testing Strategy
 

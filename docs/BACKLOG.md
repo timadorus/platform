@@ -22,6 +22,11 @@ up; don't grow this file into a design doc.
   `ctl` binary per privilege tier" (e.g. a separate `opsctl` for direct-DB/NATS admin tasks,
   keeping `timadorusctl` itself HTTP-only) — not resolved here, just flagged so the next tool added
   under `cmd/` doesn't repeat the same one-off-binary pattern without at least weighing this first.
+  Related packaging gap, flagged for the same future pass rather than resolved here:
+  `cmd/rebuild-read-models` has no Dockerfile and no Makefile target, unlike the long-running
+  service binaries — so today it is only runnable via `go run`/`go build` against a reachable
+  Postgres and NATS. Whatever consolidation this section lands on should decide how admin-tier
+  tooling gets packaged, rather than bolting a one-off Dockerfile onto this binary.
 
 ## `timadorus-engine` (`internal/engine/timadorus`, `cmd/timadorus-engine`)
 
@@ -248,16 +253,40 @@ up; don't grow this file into a design doc.
   (default 16, overridable via `PROJECTOR_POOL_MAX_CONNS`), mirroring
   `cmd/timadorus-engine`'s already-established pattern exactly.
 
-- [x] **Fixed.** `cmd/rebuild-read-models` (new standalone binary) automates a safe full
-  read-model rebuild: it deletes each affected projector's JetStream durable consumer (a
-  checkpoint reset alone does not cause NATS to redeliver an already-acked message — see
-  `internal/rebuildreadmodels`'s own doc comment) and resets its Postgres checkpoint, in two
-  required phases (`--phase=base` then `--phase=change-feed`), refusing to run the second phase
-  until the base projectors have actually caught up to the first phase's captured target. Requires
-  `cmd/projector` to already be stopped (an explicit interactive confirmation, not detected
-  automatically). The shared list of "every registered projector" now lives in
-  `internal/projection/registry`, used by both `cmd/projector/main.go` and this tool, so they can
-  never drift out of sync.
+- [x] **Fixed.** `cmd/rebuild-read-models` (new standalone binary) automates a safe full replay of
+  the retained event stream through `cmd/projector`'s registered projectors: it deletes each
+  affected projector's JetStream durable consumer (a checkpoint reset alone does not cause NATS to
+  redeliver an already-acked message — see `internal/rebuildreadmodels`'s own doc comment) and
+  resets its Postgres checkpoint, in two required phases (`--phase=base` then
+  `--phase=change-feed`), refusing to run the second phase until every base projector has actually
+  caught up to its own target. Requires `cmd/projector` to already be stopped — an explicit
+  interactive confirmation, plus a `ConsumerInfo(...).PushBound` liveness pre-check that aborts if
+  any durable consumer still has a subscription bound to it. The shared list of "every registered
+  projector" now lives in `internal/projection/registry`, used by both `cmd/projector/main.go` and
+  this tool, so they can never drift out of sync.
+
+  **What this tool is and is not.** It is an *idempotent replay*, not a wipe-and-rebuild: it
+  truncates nothing. Every base projector's `Created` handler is `INSERT ... ON CONFLICT (id) DO
+  NOTHING`, so replaying over surviving rows recovers projections that never got applied (after a
+  checkpoint/consumer mismatch, or for events dropped before this branch's reconciliation fixes
+  existed) but cannot correct a wrong column value and cannot remove a row a buggy projector wrote.
+  Repairing already-written bad rows would need table truncation, which would in turn need each
+  projector to expose the tables it owns — a separate design decision, deliberately not taken here.
+
+  **Scope.** Strictly `cmd/projector`'s registered projectors (`internal/projection/registry`).
+  `cmd/timadorus-engine`'s two processors (`CampaignProcessor`, `CharacterProcessor`) write to the
+  same `projection_checkpoints` table but are NOT covered by this tool and are NOT safe to reset
+  with it: `docs/DONE.md` records that replaying `CampaignProcessor` would re-run its
+  non-idempotent `configs` append for every historical `ConfigurationRequested` event.
+
+  **Per-projector catch-up targets.** Each projector's target is the maximum `global_seq` among
+  events of *its own* aggregate type, bounded by a watermark captured once at the start of the
+  rebuild — never the whole-table maximum. A projector's checkpoint only ever advances from
+  messages on its own subject (the outbox relay publishes each event to exactly one subject, per
+  `bus.Subject`), so at most one projector could ever reach the whole-table maximum; demanding it
+  of all of them made phase 1 poll forever and phase 2's guard refuse to proceed. Found by the
+  branch's final whole-branch review and fixed in the same wave; see
+  `internal/rebuildreadmodels.ComputeTargets`.
 
 - [x] **Already fixed** (`05a84b7`, predates this entry). `.github/workflows/ci.yml`'s `web-build`
   job already has a "verify generated API clients are up to date" step: `npm run generate` followed

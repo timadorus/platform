@@ -8,6 +8,7 @@ import (
 	"github.com/nats-io/nats.go"
 	tcnats "github.com/testcontainers/testcontainers-go/modules/nats"
 
+	"github.com/timadorus/platform/internal/bus"
 	"github.com/timadorus/platform/internal/rebuildreadmodels"
 )
 
@@ -88,8 +89,12 @@ func TestDeleteConsumer_ForcesFullReplay(t *testing.T) {
 		t.Fatal("expected no messages before DeleteConsumer, got one")
 	}
 
-	if err := rebuildreadmodels.DeleteConsumer(js, subject, projectorName); err != nil {
+	deleted, err := rebuildreadmodels.DeleteConsumer(js, subject, projectorName)
+	if err != nil {
 		t.Fatalf("DeleteConsumer: %v", err)
+	}
+	if !deleted {
+		t.Fatal("DeleteConsumer reported no consumer deleted, want true — the consumer demonstrably existed")
 	}
 
 	sub3, err := js.PullSubscribe(subject, durable)
@@ -106,13 +111,99 @@ func TestDeleteConsumer_ForcesFullReplay(t *testing.T) {
 	}
 }
 
-func TestDeleteConsumer_NonexistentConsumer_NoError(t *testing.T) {
+func TestDeleteConsumer_NonexistentConsumer_ReportsNotDeleted(t *testing.T) {
 	js := newTestJetStream(t)
 	const subject = "test-subject-2"
 	if _, err := js.AddStream(&nats.StreamConfig{Name: subject, Subjects: []string{subject}}); err != nil {
 		t.Fatalf("add stream: %v", err)
 	}
-	if err := rebuildreadmodels.DeleteConsumer(js, subject, "never-existed"); err != nil {
+	deleted, err := rebuildreadmodels.DeleteConsumer(js, subject, "never-existed")
+	if err != nil {
 		t.Fatalf("got error %v, want nil (deleting a nonexistent consumer must be a no-op)", err)
 	}
+	// The load-bearing half: a no-op must be distinguishable from a real deletion, so a rebuild
+	// that silently addressed the wrong durable name cannot report success.
+	if deleted {
+		t.Fatal("DeleteConsumer reported a deletion, want false — no such consumer ever existed")
+	}
+}
+
+// TestConsumerPushBound_LiveSubscription is the liveness pre-check's reason to exist: a running
+// cmd/projector holds a push subscription on its durable consumer, and the rebuild must refuse to
+// delete a consumer out from under it rather than trusting the operator's typed confirmation.
+func TestConsumerPushBound_LiveSubscription(t *testing.T) {
+	js := newTestJetStream(t)
+	const subject = "test-subject-3"
+	const projectorName = "bound-projector"
+	if _, err := js.AddStream(&nats.StreamConfig{Name: subject, Subjects: []string{subject}}); err != nil {
+		t.Fatalf("add stream: %v", err)
+	}
+
+	// A push subscription — the shape watermill's NATS subscriber uses, and the only shape that
+	// sets PushBound.
+	sub, err := js.Subscribe(subject, func(*nats.Msg) {}, nats.Durable(bus.DurableName(projectorName, subject)))
+	if err != nil {
+		t.Fatalf("push subscribe: %v", err)
+	}
+
+	bound, err := rebuildreadmodels.ConsumerPushBound(js, subject, projectorName)
+	if err != nil {
+		t.Fatalf("ConsumerPushBound: %v", err)
+	}
+	if !bound {
+		t.Fatal("got not-bound while a push subscription is active, want bound")
+	}
+
+	// Draining rather than Unsubscribe: Unsubscribe deletes the library-created consumer outright,
+	// which would make the check below pass for the wrong reason (no consumer at all rather than an
+	// unbound one). Drain leaves the durable consumer in place and merely releases the binding.
+	if err := sub.Drain(); err != nil {
+		t.Fatalf("drain: %v", err)
+	}
+	waitUntil(t, 5*time.Second, "consumer to report unbound after drain", func() bool {
+		bound, err := rebuildreadmodels.ConsumerPushBound(js, subject, projectorName)
+		if err != nil {
+			t.Fatalf("ConsumerPushBound: %v", err)
+		}
+		return !bound
+	})
+}
+
+func TestConsumerPushBound_NoSuchConsumerOrStream_NotBound(t *testing.T) {
+	js := newTestJetStream(t)
+	const subject = "test-subject-4"
+
+	// No stream at all: nothing to check liveness against, so "not bound, proceed".
+	bound, err := rebuildreadmodels.ConsumerPushBound(js, subject, "never-existed")
+	if err != nil {
+		t.Fatalf("ConsumerPushBound with no stream: %v", err)
+	}
+	if bound {
+		t.Fatal("got bound with no stream at all, want not bound")
+	}
+
+	if _, err := js.AddStream(&nats.StreamConfig{Name: subject, Subjects: []string{subject}}); err != nil {
+		t.Fatalf("add stream: %v", err)
+	}
+	bound, err = rebuildreadmodels.ConsumerPushBound(js, subject, "never-existed")
+	if err != nil {
+		t.Fatalf("ConsumerPushBound with no consumer: %v", err)
+	}
+	if bound {
+		t.Fatal("got bound with no consumer on an existing stream, want not bound")
+	}
+}
+
+// waitUntil polls cond until it is true or the deadline passes, failing the test if it never is.
+// JetStream updates a consumer's PushBound asynchronously after a subscription drains.
+func waitUntil(t *testing.T, timeout time.Duration, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("timed out after %s waiting for %s", timeout, what)
 }

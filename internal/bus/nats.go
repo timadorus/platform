@@ -7,11 +7,16 @@ package bus
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill-nats/v2/pkg/nats"
 	"github.com/ThreeDotsLabs/watermill/message"
 )
+
+// subjectPrefix is the one place the "events_" part of the subject naming convention is
+// spelled out, so Subject and AggregateTypeFromSubject cannot drift apart.
+const subjectPrefix = "events_"
 
 // Subject returns the JetStream subject events for aggregateType are published to. Watermill's
 // NATS JetStream integration auto-provisions a stream named after the raw topic string (not
@@ -19,7 +24,21 @@ import (
 // hierarchy) — so this uses '_' rather than the more conventional dotted "events.<type>"
 // form.
 func Subject(aggregateType string) string {
-	return "events_" + aggregateType
+	return subjectPrefix + aggregateType
+}
+
+// AggregateTypeFromSubject is the literal inverse of Subject: it recovers the aggregate type a
+// subject carries events for. It exists so a full read-model rebuild can compute a catch-up
+// target per aggregate type — a projector's checkpoint only ever advances from events on its
+// own subject, so its real target is the maximum global_seq among events of ITS aggregate type,
+// not the whole-table maximum (see internal/rebuildreadmodels.ComputeTargets) — without any
+// caller having to duplicate or guess the "events_<aggregate_type>" naming convention. Being
+// the literal inverse of Subject, sharing subjectPrefix with it, it cannot drift out of sync.
+//
+// A subject that does not carry the prefix is returned unchanged, matching strings.TrimPrefix:
+// every subject in this platform comes from Subject, so there is no such case to report on.
+func AggregateTypeFromSubject(subject string) string {
+	return strings.TrimPrefix(subject, subjectPrefix)
 }
 
 // DurableName computes the JetStream durable consumer name NewSubscriber assigns for a given

@@ -114,7 +114,10 @@ func TestWaitForCatchUp_AlreadyCaughtUp_ReturnsImmediately(t *testing.T) {
 	start := time.Now()
 	// A long interval — if WaitForCatchUp checked-then-waited instead of the reverse, this test
 	// would take at least that long; it must not, since both names are already at target.
-	err := rebuildreadmodels.WaitForCatchUp(ctx, pool, []string{"a", "b"}, 10, time.Minute, nil)
+	err := rebuildreadmodels.WaitForCatchUp(ctx, pool, []rebuildreadmodels.ProjectorTarget{
+		{Name: "a", Target: 10},
+		{Name: "b", Target: 10},
+	}, time.Minute, nil)
 	if err != nil {
 		t.Fatalf("WaitForCatchUp: %v", err)
 	}
@@ -134,7 +137,8 @@ func TestWaitForCatchUp_PollsUntilExternallyBumped(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- rebuildreadmodels.WaitForCatchUp(ctx, pool, []string{"slow"}, 5, 50*time.Millisecond, nil)
+		done <- rebuildreadmodels.WaitForCatchUp(ctx, pool,
+			[]rebuildreadmodels.ProjectorTarget{{Name: "slow", Target: 5}}, 50*time.Millisecond, nil)
 	}()
 
 	time.Sleep(200 * time.Millisecond)
