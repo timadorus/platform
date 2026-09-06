@@ -1,6 +1,7 @@
 import { ref } from 'vue'
 import { getQueryClient, getCommandClient } from '@/api/client'
 import { problemMessage } from '@/api/problem'
+import { pollUntil } from './usePolling'
 
 export interface CharacterSummary {
   id: string
@@ -90,17 +91,7 @@ export function useCharacters() {
     id: string,
     opts: { intervalMs?: number; timeoutMs?: number; signal?: AbortSignal } = {},
   ): Promise<CharacterSummary | null> {
-    const intervalMs = opts.intervalMs ?? 750
-    const timeoutMs = opts.timeoutMs ?? 15000
-    const deadline = Date.now() + timeoutMs
-    for (;;) {
-      if (opts.signal?.aborted) return null
-      const found = await get(id)
-      if (opts.signal?.aborted) return null
-      if (found) return found
-      if (Date.now() >= deadline) return null
-      await new Promise((resolve) => setTimeout(resolve, intervalMs))
-    }
+    return pollUntil(() => get(id), opts)
   }
 
   // waitForCharacterInList polls list(campaignId) until characterId appears in the result or
@@ -112,18 +103,14 @@ export function useCharacters() {
     characterId: string,
     opts: { intervalMs?: number; timeoutMs?: number; signal?: AbortSignal } = {},
   ): Promise<boolean> {
-    const intervalMs = opts.intervalMs ?? 750
-    const timeoutMs = opts.timeoutMs ?? 15000
-    const deadline = Date.now() + timeoutMs
-    for (;;) {
-      if (opts.signal?.aborted) return false
-      await list(campaignId)
-      if (opts.signal?.aborted) return false
-      if (error.value) return false
-      if (characters.value.some((c) => c.id === characterId)) return true
-      if (Date.now() >= deadline) return false
-      await new Promise((resolve) => setTimeout(resolve, intervalMs))
-    }
+    const found = await pollUntil(
+      async () => {
+        await list(campaignId)
+        return characters.value.some((c) => c.id === characterId) ? true : null
+      },
+      { ...opts, shouldStop: () => error.value !== null },
+    )
+    return found ?? false
   }
 
   return {

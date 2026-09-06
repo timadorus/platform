@@ -1,6 +1,7 @@
 import { ref } from 'vue'
 import { getQueryClient, getCommandClient } from '@/api/client'
 import { problemMessage } from '@/api/problem'
+import { pollUntil } from './usePolling'
 
 export interface UserSummary {
   id: string
@@ -70,18 +71,14 @@ export function useUsers() {
     id: string,
     opts: { intervalMs?: number; timeoutMs?: number; signal?: AbortSignal } = {},
   ): Promise<boolean> {
-    const intervalMs = opts.intervalMs ?? 750
-    const timeoutMs = opts.timeoutMs ?? 15000
-    const deadline = Date.now() + timeoutMs
-    for (;;) {
-      if (opts.signal?.aborted) return false
-      await list()
-      if (opts.signal?.aborted) return false
-      if (error.value) return false
-      if (users.value.some((u) => u.id === id)) return true
-      if (Date.now() >= deadline) return false
-      await new Promise((resolve) => setTimeout(resolve, intervalMs))
-    }
+    const found = await pollUntil(
+      async () => {
+        await list()
+        return users.value.some((u) => u.id === id) ? true : null
+      },
+      { ...opts, shouldStop: () => error.value !== null },
+    )
+    return found ?? false
   }
 
   return { users, loading, error, list, create, rename, archive, waitForUser }

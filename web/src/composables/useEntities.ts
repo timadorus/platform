@@ -1,6 +1,7 @@
 import { ref } from 'vue'
 import { getQueryClient, getCommandClient } from '@/api/client'
 import { problemMessage } from '@/api/problem'
+import { pollUntil } from './usePolling'
 
 export interface EntitySummary {
   id: string
@@ -75,18 +76,14 @@ export function useEntities() {
     entityId: string,
     opts: { intervalMs?: number; timeoutMs?: number; signal?: AbortSignal } = {},
   ): Promise<boolean> {
-    const intervalMs = opts.intervalMs ?? 750
-    const timeoutMs = opts.timeoutMs ?? 15000
-    const deadline = Date.now() + timeoutMs
-    for (;;) {
-      if (opts.signal?.aborted) return false
-      await search(universeId, '')
-      if (opts.signal?.aborted) return false
-      if (error.value) return false
-      if (entities.value.some((e) => e.id === entityId)) return true
-      if (Date.now() >= deadline) return false
-      await new Promise((resolve) => setTimeout(resolve, intervalMs))
-    }
+    const found = await pollUntil(
+      async () => {
+        await search(universeId, '')
+        return entities.value.some((e) => e.id === entityId) ? true : null
+      },
+      { ...opts, shouldStop: () => error.value !== null },
+    )
+    return found ?? false
   }
 
   return { entities, loading, error, search, get, create, rename, archive, waitForEntityInList }
