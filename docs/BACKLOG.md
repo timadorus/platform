@@ -70,8 +70,9 @@ up; don't grow this file into a design doc.
   and would have needed its own design pass — it was flagged urgent at the time because the
   behavior it described (silent, undetectable `statBudget` loss on fast Campaign→Character
   creation) was a real, if narrow, correctness gap in shipped behavior, not merely a defect in a
-  fix attempt. Kept here for the reasoning; the direct-aggregate-read fix and Reconciler above took
-  a different path and closed the gap itself without needing this checkpoint-model rework.
+  fix attempt. Kept here for the reasoning; the delivered fix combines a direct-aggregate read (not
+  listed above, since it shrinks the race rather than working around it) with a Reconciler matching
+  option (b) above, together closing the gap without needing option (a)'s checkpoint-model rework.
 
 - [x] **Fixed** (`f8fadc6`). `TestRulesetCache_ConcurrentGetSet_Race` (`internal/engine/timadorus/cache_test.go`)
   drives `RulesetCache.get`/`set` directly from 50 goroutines against 3 shared keys, no DB
@@ -113,17 +114,19 @@ up; don't grow this file into a design doc.
 - [x] **Fixed** (same commits as the URGENT statBudget entry above). Reconciler's Campaign pass
   backfills `traits`/`characterCreation.maxStatBudget` onto any Timadorus Campaign missing them,
   regardless of when it was created — additively, never overwriting a GM's own customization.
-  Campaigns created before this branch's engine is deployed get no default traits: the merge is
-  triggered by `CampaignCreated`, not by a backfill pass, so only Campaigns created *after* the
-  new engine is running are affected. Resetting `CampaignProcessor`'s checkpoint to force a
-  "replay" is **not** a safe way to backfill existing Campaigns — replaying `CampaignCreated` for
-  a Campaign that has also received `ConfigurationRequested` events since would re-run the
-  non-idempotent "configs" append (see `mutateConfiguration`'s own doc comment) for every one of
-  those historical events too, not just merge in the missing traits. Same gap for
-  `characterCreation.maxStatBudget` (introduced by the `campaign-max-stat-budget` branch): it's
-  seeded by this same `handleCampaignCreated` merge, so a pre-existing Campaign never gets a
-  default `maxStatBudget` either — not a separate, undiscovered issue, just this entry's existing
-  gap covering one more field.
+
+  **Original gap, kept for historical context:** Campaigns created before this engine's
+  traits/max-stat-budget defaults shipped got no default traits, since the merge was triggered only
+  by `CampaignCreated` — not by any backfill pass — so only Campaigns created *after* the new engine
+  ran were affected. Resetting `CampaignProcessor`'s checkpoint would not have been a safe way to
+  backfill existing Campaigns — replaying `CampaignCreated` for a Campaign that had also received
+  `ConfigurationRequested` events since would have re-run the non-idempotent "configs" append (see
+  `mutateConfiguration`'s own doc comment) for every one of those historical events too, not just
+  merged in the missing traits. The same gap applied to `characterCreation.maxStatBudget`
+  (introduced by the `campaign-max-stat-budget` branch): it was seeded by the same
+  `handleCampaignCreated` merge, so a pre-existing Campaign never got a default `maxStatBudget`
+  either. Reconciler's periodic, checkpoint-independent sweep closes this without any of that
+  replay risk.
 
 - [ ] **No backfill for pre-existing Ruleset names — an in-place cluster upgrade gets a
   duplicate "Timadorus" Ruleset.** `internal/command/ruleset/migrations/0001_ruleset_names.up.sql`
