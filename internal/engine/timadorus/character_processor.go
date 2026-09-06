@@ -346,10 +346,11 @@ func containsString(list []string, s string) bool {
 
 // campaignConfiguration is the subset of a Campaign's own opaque configuration JSON this package
 // reads: its own configured trait list (tryAddTrait's trait-eligibility check) and its
-// character-creation stat budget (handleCharacterCreated's stats.statBudget seeding). Both are
-// read from the same campaigns_read_model.configuration column via loadCampaignConfiguration —
-// one query serving both call sites, matching RulesetCache.resolve's own already-established
-// cross-projection read pattern.
+// character-creation stat budget (handleCharacterCreated's stats.statBudget seeding, and
+// Reconciler's own backfilling — reconcile.go). The trait list is read from
+// campaigns_read_model.configuration via loadCampaignConfiguration (tryAddTrait's use);
+// handleCharacterCreated instead reads the write-side Campaign aggregate's configuration directly
+// via parseCampaignConfiguration — see that function's own doc comment for why.
 type campaignConfiguration struct {
 	Traits            []string `json:"traits"`
 	CharacterCreation struct {
@@ -385,9 +386,10 @@ func loadCampaignConfiguration(ctx context.Context, tx pgx.Tx, campaignID uuid.U
 	return parseCampaignConfiguration(raw), nil
 }
 
-// loadCampaignTraits extracts the Campaign's own configured trait list — see
-// loadCampaignConfiguration for the underlying read this package shares with
-// handleCharacterCreated's stats.statBudget seeding.
+// loadCampaignTraits extracts the Campaign's own configured trait list from campaigns_read_model
+// — see loadCampaignConfiguration for the underlying read. Used only by tryAddTrait; unrelated to
+// handleCharacterCreated's own statBudget read, which goes through the write-side Campaign
+// aggregate instead (see parseCampaignConfiguration's doc comment).
 func loadCampaignTraits(ctx context.Context, tx pgx.Tx, campaignID uuid.UUID) ([]string, error) {
 	config, err := loadCampaignConfiguration(ctx, tx, campaignID)
 	if err != nil {

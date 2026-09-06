@@ -1,11 +1,14 @@
-// Package timadorus is timadorus-engine's event processors: internal/projection.Projector
-// implementations that react to Character ActionRequested, Campaign ConfigurationRequested, and
-// Campaign CampaignCreated events, conditionally (based on the relevant Campaign's Ruleset name)
-// either appending a timestamp to that aggregate's opaque string field or merging in the target
-// Ruleset's default traits. See
+// Package timadorus is timadorus-engine's event processors and background jobs: two
+// internal/projection.Projector implementations that react to Character ActionRequested/
+// CharacterCreated and Campaign ConfigurationRequested/CampaignCreated events, conditionally
+// (based on the relevant Campaign's Ruleset name) mutating that aggregate's opaque string field
+// with default or action-driven content; and Reconciler (reconcile.go), a separate periodic
+// background job — not a Projector, no NATS/Router/checkpoint involvement — that additively
+// backfills any Timadorus Campaign/Character still missing those same defaults. See
 // docs/superpowers/specs/2026-08-23-character-action-timadorus-engine-design.md,
-// docs/superpowers/specs/2026-08-23-campaign-configuration-timadorus-engine-design.md, and
-// docs/superpowers/specs/2026-08-31-campaign-creation-default-traits-design.md.
+// docs/superpowers/specs/2026-08-23-campaign-configuration-timadorus-engine-design.md,
+// docs/superpowers/specs/2026-08-31-campaign-creation-default-traits-design.md, and
+// docs/superpowers/specs/2026-09-05-statbudget-race-reconciliation-design.md.
 package timadorus
 
 import (
