@@ -32,7 +32,9 @@ the BACKLOG entry:
 3. Pre-seed `localStorage['timadorus:selection:test-sub']` (via `context.addInitScript`, mirroring
    `seedAuth`'s own pattern) to `{selectedUniverseId: 'u1', selectedCampaignId: null}` — simulating a
    prior session that had `u1` selected.
-4. Navigate directly to `/universes/u2/campaigns` (the deep link — skips `u1` and the Universe picker
+4. Navigate directly to `/universes/u2` (`CampaignPickerView`'s actual route — confirmed via
+   `web/src/router/index.ts`: the `campaign-picker` route's path is `/universes/:universeId`, with
+   no `/campaigns` suffix) — the deep link, skipping `u1` and the Universe picker
    entirely).
 5. Select `u2`'s existing Campaign from the picker grid.
 6. Assert `localStorage['timadorus:selection:test-sub']` now holds

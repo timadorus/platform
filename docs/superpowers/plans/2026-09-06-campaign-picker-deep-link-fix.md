@@ -107,7 +107,9 @@ test('a deep link to a different Universe\'s campaign picker does not corrupt th
 
   // Deep link straight to u2's campaign picker — skips u1 and the Universe picker entirely, the
   // exact scenario that previously corrupted the persisted pair (BACKLOG.md, Web SPA section).
-  await page.goto('/universes/u2/campaigns')
+  // CampaignPickerView's actual route is /universes/:universeId (web/src/router/index.ts's
+  // 'campaign-picker' route) — no /campaigns suffix.
+  await page.goto('/universes/u2')
   await expect(page.getByRole('button', { name: 'Campaign Two' })).toBeVisible()
   await page.getByRole('button', { name: 'Campaign Two' }).click()
   await expect(page).toHaveURL(/\/universes\/u2\/campaigns\/c2$/)
