@@ -1,6 +1,7 @@
 import { ref } from 'vue'
 import { getQueryClient, getCommandClient } from '@/api/client'
 import { problemMessage } from '@/api/problem'
+import { pollUntil } from './usePolling'
 
 export interface CampaignSummary {
   id: string
@@ -36,6 +37,18 @@ export function useCampaigns() {
     })
     if (apiError) return null
     return data as CampaignSummary
+  }
+
+  // waitForCampaign polls get(id) until it succeeds or timeoutMs elapses. Like waitForCharacter
+  // (useCharacters.ts), this cannot distinguish "the projector hasn't caught up yet" from "this id
+  // doesn't exist" — get() returns null identically either way — so every failed attempt is
+  // retried until the deadline; callers should show one honest "couldn't load" message on timeout,
+  // not a distinct error state.
+  async function waitForCampaign(
+    id: string,
+    opts: { intervalMs?: number; timeoutMs?: number; signal?: AbortSignal } = {},
+  ): Promise<CampaignSummary | null> {
+    return pollUntil(() => get(id), opts)
   }
 
   async function create(
@@ -101,5 +114,5 @@ export function useCampaigns() {
     if (apiError) throw new Error(problemMessage(apiError) ?? 'Failed to remove Gamemaster.')
   }
 
-  return { campaigns, loading, error, listByUniverse, get, create, rename, archive, requestConfiguration, listGamemasters, addGamemaster, removeGamemaster }
+  return { campaigns, loading, error, listByUniverse, get, waitForCampaign, create, rename, archive, requestConfiguration, listGamemasters, addGamemaster, removeGamemaster }
 }

@@ -20,6 +20,9 @@ export interface MockCampaign {
   // MockCampaign directly (rather than via the POST route below) don't carry this. The POST
   // route always sets it, so a test asserting against a just-created campaign can rely on it.
   gamemasterUserIds?: string[]
+  // Optional — set by the create-Campaign command handler below when createVisibilityDelayMs is
+  // configured, mirroring MockCharacter.visibleAt.
+  visibleAt?: number
 }
 
 export interface MockUser {
@@ -69,9 +72,10 @@ export interface MockState {
   creatorIds: string[]
   nextId: number
   // createVisibilityDelayMs, when set, makes the create-Character command's new Character and
-  // Entity invisible to every query route that checks `visibleAt` for this many milliseconds
-  // after creation — simulating an async projector that hasn't caught up yet. Unset (the
-  // default) means immediately visible, matching every existing test's expectations.
+  // Entity, and the create-Campaign command's new Campaign, invisible to every query route that
+  // checks `visibleAt` for this many milliseconds after creation — simulating an async projector
+  // that hasn't caught up yet. Unset (the default) means immediately visible, matching every
+  // existing test's expectations.
   createVisibilityDelayMs?: number
   // changes simulates externally-made changes (another tab/user) for universe-change-feed.spec.ts
   // — tests push onto this array directly; the mock routes below serve from it exactly like a
@@ -214,7 +218,8 @@ export async function installMockBackend(page: Page, state: MockState, auth: Moc
     }
     if (method === 'GET' && (m = matchPath('/api/query/campaigns/:campaignId', p))) {
       const campaign = state.campaigns.find((c) => c.id === m!.params.campaignId)
-      return campaign ? json(route, campaign) : json(route, { title: 'not found' }, 404)
+      const visible = campaign && (campaign.visibleAt === undefined || campaign.visibleAt <= Date.now())
+      return visible ? json(route, campaign) : json(route, { title: 'not found' }, 404)
     }
     if (method === 'GET' && matchPath('/api/query/campaigns/:campaignId/gamemasters', p)) {
       return json(route, state.gamemasterIds)
@@ -303,6 +308,7 @@ export async function installMockBackend(page: Page, state: MockState, auth: Moc
         gamemasterUserIds: string[]
       }
       const campaignId = newId(state, 'campaign')
+      const visibleAt = state.createVisibilityDelayMs !== undefined ? Date.now() + state.createVisibilityDelayMs : undefined
       state.campaigns.push({
         id: campaignId,
         universeId: m!.params.universeId,
@@ -310,6 +316,7 @@ export async function installMockBackend(page: Page, state: MockState, auth: Moc
         rulesetId: body.rulesetId,
         gamemasterUserIds: body.gamemasterUserIds,
         isArchived: false,
+        visibleAt,
       })
       return json(route, { id: campaignId }, 201)
     }
