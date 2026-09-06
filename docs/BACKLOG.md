@@ -81,6 +81,25 @@ up; don't grow this file into a design doc.
   reverting. `TestSharedRulesetCache_ConcurrentAccess` stays as-is; it still proves the two
   processors correctly share one cache instance end to end, just not reliably under `-race`.
 
+- [ ] **`TestReconciler_Character_CampaignStillHasNoBudget_LeftAlone` doesn't actually exercise the
+  code path its name claims.** The test's outcome assertions (Character stays at version 1, `Info()`
+  stays empty after a sweep) are correct and still a valid regression guard, but tracing the
+  mechanics: `reconcileCharacters`'s own read-model pre-filter (`if config.CharacterCreation.
+  MaxStatBudget == nil { continue }`, reading `campaigns_read_model.configuration`) intercepts this
+  scenario and skips the Character before `backfillCharacter` — the specific line this test was
+  meant to cover, `backfillCharacter`'s own `if config.CharacterCreation.MaxStatBudget == nil {
+  return nil }` (checked fresh against the live aggregate, not the read model) — is never reached,
+  since these unit tests use a bare Postgres pool with no live NATS/Router/projector, so nothing
+  ever projects the aggregate's configuration into the read model during the test. Found by a
+  scoped re-review during the `statbudget-race-reconciliation` branch's final-review fix wave;
+  parked as Minor (the underlying production code is correct, confirmed by two independent
+  reviews — this is a test-coverage precision gap, not a functional defect) rather than triggering
+  another fix round. A real fix would need either a test that seeds a mismatched read-model/
+  aggregate state (budget present when the aggregate is loaded, absent in the read-model scan) to
+  force past the pre-filter, or a white-box internal test file calling `backfillCharacter` directly
+  (mirroring `cache_test.go`'s own precedent for testing this package's private helpers without a
+  full event-processing round trip).
+
 - [x] **Fixed** (`eff7a90`). `cmd/timadorus-engine/main.go` now builds its pool via `pgxpool.ParseConfig` +
   `pgxpool.NewWithConfig`, setting `MaxConns` from the new `TimadorusEngine.PoolMaxConns` config
   field (`internal/config/config.go`, default 8, overridable via
