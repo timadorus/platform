@@ -3,6 +3,7 @@ import { onMounted } from 'vue'
 import { useUsers } from '@/composables/useUsers'
 import { useAuthStore } from '@/stores/auth'
 
+defineProps<{ labelledby?: string }>()
 const modelValue = defineModel<string[]>({ required: true })
 const { users, loading, list } = useUsers()
 const auth = useAuthStore()
@@ -33,7 +34,7 @@ function toggle(id: string) {
 </script>
 
 <template>
-  <div class="max-h-40 overflow-y-auto rounded-md border border-slate-200 p-2">
+  <div role="group" :aria-labelledby="labelledby" class="max-h-40 overflow-y-auto rounded-md border border-slate-200 p-2">
     <p v-if="loading" class="text-xs text-slate-400">Loading users…</p>
     <label v-for="user in users" :key="user.id" class="flex items-center gap-2 rounded px-1 py-1 text-sm hover:bg-slate-50">
       <input type="checkbox" :checked="modelValue.includes(user.id)" @change="toggle(user.id)" />
