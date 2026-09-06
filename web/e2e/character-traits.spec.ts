@@ -198,6 +198,38 @@ test('an Add Trait request that never gets confirmed times out with an error and
   await expect(baseInfo.getByRole('button', { name: 'Add Trait' })).toBeVisible()
 })
 
+test('Base Info table column widths do not shift when the Reassign Player picker opens', async ({ page, context, baseURL }) => {
+  const base = baseURL!
+  const authority = `${base}/oidc`
+  const state = seedState()
+  await seedAuth(context, { baseURL: base, authority, clientId: CLIENT_ID })
+  await installMockBackend(page, state, { baseURL: base, authority, clientId: CLIENT_ID })
+
+  await page.goto('/universes/u1/campaigns/c1/characters/ch1')
+
+  const baseInfo = page.getByTestId('base-info-card')
+  await expect(baseInfo).toBeVisible()
+
+  const nameCell = baseInfo.locator('td', { hasText: 'Character Name' })
+  const before = await nameCell.boundingBox()
+  expect(before).not.toBeNull()
+
+  await baseInfo.getByRole('button', { name: 'Reassign Player' }).click()
+
+  const after = await nameCell.boundingBox()
+  expect(after).not.toBeNull()
+  expect(after!.width).toBe(before!.width)
+
+  const archiveButton = baseInfo.getByRole('button', { name: 'Archive Character' })
+  const archiveBox = await archiveButton.boundingBox()
+  expect(archiveBox).not.toBeNull()
+  // BaseButton.vue renders text-sm (20px line-height) + py-1.5 (6px top/bottom padding), so a
+  // single-line button here is observed at 32px tall; a wrapped two-line label pushes that past
+  // 50px. 40px sits cleanly between the two, so it is used as the "did not wrap" threshold rather
+  // than the brief's placeholder "<28" (measured empirically, see task-1-report.md).
+  expect(archiveBox!.height).toBeLessThan(40)
+})
+
 test('a Character with no traits selected shows the empty-traits placeholder', async ({ page, context, baseURL }) => {
   const base = baseURL!
   const authority = `${base}/oidc`

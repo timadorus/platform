@@ -117,7 +117,12 @@ onUnmounted(clearAddTraitTimeout)
 <template>
   <div class="rounded-md border border-slate-200 p-4" data-testid="base-info-card">
     <h2 class="mb-3 text-sm font-semibold text-slate-900">Base Info</h2>
-    <table class="w-full text-sm">
+    <table class="w-full table-fixed text-sm">
+      <colgroup>
+        <col class="w-1/4" />
+        <col />
+        <col class="w-44" />
+      </colgroup>
       <tbody>
         <tr class="border-b border-slate-50">
           <td class="py-1.5 pr-3 font-medium text-slate-500">Character Name</td>
