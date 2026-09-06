@@ -29,15 +29,13 @@ test('the workspace eventually reflects a newly created Campaign despite read-mo
 
   await page.goto('/universes/u1/manage')
   await page.getByRole('button', { name: '+ Create Campaign' }).click()
-  // CreateCampaignModal.vue's <label> elements have no for/id pairing with their input/select
-  // (a separate, already-tracked BACKLOG item), so getByLabel does not find them — use the same
-  // positional/structural locators universe-manage.spec.ts already uses instead. The Gamemaster
-  // checkbox is pre-checked by UserMultiSelect.vue for the current user, so a redundant `.check()`
-  // is harmless (Playwright's check() is a no-op when already checked).
-  const form = page.locator('form')
-  await form.getByRole('textbox').first().fill('Laggy Campaign')
-  await form.getByRole('combobox').selectOption({ label: 'Test Ruleset' })
-  await page.getByRole('checkbox').first().check()
+  const dialog = page.getByRole('dialog', { name: 'Create Campaign' })
+  await dialog.getByLabel('Name').fill('Laggy Campaign')
+  await dialog.getByLabel('Ruleset').selectOption({ label: 'Test Ruleset' })
+  const gamemasterGroup = dialog.getByRole('group', { name: 'Gamemasters (at least one)' })
+  // The Gamemaster checkbox is pre-checked by UserMultiSelect.vue for the current user, so this
+  // is a redundant, harmless `.check()` (Playwright's check() is a no-op when already checked).
+  await gamemasterGroup.getByRole('checkbox').first().check()
   await page.getByRole('button', { name: 'Create', exact: true }).click()
 
   // Creation navigates into the new Campaign's workspace immediately, while the read model is
@@ -65,10 +63,11 @@ test('the Campaign panel shows a Retry/Back-to-Universe timeout state if the Cam
 
   await page.goto('/universes/u1/manage')
   await page.getByRole('button', { name: '+ Create Campaign' }).click()
-  const form = page.locator('form')
-  await form.getByRole('textbox').first().fill('Never Visible Campaign')
-  await form.getByRole('combobox').selectOption({ label: 'Test Ruleset' })
-  await page.getByRole('checkbox').first().check()
+  const dialog = page.getByRole('dialog', { name: 'Create Campaign' })
+  await dialog.getByLabel('Name').fill('Never Visible Campaign')
+  await dialog.getByLabel('Ruleset').selectOption({ label: 'Test Ruleset' })
+  const gamemasterGroup = dialog.getByRole('group', { name: 'Gamemasters (at least one)' })
+  await gamemasterGroup.getByRole('checkbox').first().check()
   await page.getByRole('button', { name: 'Create', exact: true }).click()
 
   await expect(page.getByText("Couldn't load this Campaign", { exact: false })).toBeVisible({ timeout: 20_000 })
@@ -98,10 +97,11 @@ test('a change-feed reload during the initial lag neither strands the panel on "
 
   await page.goto('/universes/u1/manage')
   await page.getByRole('button', { name: '+ Create Campaign' }).click()
-  const form = page.locator('form')
-  await form.getByRole('textbox').first().fill('Laggy Campaign')
-  await form.getByRole('combobox').selectOption({ label: 'Test Ruleset' })
-  await page.getByRole('checkbox').first().check()
+  const dialog = page.getByRole('dialog', { name: 'Create Campaign' })
+  await dialog.getByLabel('Name').fill('Laggy Campaign')
+  await dialog.getByLabel('Ruleset').selectOption({ label: 'Test Ruleset' })
+  const gamemasterGroup = dialog.getByRole('group', { name: 'Gamemasters (at least one)' })
+  await gamemasterGroup.getByRole('checkbox').first().check()
   await page.getByRole('button', { name: 'Create', exact: true }).click()
 
   // Confirm the workspace has mounted (so useChangeFeed's start() has already fetched its initial

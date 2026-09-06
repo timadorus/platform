@@ -280,6 +280,16 @@ up; don't grow this file into a design doc.
   clear fast rather than stall the picker for up to 15s) or an oversight. Needs a product decision
   before changing the behavior either way.
 
+- [ ] **`BaseModal.vue` declares `role="dialog"`/`aria-modal="true"` but has no focus management.**
+  There is no focus trap, no initial focus, no focus restoration on close, and no Escape-to-close
+  handling (grepped: zero `keydown`/`Escape`/`focus()`/`inert`/`tabindex` hits anywhere in
+  `web/src`). A complete WAI-ARIA dialog pattern needs all of these; `aria-modal` tells assistive
+  tech to treat everything outside the dialog as if it doesn't exist, but without focus
+  containment, keyboard focus can still leave the dialog into that "nonexistent" page — a
+  regression in AT confusion specifically, even though `role="dialog"`/`aria-modal` overall is a
+  clear improvement. Flagged by the `create-campaign-modal-a11y` branch's final review; not fixed
+  here.
+
 ## Devcluster tooling (`test/e2e/internal`)
 
 - [ ] **No `TraefikServiceName` exported constant.** `seed.go` and `up.go` both hardcode the

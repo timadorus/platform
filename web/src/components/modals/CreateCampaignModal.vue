@@ -44,7 +44,7 @@ async function submit() {
         <input id="campaign-name" v-model="name" type="text" class="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
       </div>
       <div>
-        <label id="campaign-ruleset-label" for="campaign-ruleset" class="mb-1 block text-xs font-medium text-slate-600">Ruleset</label>
+        <label for="campaign-ruleset" class="mb-1 block text-xs font-medium text-slate-600">Ruleset</label>
         <RulesetSelect id="campaign-ruleset" v-model="rulesetId" />
       </div>
       <div>

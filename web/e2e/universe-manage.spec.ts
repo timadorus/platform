@@ -101,10 +101,11 @@ test('creating a Campaign from the Universe panel navigates into its workspace',
   await page.goto('/universes/u1/manage')
 
   await page.getByRole('button', { name: '+ Create Campaign' }).click()
-  await expect(page.getByRole('dialog', { name: 'Create Campaign' })).toBeVisible()
-  await page.getByLabel('Name').fill('New Campaign')
-  await page.getByLabel('Ruleset').selectOption({ label: 'Test Ruleset' })
-  const gamemasterGroup = page.getByRole('group', { name: 'Gamemasters (at least one)' })
+  const dialog = page.getByRole('dialog', { name: 'Create Campaign' })
+  await expect(dialog).toBeVisible()
+  await dialog.getByLabel('Name').fill('New Campaign')
+  await dialog.getByLabel('Ruleset').selectOption({ label: 'Test Ruleset' })
+  const gamemasterGroup = dialog.getByRole('group', { name: 'Gamemasters (at least one)' })
   await expect(gamemasterGroup.getByRole('checkbox').first()).toBeChecked()
   await page.getByRole('button', { name: 'Create', exact: true }).click()
 
