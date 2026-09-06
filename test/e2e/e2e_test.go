@@ -388,14 +388,14 @@ var _ = Describe("Timadorus platform aggregates", func() {
 		Expect(resp.StatusCode).To(Equal(http.StatusCreated))
 
 		// Wait for the Campaign's own default characterCreation.maxStatBudget to land before
-		// creating a Character under it — CampaignCreated's own default-seeding
-		// (CampaignProcessor) and CharacterCreated's stats.statBudget seeding
-		// (CharacterProcessor) are two independent, unordered event chains (see BACKLOG.md,
-		// "timadorus-engine": a Character created immediately after its Campaign can race ahead
-		// of the Campaign's own default and permanently miss statBudget — a known, accepted gap,
-		// not something this test exercises). Waiting here first matches the realistic workflow
-		// (a Campaign is set up before Characters are added to it) rather than the pathological
-		// back-to-back case.
+		// creating a Character under it, matching a realistic workflow (a Campaign is set up
+		// before Characters are added to it) rather than the pathological back-to-back case a
+		// separate `It` below exercises directly. This wait was originally added to sidestep a
+		// real race — see BACKLOG.md's now-resolved "timadorus-engine" URGENT entry for the full
+		// history. The underlying race is fixed now (handleCharacterCreated reads the Campaign's
+		// write-side aggregate directly, and a periodic Reconciler self-heals any residual gap),
+		// so this wait is no longer load-bearing here — kept because it's still the more
+		// realistic sequencing for this specific scenario.
 		Eventually(func(g Gomega) {
 			var got querygen.Campaign
 			resp, err := doJSON(http.MethodGet, fmt.Sprintf("%s/campaigns/%s", env.QueryAPIBaseURL, campaignResp.Id), env.BearerToken, nil, &got)
@@ -538,6 +538,62 @@ var _ = Describe("Timadorus platform aggregates", func() {
 			commandgen.SetCharacterInfoRequest{Info: string(gappedInfo)}, nil)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
+
+		Eventually(func(g Gomega) {
+			var got querygen.Character
+			resp, err := doJSON(http.MethodGet, fmt.Sprintf("%s/characters/%s", env.QueryAPIBaseURL, characterResp.CharacterId), env.BearerToken, nil, &got)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			var info map[string]any
+			g.Expect(json.Unmarshal([]byte(got.Info), &info)).To(Succeed())
+			stats, _ := info["stats"].(map[string]any)
+			g.Expect(stats["statBudget"]).To(Equal(float64(35)))
+		}, time.Minute, time.Second).Should(Succeed())
+	})
+
+	It("a Character created immediately after its Campaign, with no wait, still ends up with the correct statBudget", func() {
+		var rulesets []querygen.Ruleset
+		resp, err := doJSON(http.MethodGet, env.QueryAPIBaseURL+"/rulesets", env.BearerToken, nil, &rulesets)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		var timadorusRuleset *querygen.Ruleset
+		for i := range rulesets {
+			if rulesets[i].Name == "Timadorus" {
+				timadorusRuleset = &rulesets[i]
+				break
+			}
+		}
+		Expect(timadorusRuleset).NotTo(BeNil(), "expected timadorus-engine to have registered a Ruleset named \"Timadorus\" at startup")
+
+		var user commandgen.UserCreatedResponse
+		resp, err = doJSON(http.MethodPost, env.CommandAPIBaseURL+"/users", env.BearerToken,
+			commandgen.CreateUserRequest{Name: "e2e-noWait-user"}, &user)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+
+		var universe commandgen.UniverseCreatedResponse
+		resp, err = doJSON(http.MethodPost, env.CommandAPIBaseURL+"/universes", env.BearerToken,
+			commandgen.CreateUniverseRequest{Name: "e2e-noWait-universe", CreatorUserIds: []uuid.UUID{user.Id}}, &universe)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+
+		var campaignResp commandgen.CampaignCreatedResponse
+		resp, err = doJSON(http.MethodPost, fmt.Sprintf("%s/universes/%s/campaigns", env.CommandAPIBaseURL, universe.Id), env.BearerToken,
+			commandgen.CreateCampaignRequest{Name: "e2e-noWait-campaign", RulesetId: timadorusRuleset.Id, GamemasterUserIds: []uuid.UUID{user.Id}}, &campaignResp)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusCreated))
+
+		// Deliberately no wait here, unlike every other `It` in this file that creates a
+		// Character under a Timadorus Campaign — this is the exact back-to-back sequence the
+		// URGENT statBudget race was about. Passing here (whether because the direct-aggregate
+		// read wins the race outright, or the Reconciler heals it within its own sweep interval)
+		// is the branch's actual headline claim, proven end to end against a real cluster.
+		var characterResp commandgen.CharacterCreatedResponse
+		resp, err = doJSON(http.MethodPost, fmt.Sprintf("%s/campaigns/%s/characters", env.CommandAPIBaseURL, campaignResp.Id), env.BearerToken,
+			commandgen.CreateCharacterRequest{Name: "e2e-noWait-character", PlayerUserId: user.Id}, &characterResp)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusCreated))
 
 		Eventually(func(g Gomega) {
 			var got querygen.Character
