@@ -5,6 +5,24 @@ here blocks anything currently on `main` — each item was explicitly triaged as
 parked rather than fixed in-branch. Pull an item out of here into its own spec/plan when picked
 up; don't grow this file into a design doc.
 
+## `cmd/` binary naming and organization
+
+- [ ] **CLI-style tooling is scattered across multiple ad-hoc binaries instead of one
+  consistently-named tool.** `cmd/timadorusctl` is this project's one binary with a "ctl" suffix,
+  but it's scoped narrowly to HTTP-based customer/operator commands against command-api/query-api.
+  Every other CLI-style task instead gets its own standalone binary: `test/e2e/cmd/devcluster`
+  (spin up/tear down a local dev cluster) and `cmd/rebuild-read-models` (direct Postgres/NATS admin
+  for a full read-model rebuild, added alongside the `statbudget-race-reconciliation` branch's
+  projector-connection-budget work) are both operationally CLI tools in every real sense, just
+  without the "ctl" naming or a shared home. As more ops/maintenance tasks accrue, this pattern
+  would keep spawning new one-off binaries rather than growing one recognizable tool a new
+  contributor would think to look for first. Worth a design pass on whether `timadorusctl` should
+  absorb non-HTTP admin subcommands too (breaking its current "pure HTTP client" purity, but
+  consolidating discoverability into one binary), or whether the convention should instead be "one
+  `ctl` binary per privilege tier" (e.g. a separate `opsctl` for direct-DB/NATS admin tasks,
+  keeping `timadorusctl` itself HTTP-only) — not resolved here, just flagged so the next tool added
+  under `cmd/` doesn't repeat the same one-off-binary pattern without at least weighing this first.
+
 ## `timadorus-engine` (`internal/engine/timadorus`, `cmd/timadorus-engine`)
 
 - [ ] **`TestReconciler_Character_CampaignStillHasNoBudget_LeftAlone` doesn't actually exercise the
