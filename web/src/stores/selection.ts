@@ -44,8 +44,8 @@ export const useSelectionStore = defineStore('selection', {
       )
     },
     setUniverse(id: string) {
+      if (this.selectedUniverseId !== id) this.selectedCampaignId = null
       this.selectedUniverseId = id
-      this.selectedCampaignId = null
       this.persist()
     },
     setCampaign(id: string) {

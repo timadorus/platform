@@ -22,6 +22,7 @@ const showCreate = ref(false)
 const checkingStoredSelection = ref(true)
 
 function goTo(campaignId: string) {
+  selection.setUniverse(universeId.value)
   selection.setCampaign(campaignId)
   router.push({ name: 'workspace', params: { universeId: universeId.value, campaignId } })
 }
