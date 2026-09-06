@@ -22,6 +22,14 @@ func Subject(aggregateType string) string {
 	return "events_" + aggregateType
 }
 
+// DurableName computes the JetStream durable consumer name NewSubscriber assigns for a given
+// processor name and subject — exported so tooling that needs to address the exact same durable
+// consumer directly (cmd/rebuild-read-models, which deletes consumers to force a full replay —
+// see internal/rebuildreadmodels) never has to duplicate or guess this naming convention.
+func DurableName(processorName, subject string) string {
+	return processorName + "_" + subject
+}
+
 // NewPublisher constructs a Watermill Publisher backed by NATS JetStream, auto-provisioning
 // the stream if it doesn't exist yet. Used by the outbox relay (internal/outbox).
 func NewPublisher(url string, logger watermill.LoggerAdapter) (message.Publisher, error) {
@@ -56,9 +64,7 @@ func NewSubscriber(url, durableName string, logger watermill.LoggerAdapter) (mes
 			// durable name — otherwise the second Subscribe call would collide with the
 			// first. Incorporating the topic keeps single-subject projectors (all of them
 			// today) unaffected while making multi-subject projectors correct too.
-			DurableCalculator: func(prefix, topic string) string {
-				return prefix + "_" + topic
-			},
+			DurableCalculator: DurableName,
 		},
 	}, logger)
 	if err != nil {

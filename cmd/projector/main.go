@@ -23,14 +23,7 @@ import (
 	"github.com/timadorus/platform/internal/config"
 	"github.com/timadorus/platform/internal/observability"
 	"github.com/timadorus/platform/internal/projection"
-	campaignprojection "github.com/timadorus/platform/internal/projection/campaign"
-	characterprojection "github.com/timadorus/platform/internal/projection/character"
-	entityprojection "github.com/timadorus/platform/internal/projection/entity"
-	objectprojection "github.com/timadorus/platform/internal/projection/object"
-	rulesetprojection "github.com/timadorus/platform/internal/projection/ruleset"
-	universeprojection "github.com/timadorus/platform/internal/projection/universe"
-	universechangesprojection "github.com/timadorus/platform/internal/projection/universechanges"
-	userprojection "github.com/timadorus/platform/internal/projection/user"
+	"github.com/timadorus/platform/internal/projection/registry"
 )
 
 func main() {
@@ -74,23 +67,12 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	}
 	router := projection.NewRouter(pool, newSubscriber, logger)
 
-	// Adding a new projection is exactly one line here — internal/projection itself never
-	// changes (plan §7's open/closed requirement). (This feature needed five — see
-	// docs/superpowers/specs/2026-09-02-universe-change-feed-design.md.)
-	projectors := []projection.Projector{
-		universeprojection.NewProjector(),
-		userprojection.NewProjector(),
-		campaignprojection.NewProjector(),
-		entityprojection.NewProjector(),
-		characterprojection.NewProjector(),
-		objectprojection.NewProjector(),
-		rulesetprojection.NewProjector(),
-		universechangesprojection.NewUniverseProjector(),
-		universechangesprojection.NewCampaignProjector(),
-		universechangesprojection.NewEntityProjector(),
-		universechangesprojection.NewObjectProjector(),
-		universechangesprojection.NewCharacterProjector(),
-	}
+	// Adding a new projection is exactly one line, in internal/projection/registry — that
+	// package (not this file, not internal/projection itself) is now the single source of
+	// truth for "every projector this platform registers" (plan §7's open/closed requirement
+	// still holds; the shared list also lets cmd/rebuild-read-models reuse it exactly, see that
+	// binary's own doc comment).
+	projectors := registry.All()
 
 	// The projector has no public API (plan §9's read/write import-graph rule keeps it out
 	// of both OpenAPI specs), so this endpoint set is unauthenticated ops surface only:
