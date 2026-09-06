@@ -198,7 +198,11 @@ test('an Add Trait request that never gets confirmed times out with an error and
   await expect(baseInfo.getByRole('button', { name: 'Add Trait' })).toBeVisible()
 })
 
-test('Base Info table column widths do not shift when the Reassign Player picker opens', async ({ page, context, baseURL }) => {
+test('Base Info table column widths do not shift when the Rename editor opens, and Reassign Player does not wrap Archive Character', async ({
+  page,
+  context,
+  baseURL,
+}) => {
   const base = baseURL!
   const authority = `${base}/oidc`
   const state = seedState()
@@ -214,11 +218,24 @@ test('Base Info table column widths do not shift when the Reassign Player picker
   const before = await nameCell.boundingBox()
   expect(before).not.toBeNull()
 
-  await baseInfo.getByRole('button', { name: 'Reassign Player' }).click()
+  // Rename swaps the Character Name value cell for an <input>, which — pre-fix, under the
+  // browser's default table-layout: auto — actually reflows this label column's width (measured:
+  // ~97px -> ~90px). The Reassign Player toggle used to live here does NOT shift this column even
+  // pre-fix (it only adds a new row further down), so asserting on it passed vacuously regardless
+  // of the fix. Rename is the toggle that genuinely exercises the table-fixed guarantee.
+  await baseInfo.getByRole('button', { name: 'Rename' }).click()
+  await expect(baseInfo.locator('input[type="text"]')).toBeVisible()
 
   const after = await nameCell.boundingBox()
   expect(after).not.toBeNull()
   expect(after!.width).toBe(before!.width)
+
+  await baseInfo.getByRole('button', { name: 'Cancel' }).click()
+
+  await baseInfo.getByRole('button', { name: 'Reassign Player' }).click()
+  // Wait for Vue's DOM update (the picker row) before measuring — click() resolves on event
+  // dispatch, not on the post-click render.
+  await expect(baseInfo.getByTestId('user-picker')).toBeVisible()
 
   const archiveButton = baseInfo.getByRole('button', { name: 'Archive Character' })
   const archiveBox = await archiveButton.boundingBox()
@@ -228,6 +245,51 @@ test('Base Info table column widths do not shift when the Reassign Player picker
   // 50px. 40px sits cleanly between the two, so it is used as the "did not wrap" threshold rather
   // than the brief's placeholder "<28" (measured empirically, see task-1-report.md).
   expect(archiveBox!.height).toBeLessThan(40)
+})
+
+test('a long Player value wraps within its own column instead of overlapping the Reassign Player button', async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  const base = baseURL!
+  const authority = `${base}/oidc`
+  // Pinning the actions column at w-44 fixes the Player value column at ~110.5px at essentially
+  // every viewport width. An unbreakable long token here (a long email or a raw playerUserId
+  // fallback) must wrap onto multiple lines within its own column rather than overflowing onto
+  // the "Reassign Player" button.
+  const longPlayerName = `a${'b'.repeat(60)}@timadorus.local`
+  const state = seedState({
+    users: [{ id: 'user-1', name: longPlayerName, isArchived: false }],
+  })
+  await seedAuth(context, { baseURL: base, authority, clientId: CLIENT_ID })
+  await installMockBackend(page, state, { baseURL: base, authority, clientId: CLIENT_ID })
+
+  await page.goto('/universes/u1/campaigns/c1/characters/ch1')
+
+  const baseInfo = page.getByTestId('base-info-card')
+  await expect(baseInfo).toBeVisible()
+  await expect(baseInfo.getByText(longPlayerName)).toBeVisible()
+
+  const playerValueCell = baseInfo.locator('tr', { hasText: 'Reassign Player' }).locator('td').nth(1)
+  const reassignButton = baseInfo.getByRole('button', { name: 'Reassign Player' })
+  const buttonBox = await reassignButton.boundingBox()
+  expect(buttonBox).not.toBeNull()
+
+  // The <td>'s own box stays pinned at the column width regardless of overflow (getBoundingClientRect
+  // on the cell itself does NOT shrink or grow to reflect unbroken content spilling out of it), so
+  // measure where the text is actually painted via a Range instead of the cell's own bounding box.
+  const textRect = await playerValueCell.evaluate((el) => {
+    const range = document.createRange()
+    range.selectNodeContents(el)
+    const rect = range.getBoundingClientRect()
+    return { right: rect.right }
+  })
+
+  // The value's rendered content must stay within its own column's horizontal bounds — its right
+  // edge must not reach past where the actions column (and the Reassign Player button) starts.
+  // Without break-words the long token overflows the cell and paints over the button.
+  expect(textRect.right).toBeLessThanOrEqual(buttonBox!.x)
 })
 
 test('a Character with no traits selected shows the empty-traits placeholder', async ({ page, context, baseURL }) => {

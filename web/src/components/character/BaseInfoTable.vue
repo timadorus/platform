@@ -142,7 +142,7 @@ onUnmounted(clearAddTraitTimeout)
         </tr>
         <tr class="border-b border-slate-50">
           <td class="py-1.5 pr-3 font-medium text-slate-500">Player</td>
-          <td class="py-1.5 pr-3">{{ playerName }}</td>
+          <td class="py-1.5 pr-3 break-words">{{ playerName }}</td>
           <td class="py-1.5 text-right align-top">
             <button v-if="!editingPlayer" class="text-xs text-indigo-600 hover:underline" @click="editingPlayer = true">
               Reassign Player
