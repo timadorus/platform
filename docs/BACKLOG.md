@@ -109,19 +109,6 @@ up; don't grow this file into a design doc.
   config, etc.) becomes warranted. Note this so whoever adds the next table file (or the fifth,
   or the twentieth) has somewhere to weigh that judgment call rather than rediscovering it.
 
-- [x] **Fixed** (`333f8c8`). `ruleset_tables_read_model`'s primary key now includes a `content_hash` column
-  (`0002_content_hash_versioning.up.sql`). `RegisterTables` computes a sha256 of each row's
-  marshaled content, so an edited row's new content inserts as an additional, newer row instead of
-  being silently discarded by the old `ON CONFLICT (ruleset_id, table_name, row_key) DO NOTHING`.
-  `internal/query/rulesettables.Repository.List`/`Get` always resolve the newest row per key by
-  `updated_at`, so callers still see exactly one row per key — the current one.
-
-- [x] **Fixed** (`fb907ad`). `test/e2e/e2e_test.go` now has a dedicated `It` asserting
-  `GET /rulesets/{timadorusRulesetId}/tables/traits` returns all 3 seeded rows and
-  `GET .../tables/traits/strong` returns the expected row content, resolving the "Timadorus"
-  Ruleset by name from `GET /rulesets` rather than assuming a fixed id — covering the startup
-  sync, both endpoints, and the migration image all in one test.
-
 ## Web SPA (`web/src`)
 
 - [ ] **Character detail page: cosmetic table-column jitter in the Base Info card.** At some
@@ -142,32 +129,6 @@ up; don't grow this file into a design doc.
   change (~5 lines) following the existing pattern, not a rewrite. Unmocked GETs return `[]`
   (by design); unmocked commands now fail loudly with a `501` (fixed in the final-review fix wave)
   rather than silently succeeding, so a missing arm surfaces immediately at the actual gap.
-
-- [x] **Fixed.** **The poll-with-timeout pattern used to be duplicated four times.** `useUsers.ts`'s
-  `waitForUser`, `useCharacters.ts`'s `waitForCharacter` and `waitForCharacterInList`, and
-  `useEntities.ts`'s `waitForEntityInList` used to share an identical skeleton — the same
-  750ms/15000ms defaults, the same `opts` shape, the same `for (;;)` loop, the same pre-await/
-  post-await abort guards, the same deadline check — varying only in which fetch to call and what
-  counts as success. The `poll-until-and-campaign-retry` branch's new `useCampaigns.ts` `waitForCampaign`
-  became the fifth copy this entry itself said would be the trigger to extract — so it extracted a
-  shared `pollUntil` helper (`web/src/composables/usePolling.ts`) instead, and migrated all five
-  call sites onto it. See `docs/DONE.md`.
-
-- [x] **Fixed.** **A freshly created Campaign had no retry/timeout handling for read-model lag,
-  unlike Character creation.** `CampaignPickerView.vue`'s `onCreated(id)` navigates straight to the
-  Campaign workspace, which lands by default on `CampaignOverviewPanel.vue` — so a lagging read
-  model used to show the dead-end "Campaign not found." with no Retry, unlike the
-  `character-creation-eventual-consistency` pattern (`waitForCharacter` plus
-  `CharacterDetailView`'s Retry/Back-to-Campaign UI). `WorkspaceView.vue`'s own `getCampaign` call
-  had the identical exposure, leaving the header badge blank instead. Both are now fixed by the
-  `poll-until-and-campaign-retry` branch. See `docs/DONE.md`.
-
-- [x] **Fixed** (`04142ab`). `web/package.json`'s `typecheck` script now runs `vue-tsc -b --noEmit`,
-  making the CI gate meaningful by actually typechecking the full `web/src` tree. The fix surfaced
-  zero pre-existing type errors (the build's own `vue-tsc -b` was already keeping the tree clean).
-  This branch also activates the existing but-vacuous CI step described in the design spec's
-  Out of Scope section, converting that dormant gate into a live one at approximately zero net
-  CI cost.
 
 - [ ] **The `pendingEntityId` provide/inject pair has a two-way-coupling wart.**
   `CharactersPanel.vue` writes it (sets the new Entity's id); `EntitiesPanel.vue` also writes to it
@@ -196,29 +157,6 @@ up; don't grow this file into a design doc.
   oversight — recorded here so the cost is visible in one place alongside the rest of this
   feature's known limitations.
 
-- [x] **Fixed.** **`CampaignPickerView.goTo` never records the selected Universe, unlike its sibling
-  `UniverseOverviewPanel.goToCampaign` — a deep link can silently clear a user's restored Campaign
-  selection.** `CampaignPickerView.vue`'s `goTo()` calls only `selection.setCampaign(id)`, while
-  `UniverseOverviewPanel.vue`'s `goToCampaign()` (fixed in an earlier branch) correctly calls
-  `selection.setUniverse(universeId)` first — required ordering, since `setUniverse` nulls the
-  stored `selectedCampaignId` (`web/src/stores/selection.ts`), so campaign-after-universe is the
-  only correct order. In the ordinary flow the two entry points agree, because `campaign-picker` is
-  normally reached via `UniversePickerView.goTo`, which already called `setUniverse`. They diverge
-  on a deep link: land directly on `/universes/u2` while `localStorage` holds
-  `selectedUniverseId: 'u1'`. `CampaignPickerView`'s `onMounted` sees `selection.selectedUniverseId
-  ('u1') !== universeId.value ('u2')` and falls through without recording `u2`; creating a Campaign
-  there then persists the mismatched pair `{universe: u1, campaign: <a u2 campaign>}`. On the next
-  cold boot, `UniversePickerView` restores `u1`, routes to `u1`'s campaign picker, and
-  `CampaignPickerView` tries to load the stored campaign, finds `existing.universeId !==
-  universeId.value`, and clears it — so the user's restored Campaign selection is silently lost.
-  Fixed not with a per-call-site patch but by moving the guard into `selection.ts`'s `setUniverse`
-  itself: it now only nulls `selectedCampaignId` when the incoming Universe id actually differs
-  from the stored one. That single change closes the whole bug class at once, including a
-  previously-latent third instance the final review found in `UniversePickerView.goTo` (its own
-  grid-select/`onCreated` path, unreachable in practice today but a real landmine) — not just the
-  originally-reported `CampaignPickerView.goTo` call site. Regression test:
-  `web/e2e/campaign-picker-deep-link.spec.ts`.
-
 - [ ] **`WorkspaceView.vue`'s deep link never writes to the selection store at all.** Confirmed by
   the final reviewer of the `campaign-picker-deep-link-fix` branch: navigating directly to
   `/universes/:universeId/campaigns/:campaignId` (the URL an actual bookmark or shared link would
@@ -244,14 +182,6 @@ up; don't grow this file into a design doc.
   in the background, silently exposed to the same transient-network-blip collapse with no user
   action involved at all.
 
-- [x] **Fixed.** `CreateCampaignModal.vue`'s labels now have proper `for`/`id` pairing with their
-  `<input>`/`RulesetSelect`, and its `UserMultiSelect` group is tied to its label via
-  `aria-labelledby`/`role="group"` (using the `id`/`labelledby` props `RulesetSelect.vue`/
-  `UserMultiSelect.vue` now accept, plus `BaseModal.vue`'s `role="dialog"`/`aria-labelledby`).
-  `universe-manage.spec.ts`'s Create Campaign test now uses `page.getByLabel(...)` and
-  `page.getByRole('dialog'/'group', ...)` instead of the unscoped, strict-mode-dependent
-  `page.locator('form').getByRole(...)` workaround.
-
 - [ ] **The same `for`/`id`/`role="group"` gap flagged above for `CreateCampaignModal.vue` still
   exists in 5 of the other modals under `web/src/components/modals/`:** `CreateCharacterModal.vue`,
   `CreateEntityModal.vue`, `CreateObjectModal.vue`, `CreateUniverseModal.vue`, and
@@ -261,13 +191,6 @@ up; don't grow this file into a design doc.
   (`CreatingUserModal.vue` was originally listed too, but it has no `<label>`/`<input>`/`<select>`
   at all — it's a progress/wait modal with only text and a Close button — so there's nothing to
   fix there; corrected here after the task reviewer caught the inaccuracy.)
-
-- [x] **Fixed.** `UniverseOverviewPanel.vue` now owns its own `useChangeFeed()` instance (started/
-  stopped on mount/unmount and re-scoped on `universeId` change), rather than relying on
-  `WorkspaceView`'s `lastAggregateChange` provide/inject (out of reach anyway, since this panel is
-  a top-level route, not `WorkspaceView`'s child). It filters for `universe`-type changes matching
-  its own `universeId`, mirroring `CampaignOverviewPanel.vue`'s pattern, and triggers a `silent`
-  reload on a match.
 
 - [ ] **`CampaignPickerView.vue`'s stored-selection restore path still uses single-shot
   `getCampaign`, not `waitForCampaign`.** Its `onMounted` calls `getCampaign(selection.
