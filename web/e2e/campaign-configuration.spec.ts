@@ -140,6 +140,40 @@ test('an unrelated Campaign change does not wipe an unsaved Max Stat Budget draf
   await expect(budgetInput).toHaveValue('99')
 })
 
+test('Max Stat Budget updates when the configuration changes with no pending save in this session', async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  const base = baseURL!
+  const authority = `${base}/oidc`
+  const state = seedState()
+  await seedAuth(context, { baseURL: base, authority, clientId: CLIENT_ID })
+  await installMockBackend(page, state, { baseURL: base, authority, clientId: CLIENT_ID })
+
+  await page.goto('/universes/u1/campaigns/c1')
+  await page.getByRole('tab', { name: 'Configuration' }).click()
+
+  const budgetInput = page.locator('input[type="number"]')
+  await expect(budgetInput).toHaveValue('35')
+
+  // Someone else (another Gamemaster, another tab, an eventually-consistent write that landed
+  // after this page's initial load) changes the budget — no Save was clicked in this session, so
+  // there is no pending save to confirm.
+  const campaign = state.campaigns.find((c) => c.id === 'c1')!
+  campaign.configuration = JSON.stringify({ characterCreation: { maxStatBudget: 50 } })
+  state.changes.push({
+    globalSeq: (state.changes.at(-1)?.globalSeq ?? 0) + 1,
+    universeId: 'u1',
+    aggregateType: 'campaign',
+    aggregateId: 'c1',
+    eventType: 'campaign.configuration_changed.v1',
+    occurredAt: new Date().toISOString(),
+  })
+
+  await expect(budgetInput).toHaveValue('50', { timeout: 10000 })
+})
+
 test('a save that never gets confirmed times out with an error and re-enables Save', async ({ page, context, baseURL }) => {
   // The pending-timeout itself is real (10s) — mirrors character-creation-lag.spec.ts's own
   // pattern of waiting out a real, short, production timeout rather than injecting a test-only one.

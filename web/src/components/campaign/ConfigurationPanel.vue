@@ -27,11 +27,11 @@ const currentMaxStatBudget = computed<number | null>(
   () => parsedConfiguration.value?.characterCreation?.maxStatBudget ?? null,
 )
 
-// Initialized once from whatever the Campaign's configuration already says — deliberately not
-// kept in sync with currentMaxStatBudget afterward (see the watch below and this component's own
-// :key="campaignId" at its call site), so an unrelated background refresh never overwrites what
-// the user is mid-typing. Mirrors the rename-draft-loss fix already applied elsewhere in this
-// codebase (BaseInfoTable.vue/ManageCampaignPanel.vue).
+// Initialized once from whatever the Campaign's configuration already says. Kept in sync with
+// currentMaxStatBudget afterward (see the watch below) — but only while the field isn't
+// user-dirty, so an unrelated background refresh never overwrites what the user is mid-typing.
+// Mirrors the rename-draft-loss fix already applied elsewhere in this codebase
+// (BaseInfoTable.vue/ManageCampaignPanel.vue), adapted for a field with no separate edit mode.
 const maxStatBudgetInput = ref<number | null>(currentMaxStatBudget.value)
 
 type Status = 'idle' | 'pending' | 'error'
@@ -40,6 +40,11 @@ const errorMessage = ref<string | null>(null)
 // The value most recently submitted, so the watch below can tell "the loaded configuration now
 // reflects my own request" apart from "someone else changed something unrelated in configuration".
 let pendingValue: number | null = null
+// The last value we know the loaded configuration to hold. Lets the watch below tell "the input
+// still mirrors what was last loaded" (safe to sync onto a fresh value) apart from "the user has
+// an unsaved edit" (must not be clobbered). Updated alongside maxStatBudgetInput whenever it's not
+// dirty, and on every confirmed save, so it never falls behind what's actually been synced.
+let lastSyncedValue: number | null = currentMaxStatBudget.value
 
 // A non-Timadorus Campaign silently no-ops on `configure` (by design) — no ConfigurationChanged
 // event is ever emitted, so the currentMaxStatBudget watch below never fires and `status` would
@@ -92,7 +97,18 @@ watch(currentMaxStatBudget, (value) => {
     clearPendingTimeout()
     status.value = 'idle'
     pendingValue = null
+    maxStatBudgetInput.value = value
+    lastSyncedValue = value
+    return
   }
+  // No pending save of ours to confirm — this is either the initial load resolving after this
+  // component was already created, or a change made elsewhere (another Gamemaster, another tab).
+  // Sync the field only if the user hasn't started an unsaved edit of their own; either way,
+  // remember the newly loaded value so a later, still-untouched sync compares against it.
+  if (maxStatBudgetInput.value === lastSyncedValue) {
+    maxStatBudgetInput.value = value
+  }
+  lastSyncedValue = value
 })
 
 onUnmounted(clearPendingTimeout)
