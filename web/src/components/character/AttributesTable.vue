@@ -1,23 +1,9 @@
 <script setup lang="ts">
+import { ATTRIBUTES } from '@/lib/attributes'
+
 const props = defineProps<{
   attributes: Record<string, { temp: number; pot: number; bonus: number }>
 }>()
-
-// Display metadata only (name + abbreviation) — fixed for every Character regardless of Ruleset,
-// unlike the per-Character temp/pot/bonus values themselves. Named ATTRIBUTES (not `attributes`)
-// to avoid shadowing the `attributes` prop above.
-const ATTRIBUTES = [
-  { name: 'Strength', abbr: 'ST' },
-  { name: 'Agility', abbr: 'AG' },
-  { name: 'Constitution', abbr: 'CO' },
-  { name: 'Quickness', abbr: 'QU' },
-  { name: 'Self Discipline', abbr: 'SD' },
-  { name: 'Memory', abbr: 'ME' },
-  { name: 'Reasoning', abbr: 'RE' },
-  { name: 'Empathy', abbr: 'EM' },
-  { name: 'Presence', abbr: 'PR' },
-  { name: 'Intuition', abbr: 'IN' },
-]
 
 // '—' distinguishes "not yet seeded" (non-Timadorus Character, or the engine hasn't caught up
 // right after creation — the same async-settling window traits/traitPoints already tolerate)
