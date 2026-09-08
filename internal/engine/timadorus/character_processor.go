@@ -242,8 +242,9 @@ func (p *CharacterProcessor) handleCharacterCreated(ctx context.Context, tx pgx.
 // send) falls through to the pre-existing timestamp-append behavior below. Extend this dispatch,
 // not the fallback, when the next real action is added.
 type characterAction struct {
-	Action string `json:"action"`
-	Trait  string `json:"trait"`
+	Action string             `json:"action"`
+	Trait  string             `json:"trait"`
+	Pot    map[string]float64 `json:"pot"`
 }
 
 // handleActionRequested is Handle's original logic, renamed to make room for
@@ -275,8 +276,13 @@ func (p *CharacterProcessor) handleActionRequested(ctx context.Context, tx pgx.T
 	}
 
 	var action characterAction
-	if err := json.Unmarshal([]byte(e.Payload), &action); err == nil && action.Action == "addTrait" {
-		return p.tryAddTrait(ctx, tx, env, campaignID, action.Trait)
+	if err := json.Unmarshal([]byte(e.Payload), &action); err == nil {
+		switch action.Action {
+		case "addTrait":
+			return p.tryAddTrait(ctx, tx, env, campaignID, action.Trait)
+		case "submitPot":
+			return p.trySubmitPot(ctx, tx, env, action.Pot)
+		}
 	}
 
 	return p.appendActionTimestamp(ctx, tx, env, e.OccurredAt)
@@ -344,6 +350,102 @@ func (p *CharacterProcessor) tryAddTrait(ctx context.Context, tx pgx.Tx, env bus
 		if errors.Is(err, character.ErrArchived) {
 			p.logger.Warn("addTrait rejected: Character is archived",
 				"characterID", characterID, "campaignID", campaignID, "trait", trait)
+			return nil
+		}
+		return fmt.Errorf(errPrefix+"set info for character %s: %w", characterID, err)
+	}
+	if err := p.characters.Save(txCtx, c); err != nil {
+		return fmt.Errorf(errPrefix+"save character %s: %w", characterID, err)
+	}
+	return nil
+}
+
+// trySubmitPot validates a batch of target Pot values against the Character's own current
+// stored attributes/statBudget before applying any of them — the engine, never the SPA, computes
+// and checks the cost (see potCost and
+// docs/superpowers/specs/2026-09-07-assign-stats-budget-design.md). Any single invalid entry (an
+// abbreviation not among the Character's existing attributes, a decrease, or a target over 100)
+// or a total cost exceeding the current statBudget rejects the WHOLE batch — logged, not silent,
+// exactly like tryAddTrait's own rejections — leaving every attribute and statBudget completely
+// untouched. Deliberately NOT built on mutateInfo for the same reason tryAddTrait isn't: this
+// mutation is conditional, and mutateInfo's contract is unconditional.
+func (p *CharacterProcessor) trySubmitPot(ctx context.Context, tx pgx.Tx, env bus.Envelope, pot map[string]float64) error {
+	characterID := env.AggregateID
+	txCtx := postgres.WithTx(observability.WithCorrelationID(ctx, env.CorrelationID()), tx)
+
+	c, err := p.characters.Load(txCtx, characterID)
+	if err != nil {
+		return fmt.Errorf(errPrefix+"load character %s: %w", characterID, err)
+	}
+
+	info := map[string]any{}
+	if raw := c.Info(); raw != "" {
+		_ = json.Unmarshal([]byte(raw), &info) // best-effort; info stays {} on failure
+	}
+	stats, _ := info["stats"].(map[string]any)
+	if stats == nil {
+		p.logger.Warn("submitPot rejected: Character has no stats seeded yet", "characterID", characterID)
+		return nil
+	}
+	attributes, _ := stats["attributes"].(map[string]any)
+	if attributes == nil {
+		p.logger.Warn("submitPot rejected: Character has no attributes seeded yet", "characterID", characterID)
+		return nil
+	}
+	statBudget, ok := stats["statBudget"].(float64)
+	if !ok {
+		p.logger.Warn("submitPot rejected: Character has no statBudget", "characterID", characterID)
+		return nil
+	}
+
+	totalCost := 0
+	for abbr, targetVal := range pot {
+		attr, ok := attributes[abbr].(map[string]any)
+		if !ok {
+			p.logger.Warn("submitPot rejected: unknown attribute abbreviation",
+				"characterID", characterID, "abbr", abbr)
+			return nil
+		}
+		currentPot, ok := attr["pot"].(float64)
+		if !ok {
+			p.logger.Warn("submitPot rejected: attribute has no pot value",
+				"characterID", characterID, "abbr", abbr)
+			return nil
+		}
+		target, current := int(targetVal), int(currentPot)
+		if target < current {
+			p.logger.Warn("submitPot rejected: target pot is below the attribute's current pot",
+				"characterID", characterID, "abbr", abbr, "current", current, "target", target)
+			return nil
+		}
+		if target > 100 {
+			p.logger.Warn("submitPot rejected: target pot exceeds 100",
+				"characterID", characterID, "abbr", abbr, "target", target)
+			return nil
+		}
+		totalCost += potCost(current, target)
+	}
+
+	if totalCost > int(statBudget) {
+		p.logger.Warn("submitPot rejected: total cost exceeds remaining statBudget",
+			"characterID", characterID, "cost", totalCost, "statBudget", statBudget)
+		return nil
+	}
+
+	for abbr, targetVal := range pot {
+		attr, _ := attributes[abbr].(map[string]any)
+		attr["pot"] = int(targetVal)
+	}
+	stats["statBudget"] = int(statBudget) - totalCost
+	info["stats"] = stats
+
+	newInfo, err := json.Marshal(info)
+	if err != nil {
+		return fmt.Errorf(errPrefix+"marshal updated info for character %s: %w", characterID, err)
+	}
+	if err := c.SetInfo(string(newInfo)); err != nil {
+		if errors.Is(err, character.ErrArchived) {
+			p.logger.Warn("submitPot rejected: Character is archived", "characterID", characterID)
 			return nil
 		}
 		return fmt.Errorf(errPrefix+"set info for character %s: %w", characterID, err)

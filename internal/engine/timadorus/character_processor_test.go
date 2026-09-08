@@ -983,3 +983,180 @@ func TestCharacterProcessor_AddTrait_Archived_RejectedAndLogged(t *testing.T) {
 		t.Fatalf("router.Run: %v", err)
 	}
 }
+
+// TestCharacterProcessor_SubmitPot_ValidBatch_Succeeds covers the happy path from
+// docs/superpowers/specs/2026-09-07-assign-stats-budget-design.md: a batch with one increased
+// attribute (ST: 50->60, costing 10) and one unchanged attribute (AG: 50->50, costing 0) is
+// applied atomically, decrementing statBudget by the total cost and leaving every other field
+// (including AG's own pot) untouched.
+func TestCharacterProcessor_SubmitPot_ValidBatch_Succeeds(t *testing.T) {
+	pool := newTestPool(t)
+
+	campaignID, rulesetID := uuid.New(), uuid.New()
+	seedCampaignAndRuleset(t, pool, campaignID, rulesetID, "timadorus")
+	characterID := createCharacter(t, pool, campaignID)
+	seedCharacterInfo(t, pool, characterID,
+		`{"stats":{"traitPoints":2,"traits":[],"attributes":{"ST":{"temp":50,"pot":50,"bonus":0},"AG":{"temp":50,"pot":50,"bonus":0}},"statBudget":40}}`)
+
+	publish, wait := runEngine(t, pool)
+
+	publish(bus.Envelope{
+		GlobalSeq: 1, AggregateID: characterID, AggregateType: events.AggregateType, Version: 2,
+		EventType: events.TypeActionRequested,
+		Payload: mustMarshal(t, events.ActionRequested{
+			Payload: `{"action":"submitPot","pot":{"ST":60,"AG":50}}`, OccurredAt: time.Now().UTC(),
+		}),
+	})
+
+	// seedCharacterInfo's own SetInfo (version 2) already leaves one character.info_changed.v1
+	// event in place before the router ever runs — require version > 2, matching
+	// TestCharacterProcessor_AddTrait_ValidTrait_Succeeds's own identical reasoning.
+	deadline := time.Now().Add(5 * time.Second)
+	var payload []byte
+	for time.Now().Before(deadline) {
+		err := pool.QueryRow(context.Background(),
+			`SELECT payload FROM events WHERE aggregate_id = $1 AND event_type = $2 AND version > 2
+			 ORDER BY version DESC LIMIT 1`,
+			characterID, events.TypeInfoChanged,
+		).Scan(&payload)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			t.Fatalf("query info_changed event: %v", err)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if payload == nil {
+		t.Fatal("timed out waiting for a character.info_changed.v1 event")
+	}
+
+	var infoEvent struct {
+		Info string `json:"info"`
+	}
+	if err := json.Unmarshal(payload, &infoEvent); err != nil {
+		t.Fatalf("info_changed payload %s is not the expected shape: %v", payload, err)
+	}
+	var decoded struct {
+		Stats struct {
+			StatBudget int `json:"statBudget"`
+			Attributes map[string]struct {
+				Pot int `json:"pot"`
+			} `json:"attributes"`
+		} `json:"stats"`
+	}
+	if err := json.Unmarshal([]byte(infoEvent.Info), &decoded); err != nil {
+		t.Fatalf("info %q is not the expected shape: %v", infoEvent.Info, err)
+	}
+	if decoded.Stats.StatBudget != 30 {
+		t.Fatalf("got statBudget %d, want 30 (40 - potCost(50,60)=10)", decoded.Stats.StatBudget)
+	}
+	if decoded.Stats.Attributes["ST"].Pot != 60 {
+		t.Fatalf("got ST pot %d, want 60", decoded.Stats.Attributes["ST"].Pot)
+	}
+	if decoded.Stats.Attributes["AG"].Pot != 50 {
+		t.Fatalf("got AG pot %d, want 50 (unchanged)", decoded.Stats.Attributes["AG"].Pot)
+	}
+
+	wait()
+}
+
+// submitPotRejectionCase is shared by every TestCharacterProcessor_SubmitPot_*_RejectedAndLogged
+// test below: seed a Character with seededInfo, publish the given submitPot payload, then assert
+// no additional character.info_changed.v1 event was appended (the seeded info's own SetInfo
+// already leaves exactly one) and that logs contains wantLogSubstring.
+func runSubmitPotRejectionCase(t *testing.T, seededInfo, payload, wantLogSubstring string) {
+	t.Helper()
+	pool := newTestPool(t)
+	logger, logs := newTestLogger()
+
+	campaignID, rulesetID := uuid.New(), uuid.New()
+	seedCampaignAndRuleset(t, pool, campaignID, rulesetID, "timadorus")
+	characterID := createCharacter(t, pool, campaignID)
+	seedCharacterInfo(t, pool, characterID, seededInfo)
+
+	p := timadorus.NewCharacterProcessor(pool, timadorus.NewRulesetCache(), logger)
+	ctx, cancel := context.WithCancel(context.Background())
+	inMemory := gochannel.NewGoChannel(gochannel.Config{Persistent: true}, watermill.NopLogger{})
+	t.Cleanup(func() { _ = inMemory.Close() })
+	router := projection.NewRouter(pool, func(string) (message.Subscriber, error) {
+		return inMemory, nil
+	}, discardLogger())
+	done := make(chan error, 1)
+	go func() { done <- router.Run(ctx, []projection.Projector{p}) }()
+
+	body := mustMarshal(t, bus.Envelope{
+		GlobalSeq: 1, AggregateID: characterID, AggregateType: events.AggregateType, Version: 2,
+		EventType: events.TypeActionRequested,
+		Payload:   mustMarshal(t, events.ActionRequested{Payload: payload, OccurredAt: time.Now().UTC()}),
+	})
+	msg := message.NewMessage(watermill.NewUUID(), message.Payload(body))
+	if err := inMemory.Publish(bus.Subject(events.AggregateType), msg); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+
+	time.Sleep(500 * time.Millisecond)
+
+	var count int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM events WHERE aggregate_id = $1 AND event_type = $2`,
+		characterID, events.TypeInfoChanged,
+	).Scan(&count); err != nil {
+		t.Fatalf("count info_changed events: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("got %d character.info_changed.v1 events, want 1 (rejected, so no additional mutation)", count)
+	}
+	if !strings.Contains(logs.String(), wantLogSubstring) {
+		t.Fatalf("expected a log line containing %q, got: %s", wantLogSubstring, logs.String())
+	}
+
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("router.Run: %v", err)
+	}
+}
+
+func TestCharacterProcessor_SubmitPot_InsufficientBudget_RejectedAndLogged(t *testing.T) {
+	// ST 50->60 costs 10, but statBudget is only 5 — the whole batch is rejected, not partially
+	// applied.
+	runSubmitPotRejectionCase(t,
+		`{"stats":{"attributes":{"ST":{"temp":50,"pot":50,"bonus":0}},"statBudget":5}}`,
+		`{"action":"submitPot","pot":{"ST":60}}`,
+		"statBudget",
+	)
+}
+
+func TestCharacterProcessor_SubmitPot_Decrease_RejectedAndLogged(t *testing.T) {
+	runSubmitPotRejectionCase(t,
+		`{"stats":{"attributes":{"ST":{"temp":50,"pot":50,"bonus":0}},"statBudget":40}}`,
+		`{"action":"submitPot","pot":{"ST":40}}`,
+		"below",
+	)
+}
+
+func TestCharacterProcessor_SubmitPot_Over100_RejectedAndLogged(t *testing.T) {
+	runSubmitPotRejectionCase(t,
+		`{"stats":{"attributes":{"ST":{"temp":50,"pot":50,"bonus":0}},"statBudget":9999}}`,
+		`{"action":"submitPot","pot":{"ST":101}}`,
+		"100",
+	)
+}
+
+func TestCharacterProcessor_SubmitPot_UnknownAbbreviation_RejectedAndLogged(t *testing.T) {
+	runSubmitPotRejectionCase(t,
+		`{"stats":{"attributes":{"ST":{"temp":50,"pot":50,"bonus":0}},"statBudget":40}}`,
+		`{"action":"submitPot","pot":{"ZZ":60}}`,
+		"unknown",
+	)
+}
+
+func TestCharacterProcessor_SubmitPot_NoStatBudgetSeeded_RejectedAndLogged(t *testing.T) {
+	// A non-Timadorus Character, or one the engine hasn't finished seeding yet — no
+	// stats.statBudget at all, matching tryAddTrait's own "no traitPoints field" treatment.
+	runSubmitPotRejectionCase(t,
+		`{"stats":{"attributes":{"ST":{"temp":50,"pot":50,"bonus":0}}}}`,
+		`{"action":"submitPot","pot":{"ST":60}}`,
+		"statBudget",
+	)
+}
