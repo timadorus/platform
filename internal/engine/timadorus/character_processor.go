@@ -19,6 +19,7 @@ import (
 	campaignevents "github.com/timadorus/platform/internal/domain/campaign/events"
 	"github.com/timadorus/platform/internal/domain/character"
 	"github.com/timadorus/platform/internal/domain/character/events"
+	"github.com/timadorus/platform/internal/engine/timadorus/tables"
 	"github.com/timadorus/platform/internal/eventsourcing"
 	"github.com/timadorus/platform/internal/eventstore/postgres"
 	"github.com/timadorus/platform/internal/observability"
@@ -108,9 +109,11 @@ func defaultAttributes() map[string]any {
 // list, the Character's current traitPoints, and its existing traits before applying it; and
 // {"action":"submitPot","pot":{"<abbr>":<target>,...}}, a batch of per-attribute Pot increases
 // validated as a whole against the Character's own remaining stats.statBudget before any of it is
-// applied (see trySubmitPot). Both log (and no-op) any rejection instead of erroring the event.
-// Any other ActionRequested payload falls back to appending occurredAt to info's "actions" array,
-// exactly as before.
+// applied (see trySubmitPot). Both log (and no-op) any rejection instead of erroring the event. A
+// successfully applied addTrait also fires that trait's own hook, if traits.yaml registers one
+// for it — "strong"/"agile"/"quick" each grant a flat +5 Pot bonus to their own attribute (see
+// trait_hooks.go). Any other ActionRequested payload falls back to appending occurredAt to info's
+// "actions" array, exactly as before.
 //
 // Each action rewrites the entire "actions" array into a new event payload (see
 // appendActionTimestamp), so the cost of N actions on one Character is O(N^2) bytes across
@@ -128,6 +131,7 @@ type CharacterProcessor struct {
 	characters *eventsourcing.Repository[*character.Character]
 	campaigns  *eventsourcing.Repository[*campaign.Campaign]
 	cache      *RulesetCache
+	traits     *tables.TraitsTable
 	logger     *slog.Logger
 }
 
@@ -141,8 +145,11 @@ type CharacterProcessor struct {
 // docs/superpowers/specs/2026-09-05-statbudget-race-reconciliation-design.md). Mirrors
 // CampaignProcessor's own construction of a second repository (its Ruleset one) for the same
 // reason: a second, narrowly-scoped read into a different aggregate type. cache is shared with
-// CampaignProcessor — see RulesetCache's doc comment.
-func NewCharacterProcessor(pool *pgxpool.Pool, cache *RulesetCache, logger *slog.Logger) *CharacterProcessor {
+// CampaignProcessor — see RulesetCache's doc comment. traits is the Timadorus Ruleset's own
+// traits.yaml table, already loaded and hook-registered by the caller (cmd/timadorus-engine's
+// startup calls tables.LoadTraits then RegisterTraitHooks before constructing this processor) —
+// tryAddTrait uses it to fire each trait's own stat-bonus hook, if it has one (see trait_hooks.go).
+func NewCharacterProcessor(pool *pgxpool.Pool, cache *RulesetCache, traits *tables.TraitsTable, logger *slog.Logger) *CharacterProcessor {
 	registry := eventsourcing.NewRegistry()
 	events.Register(registry)
 	store := postgres.NewStore(pool, registry)
@@ -159,6 +166,7 @@ func NewCharacterProcessor(pool *pgxpool.Pool, cache *RulesetCache, logger *slog
 			return &campaign.Campaign{}
 		}),
 		cache:  cache,
+		traits: traits,
 		logger: logger,
 	}
 }
@@ -301,6 +309,13 @@ func (p *CharacterProcessor) handleActionRequested(ctx context.Context, tx pgx.T
 // spurious InfoChanged event with no real change. Every rejection is logged, not silent — a
 // legitimate, expected outcome the SPA can't always prevent (e.g. a stale picker, or a race with
 // someone else's concurrent Add Trait), not a bug.
+//
+// Once the trait is confirmed eligible, this also fires that trait's own hook, if it has one
+// (see trait_hooks.go), before saving — via p.traits.Dispatch against the same in-progress stats
+// map, not a second Load/Save (see withCharacterStats's own doc comment for why a second
+// Load/Save would race this one's). A trait absent from traits.yaml entirely (a Campaign-defined
+// trait with no special engine effect) is skipped via the Row(trait) existence check below,
+// rather than treated as an error — Dispatch is only ever called for a trait known to have a row.
 func (p *CharacterProcessor) tryAddTrait(ctx context.Context, tx pgx.Tx, env bus.Envelope, campaignID uuid.UUID, trait string) error {
 	characterID := env.AggregateID
 
@@ -345,6 +360,14 @@ func (p *CharacterProcessor) tryAddTrait(ctx context.Context, tx pgx.Tx, env bus
 
 	stats["traitPoints"] = traitPoints - 1
 	stats["traits"] = append(existingTraits, trait)
+
+	if _, ok := p.traits.Row(trait); ok {
+		hookCtx := withCharacterStats(txCtx, stats)
+		if err := p.traits.Dispatch(hookCtx, tx, trait, env); err != nil {
+			return fmt.Errorf(errPrefix+"run %q trait hooks for character %s: %w", trait, characterID, err)
+		}
+	}
+
 	info["stats"] = stats
 
 	newInfo, err := json.Marshal(info)

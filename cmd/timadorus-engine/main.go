@@ -88,6 +88,14 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	// Registering hooks in-memory (before RegisterTables syncs the read-model copy below) is a
+	// fatal startup error on a typo'd row key, exactly like RegisterRuleset above — never a silent
+	// no-op discovered only the first time some Character actually adds that trait. Hooks
+	// themselves aren't part of what RegisterTables syncs (TraitsRow.Hooks is tagged `yaml:"-"
+	// json:"-"`), so the two calls' order relative to each other doesn't otherwise matter.
+	if err := timadorusengine.RegisterTraitHooks(traits); err != nil {
+		return err
+	}
 	if err := tables.RegisterTables(ctx, pool, rulesetID, traits); err != nil {
 		return err
 	}
@@ -99,7 +107,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 
 	cache := timadorusengine.NewRulesetCache()
 	processors := []projection.Projector{
-		timadorusengine.NewCharacterProcessor(pool, cache, logger),
+		timadorusengine.NewCharacterProcessor(pool, cache, traits, logger),
 		timadorusengine.NewCampaignProcessor(pool, cache),
 	}
 

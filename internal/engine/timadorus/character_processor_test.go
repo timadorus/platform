@@ -193,7 +193,7 @@ func runEngine(t *testing.T, pool *pgxpool.Pool) (publish func(env bus.Envelope)
 	inMemory := gochannel.NewGoChannel(gochannel.Config{Persistent: true}, watermill.NopLogger{})
 	t.Cleanup(func() { _ = inMemory.Close() })
 
-	p := timadorus.NewCharacterProcessor(pool, timadorus.NewRulesetCache(), discardLogger())
+	p := timadorus.NewCharacterProcessor(pool, timadorus.NewRulesetCache(), newTestTraitsTable(t), discardLogger())
 	router := projection.NewRouter(pool, func(string) (message.Subscriber, error) {
 		return inMemory, nil
 	}, discardLogger())
@@ -738,6 +738,175 @@ func TestCharacterProcessor_AddTrait_ValidTrait_Succeeds(t *testing.T) {
 	wait()
 }
 
+// TestCharacterProcessor_AddTrait_AttributeBonusHooks_BumpPot covers the three trait->attribute
+// stat bonuses registered in trait_hooks.go: adding "strong"/"agile"/"quick" also raises the
+// matching attribute's own Pot by 5, in the SAME InfoChanged event as the trait grant itself (see
+// withCharacterStats's own doc comment for why this can't be a second, independent Load/Save).
+// Every other attribute stays untouched.
+func TestCharacterProcessor_AddTrait_AttributeBonusHooks_BumpPot(t *testing.T) {
+	cases := []struct {
+		trait string
+		abbr  string
+	}{
+		{trait: "strong", abbr: "ST"},
+		{trait: "agile", abbr: "AG"},
+		{trait: "quick", abbr: "QU"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.trait, func(t *testing.T) {
+			pool := newTestPool(t)
+
+			campaignID, rulesetID := uuid.New(), uuid.New()
+			seedCampaignAndRuleset(t, pool, campaignID, rulesetID, "timadorus")
+			seedCampaignConfiguration(t, pool, campaignID, `{"traits":["strong","agile","quick"]}`)
+			characterID := createCharacter(t, pool, campaignID)
+			seedCharacterInfo(t, pool, characterID,
+				`{"stats":{"traitPoints":2,"traits":[],"attributes":{"ST":{"temp":50,"pot":50,"bonus":0},"AG":{"temp":50,"pot":50,"bonus":0},"QU":{"temp":50,"pot":50,"bonus":0}}}}`)
+
+			innerPayload, err := json.Marshal(map[string]string{"action": "addTrait", "trait": tc.trait})
+			if err != nil {
+				t.Fatalf("marshal action payload: %v", err)
+			}
+
+			publish, wait := runEngine(t, pool)
+
+			publish(bus.Envelope{
+				GlobalSeq: 1, AggregateID: characterID, AggregateType: events.AggregateType, Version: 2,
+				EventType: events.TypeActionRequested,
+				Payload: mustMarshal(t, events.ActionRequested{
+					Payload: string(innerPayload), OccurredAt: time.Now().UTC(),
+				}),
+			})
+
+			deadline := time.Now().Add(5 * time.Second)
+			var payload []byte
+			for time.Now().Before(deadline) {
+				err := pool.QueryRow(context.Background(),
+					`SELECT payload FROM events WHERE aggregate_id = $1 AND event_type = $2 AND version > 2
+					 ORDER BY version DESC LIMIT 1`,
+					characterID, events.TypeInfoChanged,
+				).Scan(&payload)
+				if err == nil {
+					break
+				}
+				if !errors.Is(err, pgx.ErrNoRows) {
+					t.Fatalf("query info_changed event: %v", err)
+				}
+				time.Sleep(50 * time.Millisecond)
+			}
+			if payload == nil {
+				t.Fatal("timed out waiting for a character.info_changed.v1 event")
+			}
+
+			var infoEvent struct {
+				Info string `json:"info"`
+			}
+			if err := json.Unmarshal(payload, &infoEvent); err != nil {
+				t.Fatalf("info_changed payload %s is not the expected shape: %v", payload, err)
+			}
+			var decoded struct {
+				Stats struct {
+					Traits     []string `json:"traits"`
+					Attributes map[string]struct {
+						Pot int `json:"pot"`
+					} `json:"attributes"`
+				} `json:"stats"`
+			}
+			if err := json.Unmarshal([]byte(infoEvent.Info), &decoded); err != nil {
+				t.Fatalf("info %q is not the expected shape: %v", infoEvent.Info, err)
+			}
+			if len(decoded.Stats.Traits) != 1 || decoded.Stats.Traits[0] != tc.trait {
+				t.Fatalf("got traits %v, want [%s]", decoded.Stats.Traits, tc.trait)
+			}
+			if got := decoded.Stats.Attributes[tc.abbr].Pot; got != 55 {
+				t.Fatalf("got %s pot %d, want 55 (50 + the %q trait's own +5 bonus)", tc.abbr, got, tc.trait)
+			}
+			for abbr, attr := range decoded.Stats.Attributes {
+				if abbr == tc.abbr {
+					continue
+				}
+				if attr.Pot != 50 {
+					t.Fatalf("got %s pot %d, want unchanged at 50 (only %s should move)", abbr, attr.Pot, tc.abbr)
+				}
+			}
+
+			wait()
+		})
+	}
+}
+
+// TestCharacterProcessor_AddTrait_UnknownTraitsYamlRow_NoHookNoError covers a Campaign-defined
+// trait with no entry in the engine's own traits.yaml at all (a Gamemaster's custom trait name
+// with no built-in stat effect) — must still succeed exactly like any other addTrait, with no
+// hook firing and no error, distinguishing "not a hook-bearing row" from "unknown addTrait
+// action" or "rejected trait".
+func TestCharacterProcessor_AddTrait_UnknownTraitsYamlRow_NoHookNoError(t *testing.T) {
+	pool := newTestPool(t)
+
+	campaignID, rulesetID := uuid.New(), uuid.New()
+	seedCampaignAndRuleset(t, pool, campaignID, rulesetID, "timadorus")
+	seedCampaignConfiguration(t, pool, campaignID, `{"traits":["brave"]}`)
+	characterID := createCharacter(t, pool, campaignID)
+	seedCharacterInfo(t, pool, characterID,
+		`{"stats":{"traitPoints":2,"traits":[],"attributes":{"ST":{"temp":50,"pot":50,"bonus":0}}}}`)
+
+	publish, wait := runEngine(t, pool)
+
+	publish(bus.Envelope{
+		GlobalSeq: 1, AggregateID: characterID, AggregateType: events.AggregateType, Version: 2,
+		EventType: events.TypeActionRequested,
+		Payload: mustMarshal(t, events.ActionRequested{
+			Payload: `{"action":"addTrait","trait":"brave"}`, OccurredAt: time.Now().UTC(),
+		}),
+	})
+
+	deadline := time.Now().Add(5 * time.Second)
+	var payload []byte
+	for time.Now().Before(deadline) {
+		err := pool.QueryRow(context.Background(),
+			`SELECT payload FROM events WHERE aggregate_id = $1 AND event_type = $2 AND version > 2
+			 ORDER BY version DESC LIMIT 1`,
+			characterID, events.TypeInfoChanged,
+		).Scan(&payload)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			t.Fatalf("query info_changed event: %v", err)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if payload == nil {
+		t.Fatal("timed out waiting for a character.info_changed.v1 event")
+	}
+
+	var infoEvent struct {
+		Info string `json:"info"`
+	}
+	if err := json.Unmarshal(payload, &infoEvent); err != nil {
+		t.Fatalf("info_changed payload %s is not the expected shape: %v", payload, err)
+	}
+	var decoded struct {
+		Stats struct {
+			Traits     []string `json:"traits"`
+			Attributes map[string]struct {
+				Pot int `json:"pot"`
+			} `json:"attributes"`
+		} `json:"stats"`
+	}
+	if err := json.Unmarshal([]byte(infoEvent.Info), &decoded); err != nil {
+		t.Fatalf("info %q is not the expected shape: %v", infoEvent.Info, err)
+	}
+	if len(decoded.Stats.Traits) != 1 || decoded.Stats.Traits[0] != "brave" {
+		t.Fatalf("got traits %v, want [brave]", decoded.Stats.Traits)
+	}
+	if got := decoded.Stats.Attributes["ST"].Pot; got != 50 {
+		t.Fatalf("got ST pot %d, want unchanged at 50 (%q has no traits.yaml row, so no hook)", got, "brave")
+	}
+
+	wait()
+}
+
 func TestCharacterProcessor_AddTrait_NotACampaignTrait_RejectedAndLogged(t *testing.T) {
 	pool := newTestPool(t)
 	logger, logs := newTestLogger()
@@ -748,7 +917,7 @@ func TestCharacterProcessor_AddTrait_NotACampaignTrait_RejectedAndLogged(t *test
 	characterID := createCharacter(t, pool, campaignID)
 	seedCharacterInfo(t, pool, characterID, `{"stats":{"traitPoints":2,"traits":[]}}`)
 
-	p := timadorus.NewCharacterProcessor(pool, timadorus.NewRulesetCache(), logger)
+	p := timadorus.NewCharacterProcessor(pool, timadorus.NewRulesetCache(), newTestTraitsTable(t), logger)
 	ctx, cancel := context.WithCancel(context.Background())
 	inMemory := gochannel.NewGoChannel(gochannel.Config{Persistent: true}, watermill.NopLogger{})
 	t.Cleanup(func() { _ = inMemory.Close() })
@@ -805,7 +974,7 @@ func TestCharacterProcessor_AddTrait_NoPointsRemaining_RejectedAndLogged(t *test
 	characterID := createCharacter(t, pool, campaignID)
 	seedCharacterInfo(t, pool, characterID, `{"stats":{"traitPoints":0,"traits":[]}}`)
 
-	p := timadorus.NewCharacterProcessor(pool, timadorus.NewRulesetCache(), logger)
+	p := timadorus.NewCharacterProcessor(pool, timadorus.NewRulesetCache(), newTestTraitsTable(t), logger)
 	ctx, cancel := context.WithCancel(context.Background())
 	inMemory := gochannel.NewGoChannel(gochannel.Config{Persistent: true}, watermill.NopLogger{})
 	t.Cleanup(func() { _ = inMemory.Close() })
@@ -862,7 +1031,7 @@ func TestCharacterProcessor_AddTrait_AlreadyHasTrait_RejectedAndLogged(t *testin
 	characterID := createCharacter(t, pool, campaignID)
 	seedCharacterInfo(t, pool, characterID, `{"stats":{"traitPoints":2,"traits":["strong"]}}`)
 
-	p := timadorus.NewCharacterProcessor(pool, timadorus.NewRulesetCache(), logger)
+	p := timadorus.NewCharacterProcessor(pool, timadorus.NewRulesetCache(), newTestTraitsTable(t), logger)
 	ctx, cancel := context.WithCancel(context.Background())
 	inMemory := gochannel.NewGoChannel(gochannel.Config{Persistent: true}, watermill.NopLogger{})
 	t.Cleanup(func() { _ = inMemory.Close() })
@@ -925,7 +1094,7 @@ func TestCharacterProcessor_AddTrait_Archived_RejectedAndLogged(t *testing.T) {
 	seedCharacterInfo(t, pool, characterID, `{"stats":{"traitPoints":2,"traits":[]}}`)
 	archiveCharacter(t, pool, characterID)
 
-	p := timadorus.NewCharacterProcessor(pool, timadorus.NewRulesetCache(), logger)
+	p := timadorus.NewCharacterProcessor(pool, timadorus.NewRulesetCache(), newTestTraitsTable(t), logger)
 	ctx, cancel := context.WithCancel(context.Background())
 	inMemory := gochannel.NewGoChannel(gochannel.Config{Persistent: true}, watermill.NopLogger{})
 	t.Cleanup(func() { _ = inMemory.Close() })
@@ -1075,7 +1244,7 @@ func runSubmitPotRejectionCase(t *testing.T, seededInfo, payload, wantLogSubstri
 	characterID := createCharacter(t, pool, campaignID)
 	seedCharacterInfo(t, pool, characterID, seededInfo)
 
-	p := timadorus.NewCharacterProcessor(pool, timadorus.NewRulesetCache(), logger)
+	p := timadorus.NewCharacterProcessor(pool, timadorus.NewRulesetCache(), newTestTraitsTable(t), logger)
 	ctx, cancel := context.WithCancel(context.Background())
 	inMemory := gochannel.NewGoChannel(gochannel.Config{Persistent: true}, watermill.NopLogger{})
 	t.Cleanup(func() { _ = inMemory.Close() })

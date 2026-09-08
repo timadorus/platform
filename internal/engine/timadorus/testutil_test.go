@@ -11,6 +11,9 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
+
+	"github.com/timadorus/platform/internal/engine/timadorus"
+	"github.com/timadorus/platform/internal/engine/timadorus/tables"
 )
 
 // newTestPool starts a fresh Postgres testcontainer with every migration this package's tests
@@ -79,4 +82,20 @@ func mustMarshal(t *testing.T, v any) json.RawMessage {
 
 func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+// newTestTraitsTable loads traits.yaml and registers every production trait hook onto it, exactly
+// like cmd/timadorus-engine's own startup (tables.LoadTraits + timadorus.RegisterTraitHooks) — so
+// every test's CharacterProcessor behaves identically to production instead of running against an
+// empty, hookless traits table.
+func newTestTraitsTable(t *testing.T) *tables.TraitsTable {
+	t.Helper()
+	traits, err := tables.LoadTraits()
+	if err != nil {
+		t.Fatalf("load traits table: %v", err)
+	}
+	if err := timadorus.RegisterTraitHooks(traits); err != nil {
+		t.Fatalf("register trait hooks: %v", err)
+	}
+	return traits
 }

@@ -472,6 +472,15 @@ var _ = Describe("Timadorus platform aggregates", func() {
 			stats, _ := info["stats"].(map[string]any)
 			g.Expect(stats["traitPoints"]).To(Equal(float64(1)))
 			g.Expect(stats["traits"]).To(ConsistOf("strong"))
+
+			// "strong" carries its own hook (trait_hooks.go): +5 to Strength's Pot, landing in the
+			// SAME InfoChanged event as the trait grant itself — every other attribute stays at its
+			// seeded default of 50.
+			attributes, _ := stats["attributes"].(map[string]any)
+			st, _ := attributes["ST"].(map[string]any)
+			g.Expect(st).To(HaveKeyWithValue("pot", float64(55)))
+			ag, _ := attributes["AG"].(map[string]any)
+			g.Expect(ag).To(HaveKeyWithValue("pot", float64(50)))
 		}, time.Minute, time.Second).Should(Succeed())
 	})
 
