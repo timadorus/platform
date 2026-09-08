@@ -48,6 +48,18 @@ const budgetRemaining = computed(() => props.statBudget - totalSpent.value)
 // it too, not just the blur-time check here).
 const POT_CEILING = 95
 
+// The native `max` a given field's input should carry right now. Once the remaining budget hits
+// zero, no field can be increased any further — including the field that spent the last point —
+// so every input's max drops to wherever its own draft value already sits, freezing the native
+// spinner arrows and arrow-key stepping in place. This re-evaluates on every keystroke (draft is
+// read reactively both directly and via budgetRemaining), so a field that's later decreased back
+// down (freeing budget — floor still applies, but a field can be lowered from a value it was
+// itself raised to) immediately regains room up to POT_CEILING again.
+function maxFor(abbr: string): number {
+  if (budgetRemaining.value <= 0) return draft.value[abbr]
+  return POT_CEILING
+}
+
 // Runs when a Pot input loses focus. By this point v-model.number has already written the
 // just-typed value into draft.value[abbr], so totalSpent (above) already reflects it — a budget
 // violation is exactly totalSpent exceeding statBudget, no separate "cost of just this field"
@@ -118,7 +130,7 @@ function onClose() {
               type="number"
               step="1"
               :min="initialPot[a.abbr]"
-              :max="POT_CEILING"
+              :max="maxFor(a.abbr)"
               class="w-20 rounded-md border border-slate-300 px-2 py-1 text-sm"
               :disabled="status === 'pending'"
               :data-testid="`assign-pot-${a.abbr}`"

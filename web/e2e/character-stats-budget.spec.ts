@@ -112,6 +112,56 @@ test('each Pot input has native min/max attributes reflecting its floor and the 
   }
 })
 
+test('once the remaining budget hits 0, no Pot value can be increased — via arrows or by typing — until it frees up again', async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  const base = baseURL!
+  const authority = `${base}/oidc`
+  // statBudget of 10 lets exactly one increase (50 -> 60 costs 10) exhaust the budget.
+  const state = seedState({ statBudget: 10 })
+  await seedAuth(context, { baseURL: base, authority, clientId: CLIENT_ID })
+  await installMockBackend(page, state, { baseURL: base, authority, clientId: CLIENT_ID })
+
+  await page.goto('/universes/u1/campaigns/c1/characters/ch1')
+  await page.getByTestId('attributes-card').getByRole('button', { name: 'Assign Stats Budget' }).click()
+  const dialog = page.getByRole('dialog')
+  const stInput = dialog.getByTestId('assign-pot-ST')
+  const agInput = dialog.getByTestId('assign-pot-AG')
+  const remaining = dialog.getByTestId('budget-remaining')
+
+  await stInput.fill('60')
+  await stInput.blur()
+  await expect(remaining).toHaveText('Points remaining: 0')
+
+  // With nothing left, every field's native max drops to its own current value — including AG,
+  // which was never touched, and ST itself, which just spent the last point.
+  await expect(agInput).toHaveAttribute('max', '50')
+  await expect(stInput).toHaveAttribute('max', '60')
+
+  // The native max blocks the browser's own arrow-key stepping directly (no keystroke ever
+  // reaches draft/onBlur for the browser to "correct" afterwards).
+  await agInput.focus()
+  await page.keyboard.press('ArrowUp')
+  await expect(agInput).toHaveValue('50')
+
+  // A typed increase is still rejected too (belt-and-suspenders — the native max doesn't stop
+  // typing, only stepping, so the existing blur-time budget check is what catches this case).
+  await agInput.fill('55')
+  await agInput.blur()
+  await expect(agInput).toHaveValue('50')
+  await expect(remaining).toHaveText('Points remaining: 0')
+
+  // Lowering ST back down (still not below its own floor of 50) frees the spent budget again,
+  // and every field's max returns to the shared 95 ceiling.
+  await stInput.fill('50')
+  await stInput.blur()
+  await expect(remaining).toHaveText('Points remaining: 10')
+  await expect(agInput).toHaveAttribute('max', '95')
+  await expect(stInput).toHaveAttribute('max', '95')
+})
+
 test('an invalid edit reverts to its last valid value on blur, and Points remaining updates only for valid edits', async ({
   page,
   context,
