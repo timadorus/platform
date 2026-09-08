@@ -84,11 +84,35 @@ test('the button opens a modal listing all 10 attributes’ Pot values and the e
     await expect(dialog.getByTestId(`assign-pot-${abbr}`)).toHaveValue('50')
   }
   await expect(
-    dialog.getByText('Set potential values. Pot ≤ 90 equals 1 budget point per attribute point. 91-100 cost 5 budget points per attribute point.'),
+    dialog.getByText('Set potential values. Pot ≤ 90 equals 1 budget point per attribute point. 91-95 cost 5 budget points per attribute point.'),
   ).toBeVisible()
 })
 
-test('an invalid edit reverts to its last valid value on blur, and Budget remaining updates only for valid edits', async ({
+test('each Pot input has native min/max attributes reflecting its floor and the 95 ceiling', async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  const base = baseURL!
+  const authority = `${base}/oidc`
+  const state = seedState({ statBudget: 40, attrs: { ST: 60 } })
+  await seedAuth(context, { baseURL: base, authority, clientId: CLIENT_ID })
+  await installMockBackend(page, state, { baseURL: base, authority, clientId: CLIENT_ID })
+
+  await page.goto('/universes/u1/campaigns/c1/characters/ch1')
+  await page.getByTestId('attributes-card').getByRole('button', { name: 'Assign Stats Budget' }).click()
+  const dialog = page.getByRole('dialog')
+
+  // ST's own floor (60) differs from the other nine (50, the default) — confirms `min` is set
+  // per-field from each attribute's own starting Pot, not a single shared constant.
+  await expect(dialog.getByTestId('assign-pot-ST')).toHaveAttribute('min', '60')
+  await expect(dialog.getByTestId('assign-pot-AG')).toHaveAttribute('min', '50')
+  for (const abbr of ABBRS) {
+    await expect(dialog.getByTestId(`assign-pot-${abbr}`)).toHaveAttribute('max', '95')
+  }
+})
+
+test('an invalid edit reverts to its last valid value on blur, and Points remaining updates only for valid edits', async ({
   page,
   context,
   baseURL,
@@ -104,16 +128,16 @@ test('an invalid edit reverts to its last valid value on blur, and Budget remain
   const dialog = page.getByRole('dialog')
   const stInput = dialog.getByTestId('assign-pot-ST')
   const remaining = dialog.getByTestId('budget-remaining')
-  await expect(remaining).toHaveText('Budget remaining: 20')
+  await expect(remaining).toHaveText('Points remaining: 20')
 
   // Below the floor (50) — reverts.
   await stInput.fill('40')
   await stInput.blur()
   await expect(stInput).toHaveValue('50')
-  await expect(remaining).toHaveText('Budget remaining: 20')
+  await expect(remaining).toHaveText('Points remaining: 20')
 
-  // Above 100 — reverts.
-  await stInput.fill('101')
+  // Above the 95 ceiling — reverts.
+  await stInput.fill('96')
   await stInput.blur()
   await expect(stInput).toHaveValue('50')
 
@@ -121,14 +145,14 @@ test('an invalid edit reverts to its last valid value on blur, and Budget remain
   await stInput.fill('60')
   await stInput.blur()
   await expect(stInput).toHaveValue('60')
-  await expect(remaining).toHaveText('Budget remaining: 10')
+  await expect(remaining).toHaveText('Points remaining: 10')
 
   // 60 -> 71 would cost 11, exceeding the 10 remaining — reverts to the last VALID value (60),
   // not all the way back to the original floor (50).
   await stInput.fill('71')
   await stInput.blur()
   await expect(stInput).toHaveValue('60')
-  await expect(remaining).toHaveText('Budget remaining: 10')
+  await expect(remaining).toHaveText('Points remaining: 10')
 })
 
 test('Cancel closes the modal without sending a request', async ({ page, context, baseURL }) => {
@@ -259,4 +283,30 @@ test('the modal\'s close (✕) button is a no-op while a submit is pending', asy
   await dialog.getByRole('button', { name: 'Close' }).click()
   await expect(dialog).toBeVisible()
   await expect(dialog.getByText('Update requested — refreshing…')).toBeVisible()
+})
+
+test('pressing Enter in a Pot field moves focus to the next attribute, wrapping from Intuition to Strength', async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  const base = baseURL!
+  const authority = `${base}/oidc`
+  const state = seedState({ statBudget: 40 })
+  await seedAuth(context, { baseURL: base, authority, clientId: CLIENT_ID })
+  await installMockBackend(page, state, { baseURL: base, authority, clientId: CLIENT_ID })
+
+  await page.goto('/universes/u1/campaigns/c1/characters/ch1')
+  await page.getByTestId('attributes-card').getByRole('button', { name: 'Assign Stats Budget' }).click()
+  const dialog = page.getByRole('dialog')
+
+  // ST -> AG follows ATTRIBUTES order.
+  await dialog.getByTestId('assign-pot-ST').click()
+  await dialog.getByTestId('assign-pot-ST').press('Enter')
+  await expect(dialog.getByTestId('assign-pot-AG')).toBeFocused()
+
+  // IN is the last attribute in ATTRIBUTES order — Enter there wraps back to ST, the first.
+  await dialog.getByTestId('assign-pot-IN').click()
+  await dialog.getByTestId('assign-pot-IN').press('Enter')
+  await expect(dialog.getByTestId('assign-pot-ST')).toBeFocused()
 })

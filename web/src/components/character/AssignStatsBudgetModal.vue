@@ -40,6 +40,14 @@ const totalSpent = computed(() =>
 )
 const budgetRemaining = computed(() => props.statBudget - totalSpent.value)
 
+// The highest Pot value this modal will let a player reach — lower than the engine's own
+// absolute cap of 100 (internal/engine/timadorus/character_processor.go). Deliberately a
+// UI-only restriction: the engine still accepts up to 100 from any other caller, but this modal
+// never asks for more than 95, matching the explanation text below and the native `max` attribute
+// on each input (which is what makes the browser's own spinner arrows/arrow-key stepping respect
+// it too, not just the blur-time check here).
+const POT_CEILING = 95
+
 // Runs when a Pot input loses focus. By this point v-model.number has already written the
 // just-typed value into draft.value[abbr], so totalSpent (above) already reflects it — a budget
 // violation is exactly totalSpent exceeding statBudget, no separate "cost of just this field"
@@ -47,7 +55,8 @@ const budgetRemaining = computed(() => props.statBudget - totalSpent.value)
 function onBlur(abbr: string) {
   const value = draft.value[abbr]
   const floor = initialPot[abbr]
-  const valid = Number.isInteger(value) && value >= floor && value <= 100 && totalSpent.value <= props.statBudget
+  const valid =
+    Number.isInteger(value) && value >= floor && value <= POT_CEILING && totalSpent.value <= props.statBudget
   if (!valid) {
     draft.value[abbr] = lastValid.value[abbr]
   } else {
@@ -57,6 +66,23 @@ function onBlur(abbr: string) {
 
 function onSubmit() {
   emit('submit', { ...draft.value })
+}
+
+// Refs to each Pot input, keyed by abbreviation, so Enter can move focus to the next one in
+// ATTRIBUTES order — populated via the template's function-ref binding below.
+const inputRefs: Partial<Record<string, HTMLInputElement>> = {}
+function setInputRef(abbr: string, el: Element | null) {
+  inputRefs[abbr] = (el as HTMLInputElement) ?? undefined
+}
+
+// Moving focus away from the current input fires its own @blur first (native browser behavior),
+// so the field being left is validated/reverted exactly as it would be on a Tab or a mouse click
+// elsewhere — Enter doesn't need to duplicate that check. Wraps from Intuition (the last entry in
+// ATTRIBUTES) back to Strength (the first).
+function focusNext(abbr: string) {
+  const index = ATTRIBUTES.findIndex((a) => a.abbr === abbr)
+  const next = ATTRIBUTES[(index + 1) % ATTRIBUTES.length]
+  inputRefs[next.abbr]?.focus()
 }
 
 // BaseModal fires `close` from both its ✕ button and a backdrop click, neither of which goes
@@ -87,13 +113,17 @@ function onClose() {
           <td class="py-1.5 text-slate-500">{{ a.abbr }}</td>
           <td class="py-1.5">
             <input
+              :ref="(el) => setInputRef(a.abbr, el as Element | null)"
               v-model.number="draft[a.abbr]"
               type="number"
               step="1"
+              :min="initialPot[a.abbr]"
+              :max="POT_CEILING"
               class="w-20 rounded-md border border-slate-300 px-2 py-1 text-sm"
               :disabled="status === 'pending'"
               :data-testid="`assign-pot-${a.abbr}`"
               @blur="onBlur(a.abbr)"
+              @keydown.enter.prevent="focusNext(a.abbr)"
             />
           </td>
         </tr>
@@ -101,9 +131,8 @@ function onClose() {
     </table>
 
     <div class="mb-4 rounded-md border border-slate-100 bg-slate-50 p-3 text-xs text-slate-600">
-      <p class="mb-1" data-testid="stat-budget">Stat Budget: {{ statBudget }}</p>
-      <p class="mb-1 font-medium text-slate-900" data-testid="budget-remaining">Budget remaining: {{ budgetRemaining }}</p>
-      <p>Set potential values. Pot &le; 90 equals 1 budget point per attribute point. 91-100 cost 5 budget points per attribute point.</p>
+      <p class="mb-1 font-medium text-slate-900" data-testid="budget-remaining">Points remaining: {{ budgetRemaining }}</p>
+      <p>Set potential values. Pot &le; 90 equals 1 budget point per attribute point. 91-95 cost 5 budget points per attribute point.</p>
     </div>
 
     <span v-if="status === 'pending'" class="mb-3 block text-xs text-slate-400">Update requested — refreshing…</span>

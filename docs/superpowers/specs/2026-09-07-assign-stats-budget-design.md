@@ -157,3 +157,16 @@ Scope: Timadorus-ruleset Characters only, matching every prior extension of this
 - Spending statBudget any other way, or ever increasing statBudget itself, through this flow.
 - A per-attribute starting value different from today's flat 50 (Decision 2 makes the design
   forward-compatible with that, but seeding it is separate work).
+
+## Addendum (2026-09-08): modal-only Pot ceiling lowered to 95
+
+A follow-up request tightened the *modal's own* UI ceiling from 100 to 95, without touching the
+engine: `trySubmitPot` still accepts up to 100 from any caller (Decision 4/7 above are otherwise
+unchanged), but `AssignStatsBudgetModal.vue` now enforces 95 as its own maximum — in the blur-time
+check, in the explanation text ("91-95" instead of "91-100"), and via native `min`/`max` HTML
+attributes on each Pot `<input>` (`min` = that attribute's own floor, `max` = 95), so the browser's
+own spin-button arrows and arrow-key stepping respect both bounds without extra JS. The "current
+statBudget copy" line called for in Decision 5 was removed from the modal (the live "Budget
+remaining" readout — relabeled "Points remaining" — is the only budget figure shown now). Pressing
+Enter in a Pot field also moves focus to the next attribute in `ATTRIBUTES` order, wrapping from
+Intuition back to Strength.
