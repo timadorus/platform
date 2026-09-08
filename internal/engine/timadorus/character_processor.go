@@ -60,6 +60,25 @@ func attributeBonus(temp int) int {
 	return int(math.Floor(float64(temp-50) / 10))
 }
 
+// potCost computes the statBudget cost of raising a single attribute's Pot from initial to
+// target, per the tiered rule from docs/superpowers/specs/2026-09-07-assign-stats-budget-design.md
+// Decision 1: the portion of the increase at or below Pot 90 costs 1 statBudget point per Pot
+// point; the portion above Pot 90 costs 5 statBudget points per Pot point. Callers must ensure
+// target >= initial themselves (trySubmitPot rejects a decrease before ever calling this) — for
+// target < initial this still returns 0 (both tiers clamp negative contributions to zero), it
+// just isn't a meaningful "cost" in that case.
+func potCost(initial, target int) int {
+	below := min(target, 90) - initial
+	if below < 0 {
+		below = 0
+	}
+	above := target - max(initial, 90)
+	if above < 0 {
+		above = 0
+	}
+	return below + above*5
+}
+
 // defaultAttributes builds the starting attributes object for a newly created
 // "timadorus"-ruleset Character: all ten of the engine's own hardcoded attributes, Temp and Pot
 // both at initialAttributeValue, Bonus computed from Temp via attributeBonus.
