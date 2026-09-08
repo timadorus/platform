@@ -58,10 +58,21 @@ function onBlur(abbr: string) {
 function onSubmit() {
   emit('submit', { ...draft.value })
 }
+
+// BaseModal fires `close` from both its ✕ button and a backdrop click, neither of which goes
+// through the Cancel BaseButton below (the only place `:disabled="status === 'pending'"` is
+// otherwise checked) — without this guard a user could dismiss the modal via ✕/backdrop while a
+// submit is in flight, and the eventual timeout error would set state on a component that no
+// longer exists to show it (ErrorBanner only renders inside this modal). Design spec Decision 5
+// requires Cancel to be disabled during a pending submit; this makes ✕/backdrop obey the same
+// rule instead of bypassing it.
+function onClose() {
+  if (props.status !== 'pending') emit('cancel')
+}
 </script>
 
 <template>
-  <BaseModal title="Assign Stats Budget" @close="emit('cancel')">
+  <BaseModal title="Assign Stats Budget" @close="onClose">
     <table class="mb-4 w-full text-sm">
       <thead>
         <tr class="border-b border-slate-100 text-left text-xs font-medium text-slate-500">
@@ -90,6 +101,7 @@ function onSubmit() {
     </table>
 
     <div class="mb-4 rounded-md border border-slate-100 bg-slate-50 p-3 text-xs text-slate-600">
+      <p class="mb-1" data-testid="stat-budget">Stat Budget: {{ statBudget }}</p>
       <p class="mb-1 font-medium text-slate-900" data-testid="budget-remaining">Budget remaining: {{ budgetRemaining }}</p>
       <p>Set potential values. Pot &le; 90 equals 1 budget point per attribute point. 91-100 cost 5 budget points per attribute point.</p>
     </div>
@@ -98,7 +110,7 @@ function onSubmit() {
     <ErrorBanner v-if="status === 'error'" :message="errorMessage" @dismiss="emit('dismissError')" />
 
     <div class="flex justify-end gap-2">
-      <BaseButton variant="secondary" :disabled="status === 'pending'" @click="emit('cancel')">Cancel</BaseButton>
+      <BaseButton variant="secondary" :disabled="status === 'pending'" @click="onClose">Cancel</BaseButton>
       <BaseButton :disabled="status === 'pending'" @click="onSubmit">Submit</BaseButton>
     </div>
   </BaseModal>

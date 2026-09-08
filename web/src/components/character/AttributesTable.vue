@@ -25,21 +25,25 @@ function bonusCell(abbr: string): string {
   return value >= 0 ? `+${value}` : String(value)
 }
 
-const showAssignModal = ref(false)
-function openAssignModal() {
-  // Reset any stale error/pending state from a previous attempt before showing a fresh modal —
-  // otherwise reopening after a timed-out submit would show its old error banner immediately.
-  submitPotStatus.value = 'idle'
-  submitPotError.value = null
-  showAssignModal.value = true
-}
-
 type SubmitPotStatus = 'idle' | 'pending' | 'error'
 const submitPotStatus = ref<SubmitPotStatus>('idle')
 const submitPotError = ref<string | null>(null)
 // The batch most recently submitted, so the watch below can tell "the loaded attributes now
 // reflect my own request" apart from "someone else changed something unrelated".
 let pendingPot: Record<string, number> | null = null
+
+const showAssignModal = ref(false)
+function openAssignModal() {
+  // Reset any stale error/pending state from a previous attempt before showing a fresh modal —
+  // otherwise reopening after a timed-out submit would show its old error banner immediately.
+  // Also clear any still-armed timeout and stale pendingPot, so a reopen never has a leftover
+  // timer from a previous instance firing against this fresh one.
+  clearSubmitPotTimeout()
+  pendingPot = null
+  submitPotStatus.value = 'idle'
+  submitPotError.value = null
+  showAssignModal.value = true
+}
 
 // A rejected submitPot (insufficient budget, an out-of-range target, an unknown abbreviation, or
 // an archived Character) is a clean, logged engine-side no-op — no event distinguishes "rejected"

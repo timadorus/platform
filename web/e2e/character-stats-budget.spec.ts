@@ -237,3 +237,26 @@ test('a submitPot request that never gets confirmed times out with an error and 
   await expect(dialog.getByRole('button', { name: 'Submit' })).toBeEnabled()
   await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeEnabled()
 })
+
+test('the modal\'s close (✕) button is a no-op while a submit is pending', async ({ page, context, baseURL }) => {
+  const base = baseURL!
+  const authority = `${base}/oidc`
+  const state = seedState({ statBudget: 40 })
+  await seedAuth(context, { baseURL: base, authority, clientId: CLIENT_ID })
+  await installMockBackend(page, state, { baseURL: base, authority, clientId: CLIENT_ID })
+
+  await page.goto('/universes/u1/campaigns/c1/characters/ch1')
+  await page.getByTestId('attributes-card').getByRole('button', { name: 'Assign Stats Budget' }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByTestId('assign-pot-ST').fill('60')
+  await dialog.getByTestId('assign-pot-ST').blur()
+  await dialog.getByRole('button', { name: 'Submit' }).click()
+  await expect(dialog.getByText('Update requested — refreshing…')).toBeVisible()
+
+  // BaseModal's ✕ button fires the same `close` event a backdrop click would — neither should be
+  // able to dismiss the modal while a submit is pending (see AssignStatsBudgetModal.vue's onClose
+  // guard). Clicking it here must leave the dialog open and the request still pending.
+  await dialog.getByRole('button', { name: 'Close' }).click()
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByText('Update requested — refreshing…')).toBeVisible()
+})

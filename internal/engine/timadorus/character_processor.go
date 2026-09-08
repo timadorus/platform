@@ -103,12 +103,14 @@ func defaultAttributes() map[string]any {
 // Reacts to two event types on a "timadorus"-ruleset Character's Campaign: CharacterCreated seeds
 // stats.traitPoints/stats.traits/stats.attributes with their starting defaults, plus
 // stats.statBudget read from the Campaign's own write-side configuration (see
-// handleCharacterCreated's doc comment), and ActionRequested recognizes a
-// {"action":"addTrait","trait":"<name>"} payload —
-// validating it against the Campaign's own configured trait list, the Character's current
-// traitPoints, and its existing traits before applying it, logging (and no-op'ing) any rejection
-// instead of erroring the event. Any other ActionRequested payload falls back to appending
-// occurredAt to info's "actions" array, exactly as before.
+// handleCharacterCreated's doc comment), and ActionRequested recognizes two payload shapes —
+// {"action":"addTrait","trait":"<name>"}, validated against the Campaign's own configured trait
+// list, the Character's current traitPoints, and its existing traits before applying it; and
+// {"action":"submitPot","pot":{"<abbr>":<target>,...}}, a batch of per-attribute Pot increases
+// validated as a whole against the Character's own remaining stats.statBudget before any of it is
+// applied (see trySubmitPot). Both log (and no-op) any rejection instead of erroring the event.
+// Any other ActionRequested payload falls back to appending occurredAt to info's "actions" array,
+// exactly as before.
 //
 // Each action rewrites the entire "actions" array into a new event payload (see
 // appendActionTimestamp), so the cost of N actions on one Character is O(N^2) bytes across
@@ -237,10 +239,11 @@ func (p *CharacterProcessor) handleCharacterCreated(ctx context.Context, tx pgx.
 	})
 }
 
-// characterAction is the one recognized shape of a PUT .../action payload today — everything
-// else (including the empty {} the CLI's generic `action` verb and this package's own tests
-// send) falls through to the pre-existing timestamp-append behavior below. Extend this dispatch,
-// not the fallback, when the next real action is added.
+// characterAction is the two recognized shapes of a PUT .../action payload today —
+// {"action":"addTrait","trait":"<name>"} and {"action":"submitPot","pot":{"<abbr>":<target>,...}}
+// — everything else (including the empty {} the CLI's generic `action` verb and this package's
+// own tests send) falls through to the pre-existing timestamp-append behavior below. Extend this
+// dispatch, not the fallback, when the next real action is added.
 type characterAction struct {
 	Action string             `json:"action"`
 	Trait  string             `json:"trait"`
@@ -250,10 +253,12 @@ type characterAction struct {
 // handleActionRequested is Handle's original logic, renamed to make room for
 // handleCharacterCreated as its sibling. A recognized {"action":"addTrait","trait":"<name>"}
 // payload is validated against the Character's own Campaign's configured trait list before being
-// applied (see tryAddTrait) — once recognized, it commits to that outcome (a mutation, or a
-// logged rejection) and does NOT fall through to the timestamp-append fallback, since that
-// fallback is for a genuinely different, unrecognized action, not a rejected one. Any other
-// payload appends occurredAt to the "actions" array instead, exactly as before.
+// applied (see tryAddTrait); a recognized {"action":"submitPot","pot":{...}} payload is validated
+// as a whole batch against the Character's own remaining stats.statBudget before being applied
+// (see trySubmitPot). Either way, once the action is recognized, this commits to that outcome (a
+// mutation, or a logged rejection) and does NOT fall through to the timestamp-append fallback,
+// since that fallback is for a genuinely different, unrecognized action, not a rejected one. Any
+// other payload appends occurredAt to the "actions" array instead, exactly as before.
 func (p *CharacterProcessor) handleActionRequested(ctx context.Context, tx pgx.Tx, env bus.Envelope) error {
 	var e events.ActionRequested
 	if err := json.Unmarshal(env.Payload, &e); err != nil {

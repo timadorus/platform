@@ -1123,7 +1123,7 @@ func TestCharacterProcessor_SubmitPot_InsufficientBudget_RejectedAndLogged(t *te
 	runSubmitPotRejectionCase(t,
 		`{"stats":{"attributes":{"ST":{"temp":50,"pot":50,"bonus":0}},"statBudget":5}}`,
 		`{"action":"submitPot","pot":{"ST":60}}`,
-		"statBudget",
+		"exceeds remaining statBudget",
 	)
 }
 
@@ -1157,6 +1157,6 @@ func TestCharacterProcessor_SubmitPot_NoStatBudgetSeeded_RejectedAndLogged(t *te
 	runSubmitPotRejectionCase(t,
 		`{"stats":{"attributes":{"ST":{"temp":50,"pot":50,"bonus":0}}}}`,
 		`{"action":"submitPot","pot":{"ST":60}}`,
-		"statBudget",
+		"has no statBudget",
 	)
 }

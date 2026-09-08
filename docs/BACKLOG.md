@@ -101,6 +101,34 @@ up; don't grow this file into a design doc.
   `maxStatBudget` silently becomes `0` rather than erroring, a narrower gap than the non-integer
   case above and not caught by the same fix.
 
+- [ ] **`trySubmitPot` silently truncates non-integer `pot`/`statBudget` JSON values instead of
+  rejecting them, and a no-op `submitPot` batch still writes an event.** `characterAction.Pot` is
+  declared `map[string]float64`, and `trySubmitPot` converts each target (and the seeded
+  `statBudget`) to `int` with a bare `int(...)` conversion — so a hand-crafted
+  `{"action":"submitPot","pot":{"ST":60.9}}` is silently treated as `60` instead of being rejected,
+  the same class of gap as the `setMaxStatBudget` entry above. The SPA always sends integers
+  (`v-model.number` plus the `Number.isInteger` check in `AssignStatsBudgetModal.vue`'s `onBlur`),
+  so this is only reachable via `curl` or the CLI's generic `action` verb, not through the app. A
+  real fix would decode `pot`'s values (and `statBudget`) as `json.Number` and reject/log a
+  non-integer explicitly instead of truncating. Separately, and not fixed either: an empty or
+  absent `pot` map is accepted as a valid no-op batch (`totalCost` sums to `0` over zero entries,
+  which is never `> statBudget`) — it still runs the full `SetInfo`/`Save` path and appends an
+  `InfoChanged` event with no actual attribute change. This is *not* purely wasteful, though: it is
+  load-bearing for the SPA's own "Submit with no edits" happy path, since `AttributesTable.vue`'s
+  confirmation watch relies on exactly that event to drive the change-feed reload that closes the
+  modal. A future fix must not simply skip the write for a zero-cost batch without also giving the
+  SPA some other way to detect confirmation. Both found during this "Assign Stats Budget" branch's
+  final-review fix wave; parked as Minor (curl/CLI-only reachability, and the second item is
+  arguably intentional) rather than triggering another fix round.
+
+- [ ] **`AssignStatsBudgetModal.vue`'s Pot `<input>` elements lack native HTML bounds and explicit
+  labeling.** The ten Pot inputs have no `min`/`max` attributes — validation is entirely the
+  JS-side `onBlur` check, so this is purely cosmetic (no native spinner-clamping or
+  `:invalid`/`:out-of-range` styling hints the 0–100 bound before blur) — and no `<label>` or
+  `aria-label` beyond the adjacent table cell's text, an accessibility polish gap for anyone using
+  the input outside the visual context of its row. Found during this "Assign Stats Budget"
+  branch's final-review fix wave; parked as Minor rather than triggering another fix round.
+
 - [ ] **Embedding-size threshold for future table files is undocumented.** This branch's design
   embeds `traits.yaml` directly via `//go:embed`, appropriate for a small, secret-free,
   `//go:embed`-able file the binary can't start without. But the design spec calls this "the
