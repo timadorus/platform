@@ -121,6 +121,23 @@ up; don't grow this file into a design doc.
   final-review fix wave; parked as Minor (curl/CLI-only reachability, and the second item is
   arguably intentional) rather than triggering another fix round.
 
+- [ ] **Stat values below 1 silently resolve to a neutral Bonus of 0 instead of the bottom row's
+  -25.** `internal/engine/timadorus/stat_bonus.go`'s `GetStatBonus(stat int) int` scans the
+  `bonuses` table top-down and returns the first row whose `minval` the stat satisfies; a stat
+  below every row's `minval` (i.e. below 1, including 0 and negative values) falls through the
+  whole loop and returns a hardcoded `0` — the same Bonus as the baseline stat of 50, not the
+  bottom row's `-25`. Today this is unreachable (the only caller, `defaultAttributes()`, only
+  ever passes 50), so there's no production impact yet. But this branch's whole purpose is to
+  build the one choke point (`setAttributeTemp`) that a *future* Temp-changing mechanic will call
+  — and the first feature that can drive Temp down toward 0 (damage, drain, a curse effect, etc.)
+  will silently get a neutral `0` bonus instead of the clearly-intended `-25` (or worse), with no
+  error and no test failure to catch it. Note explicitly: this is the identical shape of bug to
+  the minval-41/59 gap the user found and fixed in this same table during this branch's design
+  review (a stat resolving into the wrong band) — just at the opposite end of the range, and not
+  yet fixed because nothing can reach it yet. A real fix should decide whether `GetStatBonus`/
+  `GetSpellPointBonus` ought to clamp to the bottom row instead of returning 0 for anything below
+  the table, before any Temp-lowering mechanic ships.
+
 - [ ] **`AssignStatsBudgetModal.vue`'s Pot `<input>` elements lack native HTML bounds and explicit
   labeling.** The ten Pot inputs have no `min`/`max` attributes — validation is entirely the
   JS-side `onBlur` check, so this is purely cosmetic (no native spinner-clamping or

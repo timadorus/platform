@@ -79,6 +79,8 @@ SPA falls back to a placeholder display for those (see Section 2).
    placeholder for "the real timadorus-engine formula" (which is out of scope for this design to
    fully specify) — chosen because it reproduces today's static `+0` display exactly at the
    baseline Temp value, so nothing regresses visually before a real formula is substituted in.
+   This placeholder has since been superseded by the real formula defined in
+   `docs/superpowers/specs/2026-09-11-stat-bonus-formula-design.md`.
 
 5. **SPA display — column order and fallback.** `AttributesTable.vue`'s columns become
    Attribute | Abbr | **Temp** | **Pot** | Bonus (Temp replaces the old "Value" column and sits
