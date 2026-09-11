@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math"
 	"strings"
 	"time"
 
@@ -52,13 +51,16 @@ var attributeAbbreviations = []string{"ST", "AG", "CO", "QU", "SD", "ME", "RE", 
 // created "timadorus"-ruleset Character.
 var initialAttributeValue = 50
 
-// attributeBonus computes an attribute's Bonus from its current Temp value. This is a
-// placeholder formula (floor((temp-50)/10), zero at the baseline Temp of 50) standing in for the
-// real timadorus-engine rules formula, which is not yet specified — see design spec "Character
-// Attributes (Temp/Pot/Bonus)", Decision 4. Written generally (not hardcoded to 0) so it stays
-// correct once something other than character creation can change Temp.
-func attributeBonus(temp int) int {
-	return int(math.Floor(float64(temp-50) / 10))
+// setAttributeTemp sets attr's own "temp" key and recomputes "bonus" from it via GetStatBonus
+// (stat_bonus.go) in the same call — the one function every timadorus-engine code path that
+// changes a Character's Temp must go through, so Bonus can never drift out of sync with Temp.
+// Pot is left untouched. defaultAttributes (below) is this function's first caller, seeding a
+// freshly created Character's own baseline Temp; a future engine function that changes Temp on
+// an already-loaded Character calls it the same way tryAddTrait's attributeBonusHook
+// (trait_hooks.go) already mutates an existing attribute map's "pot" in place.
+func setAttributeTemp(attr map[string]any, temp int) {
+	attr["temp"] = temp
+	attr["bonus"] = GetStatBonus(temp)
 }
 
 // potCost computes the statBudget cost of raising a single attribute's Pot from initial to
@@ -81,16 +83,14 @@ func potCost(initial, target int) int {
 }
 
 // defaultAttributes builds the starting attributes object for a newly created
-// "timadorus"-ruleset Character: all ten of the engine's own hardcoded attributes, Temp and Pot
-// both at initialAttributeValue, Bonus computed from Temp via attributeBonus.
+// "timadorus"-ruleset Character: all ten of the engine's own hardcoded attributes, Pot at
+// initialAttributeValue, Temp and Bonus set together via setAttributeTemp.
 func defaultAttributes() map[string]any {
 	attrs := make(map[string]any, len(attributeAbbreviations))
 	for _, abbr := range attributeAbbreviations {
-		attrs[abbr] = map[string]any{
-			"temp":  initialAttributeValue,
-			"pot":   initialAttributeValue,
-			"bonus": attributeBonus(initialAttributeValue),
-		}
+		attr := map[string]any{"pot": initialAttributeValue}
+		setAttributeTemp(attr, initialAttributeValue)
+		attrs[abbr] = attr
 	}
 	return attrs
 }
