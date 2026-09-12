@@ -82,3 +82,45 @@ func TestLoadTimadorusEngine_PoolMaxConnsZero_DiffersFromUnset(t *testing.T) {
 		t.Fatal("set to \"0\": got nil error, want an error — must be told apart from leaving the variable unset")
 	}
 }
+
+func TestLoadRealtime_PoolMaxConnsDefault(t *testing.T) {
+	cfg, err := config.LoadRealtime()
+	if err != nil {
+		t.Fatalf("got error %v, want nil (variable unset must not be an error)", err)
+	}
+	if cfg.PoolMaxConns != 8 {
+		t.Fatalf("got PoolMaxConns %d, want default 8", cfg.PoolMaxConns)
+	}
+}
+
+func TestLoadRealtime_PoolMaxConnsOverride(t *testing.T) {
+	t.Setenv("REALTIME_POOL_MAX_CONNS", "16")
+	cfg, err := config.LoadRealtime()
+	if err != nil {
+		t.Fatalf("got error %v, want nil for a valid positive override", err)
+	}
+	if cfg.PoolMaxConns != 16 {
+		t.Fatalf("got PoolMaxConns %d, want overridden 16", cfg.PoolMaxConns)
+	}
+}
+
+func TestLoadRealtime_PoolMaxConnsUnparseable_ReturnsError(t *testing.T) {
+	t.Setenv("REALTIME_POOL_MAX_CONNS", "not-a-number")
+	_, err := config.LoadRealtime()
+	if err == nil {
+		t.Fatal("got nil error, want an error naming the invalid value instead of silently defaulting")
+	}
+	if !strings.Contains(err.Error(), "REALTIME_POOL_MAX_CONNS") {
+		t.Fatalf("error %q does not name the offending environment variable", err.Error())
+	}
+}
+
+func TestLoadRealtime_HTTPAddrDefault(t *testing.T) {
+	cfg, err := config.LoadRealtime()
+	if err != nil {
+		t.Fatalf("got error %v, want nil", err)
+	}
+	if cfg.HTTPAddr != ":8085" {
+		t.Fatalf("got HTTPAddr %q, want %q", cfg.HTTPAddr, ":8085")
+	}
+}

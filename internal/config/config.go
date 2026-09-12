@@ -123,6 +123,35 @@ func LoadTimadorusEngine() (TimadorusEngine, error) {
 	}, nil
 }
 
+// Realtime serves /healthz, /readyz, /metrics like Projector/TimadorusEngine, plus one public
+// route (GET /changes/stream) — small and hand-written enough (not oapi-codegen generated, since
+// a long-lived streaming response doesn't fit that pattern) that it needs JWT config
+// (CommandAPI/QueryAPI's shape) alongside Projector/TimadorusEngine's NATS/pool shape.
+type Realtime struct {
+	HTTPAddr     string
+	DatabaseURL  string
+	NATSURL      string
+	PoolMaxConns int32
+	JWT          JWT
+}
+
+// LoadRealtime returns an error only when REALTIME_POOL_MAX_CONNS is explicitly set to something
+// invalid (see parsePoolMaxConns) — every other field is best-effort, matching this package's
+// other Load* functions. Leaving the variable unset is not an error.
+func LoadRealtime() (Realtime, error) {
+	poolMaxConns, err := parsePoolMaxConns("REALTIME_POOL_MAX_CONNS", 8)
+	if err != nil {
+		return Realtime{}, err
+	}
+	return Realtime{
+		HTTPAddr:     getEnv("REALTIME_ADDR", ":8085"),
+		DatabaseURL:  getEnv("DATABASE_URL", "postgres://timadorus:timadorus@localhost:5432/timadorus?sslmode=disable"),
+		NATSURL:      getEnv("NATS_URL", "nats://localhost:4222"),
+		PoolMaxConns: poolMaxConns,
+		JWT:          loadJWT(),
+	}, nil
+}
+
 func loadJWT() JWT {
 	return JWT{
 		JWKSURL:    os.Getenv("JWT_JWKS_URL"),
