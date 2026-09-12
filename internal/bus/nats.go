@@ -12,6 +12,7 @@ import (
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill-nats/v2/pkg/nats"
 	"github.com/ThreeDotsLabs/watermill/message"
+	natsio "github.com/nats-io/nats.go"
 )
 
 // subjectPrefix is the one place the "events_" part of the subject naming convention is
@@ -88,6 +89,37 @@ func NewSubscriber(url, durableName string, logger watermill.LoggerAdapter) (mes
 	}, logger)
 	if err != nil {
 		return nil, fmt.Errorf("bus: new NATS subscriber: %w", err)
+	}
+	return sub, nil
+}
+
+// NewEphemeralSubscriber constructs a Watermill Subscriber backed by a non-durable (ephemeral)
+// JetStream consumer — unlike NewSubscriber, delivery starts from "now," not from any previously
+// acknowledged position, and nothing persists across a call to Subscribe/Close. For a live
+// notification service (cmd/realtime) that keeps no checkpoint and should never replay history it
+// wasn't running to see, this is the correct semantic, not durable-but-uncheckpointed: a durable
+// consumer only ever resumes from its last ack, so restarting such a service without an ephemeral
+// consumer would either replay everything since the durable name was first created (unbounded,
+// unwanted for a live-only feed) or require its own checkpoint table it has no other use for.
+func NewEphemeralSubscriber(url string, logger watermill.LoggerAdapter) (message.Subscriber, error) {
+	sub, err := nats.NewSubscriber(nats.SubscriberConfig{
+		URL:              url,
+		SubscribersCount: 1, // serial processing, same reasoning as NewSubscriber (docs/adr/0002)
+		Unmarshaler:      &nats.NATSMarshaler{},
+		JetStream: nats.JetStreamConfig{
+			AutoProvision: true,
+			// Deliberately no DurablePrefix/DurableCalculator — omitting them is what makes
+			// JetStream create a genuinely ephemeral consumer per Subscribe call, cleaned up
+			// automatically rather than needing an explicit delete (contrast
+			// internal/bus.DurableName, which exists specifically because a durable consumer
+			// needs one).
+			SubscribeOptions: []natsio.SubOpt{
+				natsio.DeliverNew(), // start from "now", not from the beginning of the stream
+			},
+		},
+	}, logger)
+	if err != nil {
+		return nil, fmt.Errorf("bus: new ephemeral NATS subscriber: %w", err)
 	}
 	return sub, nil
 }
