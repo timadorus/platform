@@ -277,3 +277,60 @@ up; don't grow this file into a design doc.
   Constants are isolated at the top of the function for easy tuning if a slower environment ever
   needs more headroom.
 
+## `cmd/realtime` / `internal/realtimehub` (SSE change-feed gateway)
+
+- [ ] **No SSE heartbeat.** `streamHandler` (`cmd/realtime/main.go`) never sends a periodic
+  keepalive comment frame, never sets a `retry:` field, and never sets the
+  `X-Accel-Buffering: no` header. An idle connection sitting behind some intermediary (a load
+  balancer, a corporate proxy) could be silently dropped without either side noticing, and a
+  buffering reverse proxy in front of this route would defeat the push entirely, degrading
+  silently to poll-speed delivery instead of erroring. Correctness is unaffected today — the
+  frontend's existing catch-up poll covers a dropped connection regardless — but this is worth
+  fixing before `/changes/stream` is exposed through a real Gateway route rather than a direct
+  port-forward.
+
+- [ ] **No per-write deadline on the SSE handler's `fmt.Fprintf(w, ...)` call.** If a connected
+  client's TCP receive window fills (a stalled client, a dead network path with no FIN/RST yet),
+  that write can block the handler goroutine indefinitely — there's no `SetWriteDeadline`-style
+  guard anywhere in `streamHandler`'s loop. The `Hub` itself is unaffected (its own `Broadcast`
+  send is non-blocking and evicts a slow client on its own schedule via `clientBufferSize`
+  overflow), so this only wastes one goroutine per stuck connection rather than affecting other
+  clients — but it's an unbounded resource leak under the right failure mode.
+
+- [ ] **The `watch` query parameter has no size/count limit and no validation of unknown `type`
+  values.** `streamHandler` unmarshals `watch` into `[]realtimehub.WatchClause` with no cap on
+  how many clauses a single connection can register — a large clause list makes every
+  `Hub.Broadcast` call (which holds one global mutex while it linearly scans every clause of
+  every client) measurably more expensive for every other connected client, not just the one that
+  sent it. Separately, an unrecognized `type` value (anything other than the ten-entry vocabulary
+  the design spec defines) is accepted silently and produces a connection that will simply never
+  receive anything, rather than a clear `400`. Neither is a new exposure given this codebase has
+  no authorization model at all yet (any valid JWT can watch anything), but both are cheap to
+  guard against.
+
+- [ ] **`/changes/stream` accepts any HTTP method, not just GET.** `mux.HandleFunc("/changes/stream",
+  ...)` in `cmd/realtime/main.go` registers a bare pattern, so `POST`/`PUT`/etc. reach the handler
+  identically to `GET`. This repo's Go version supports method-prefixed `net/http.ServeMux`
+  patterns (`"GET /changes/stream"`), which would both match what `api/realtime/openapi.yaml`
+  already documents and let unsupported methods 404/405 the way the rest of this codebase's
+  routes do.
+
+- [ ] **The testcontainer-bootstrap-and-connect helper is now duplicated a 3rd/4th time.** A
+  `newTestPool`/`newTestNATSURL`-shaped pair (spin up a `postgres:16-alpine`/`nats:2.10-alpine`
+  testcontainer, wait for readiness, hand back a pool or connection string) now exists
+  independently in `internal/bus`, `internal/aggregateresolve`, and `cmd/realtime`'s own test
+  files. A shared `internal/testsupport`-style package would remove the duplication, but doing
+  that now would touch multiple already-green packages for zero behavior change — better done as
+  its own, narrowly-scoped follow-up commit rather than folded into this one.
+
+- [ ] **`subscribeAll` doesn't close already-opened NATS subscribers if a later one fails to open
+  during startup, and `cmd/realtime`'s graceful-shutdown path doesn't explicitly close its 5 NATS
+  subscribers either.** If, say, the Character subscription fails to open after Universe/
+  Campaign/Entity/Object already succeeded, `subscribeAll` returns an error without closing those
+  four — and even on a clean SIGINT/SIGTERM shutdown, `run` closes the Postgres pool and the HTTP
+  server but never calls anything to close the subscribers it opened. Both gaps are mitigated
+  today by the whole process exiting either way (a partial-startup failure is fatal in `main`;
+  a graceful shutdown ends the process, taking its NATS connections with it) — matching
+  `cmd/projector`'s own equivalent gap — but worth tightening if this binary ever needs to support
+  an in-process restart without a full process exit.
+

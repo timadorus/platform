@@ -28,6 +28,7 @@ import (
 
 	"github.com/timadorus/platform/internal/auth"
 	"github.com/timadorus/platform/internal/bus"
+	characterevents "github.com/timadorus/platform/internal/domain/character/events"
 	entityevents "github.com/timadorus/platform/internal/domain/entity/events"
 	"github.com/timadorus/platform/internal/realtimehub"
 )
@@ -60,7 +61,18 @@ func newTestPool(t *testing.T) *pgxpool.Pool {
 		tcpostgres.WithUsername("timadorus"),
 		tcpostgres.WithPassword("timadorus"),
 		tcpostgres.WithOrderedInitScripts(
+			// Mirrors the exact list internal/aggregateresolve/testutil_test.go's own newTestPool
+			// uses — campaign and character read-model migrations are needed for
+			// TestStreamHandler_CharacterEventFiltersByCampaignID's seeded rows and query-based
+			// resolve path below; object is included too, for parity with that list, even though
+			// no current test here needs it.
+			"../../internal/projection/campaign/migrations/0001_campaign_read_model.up.sql",
+			"../../internal/projection/campaign/migrations/0002_campaign_ruleset_id.up.sql",
+			"../../internal/projection/campaign/migrations/0003_campaign_configuration.up.sql",
 			"../../internal/projection/entity/migrations/0001_entity_read_model.up.sql",
+			"../../internal/projection/object/migrations/0001_object_read_model.up.sql",
+			"../../internal/projection/character/migrations/0001_character_read_model.up.sql",
+			"../../internal/projection/character/migrations/0002_character_info.up.sql",
 		),
 		testcontainers.WithWaitStrategy(
 			wait.ForLog("database system is ready to accept connections").WithOccurrence(2),
@@ -246,4 +258,139 @@ func mustJSONRaw(t *testing.T, v any) json.RawMessage {
 		t.Fatalf("marshal payload: %v", err)
 	}
 	return b
+}
+
+// seedCampaign inserts a minimal campaigns_read_model row — same shape as
+// internal/aggregateresolve/testutil_test.go's own seedCampaign, reused here so
+// resolveCharacter's query-based resolve path has a real campaign row to join against.
+func seedCampaign(t *testing.T, pool *pgxpool.Pool, campaignID, universeID uuid.UUID) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(),
+		`INSERT INTO campaigns_read_model (id, name, universe_id, ruleset_id, configuration, is_archived, updated_at)
+		 VALUES ($1, 'Test Campaign', $2, $3, '', false, now())`,
+		campaignID, universeID, uuid.New(),
+	); err != nil {
+		t.Fatalf("seed campaigns_read_model: %v", err)
+	}
+}
+
+// seedCharacter inserts a minimal characters_read_model row — same column shape as
+// internal/aggregateresolve/resolve_test.go's TestCharacter_OtherEvent_ResolvesBothViaJoin uses.
+func seedCharacter(t *testing.T, pool *pgxpool.Pool, characterID, campaignID, entityID, playerID uuid.UUID) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(),
+		`INSERT INTO characters_read_model (id, name, campaign_id, entity_id, player_user_id, info, is_archived, updated_at)
+		 VALUES ($1, 'Aragorn', $2, $3, $4, '', false, now())`,
+		characterID, campaignID, entityID, playerID,
+	); err != nil {
+		t.Fatalf("seed characters_read_model: %v", err)
+	}
+}
+
+// TestStreamHandler_CharacterEventFiltersByCampaignID is the end-to-end proof for the one
+// genuinely new piece of data this whole plan adds: resolveCharacter's CampaignID hand-off.
+// aggregateresolve's own tests prove the resolver returns the right CampaignID in isolation, and
+// realtimehub's own tests prove a campaignId clause matches in isolation — this proves the two are
+// actually wired together correctly through cmd/realtime itself. It publishes
+// character.renamed.v1 (not CharacterCreated), which forces aggregateresolve.Character down its
+// query/join resolve path (the payload alone carries no CampaignID for this event), against a
+// Postgres testcontainer actually seeded and queried — unlike
+// TestStreamHandler_DeliversOnlyMatchingEvent above, whose EntityCreated event resolves straight
+// from the envelope payload and never touches Postgres at all.
+func TestStreamHandler_CharacterEventFiltersByCampaignID(t *testing.T) {
+	natsURL := newTestNATSURL(t)
+	pool := newTestPool(t)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	verifier, token := newTestVerifierAndToken(t)
+
+	campaignID, universeID := uuid.New(), uuid.New()
+	otherCampaignID := uuid.New()
+	seedCampaign(t, pool, campaignID, universeID)
+
+	characterID, entityID, playerID := uuid.New(), uuid.New(), uuid.New()
+	seedCharacter(t, pool, characterID, campaignID, entityID, playerID)
+
+	hub := realtimehub.NewHub()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := subscribeAll(ctx, natsURL, pool, hub, logger); err != nil {
+		t.Fatalf("subscribeAll: %v", err)
+	}
+	// See TestStreamHandler_DeliversOnlyMatchingEvent's identical comment: subscribeAll's
+	// goroutines subscribe asynchronously.
+	time.Sleep(200 * time.Millisecond)
+
+	srv := httptest.NewServer(streamHandler(hub, verifier, logger))
+	defer srv.Close()
+
+	matchingReq, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/changes/stream?access_token=%s&watch=%s",
+		srv.URL, token, mustJSON(t, []map[string]string{{"type": "character", "campaignId": campaignID.String()}})), nil)
+	matchingResp, err := http.DefaultClient.Do(matchingReq)
+	if err != nil {
+		t.Fatalf("connect matching client: %v", err)
+	}
+	defer matchingResp.Body.Close()
+	if matchingResp.StatusCode != http.StatusOK {
+		t.Fatalf("matching client got status %d, want 200", matchingResp.StatusCode)
+	}
+
+	// Watches a DIFFERENT campaignId than the seeded Character actually belongs to — proving the
+	// CampaignID-based filter genuinely discriminates by campaign, not just "any character event
+	// matches any character watch".
+	nonMatchingReq, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/changes/stream?access_token=%s&watch=%s",
+		srv.URL, token, mustJSON(t, []map[string]string{{"type": "character", "campaignId": otherCampaignID.String()}})), nil)
+	nonMatchingResp, err := http.DefaultClient.Do(nonMatchingReq)
+	if err != nil {
+		t.Fatalf("connect non-matching client: %v", err)
+	}
+	defer nonMatchingResp.Body.Close()
+
+	pub, err := bus.NewPublisher(natsURL, watermill.NewSlogLogger(logger))
+	if err != nil {
+		t.Fatalf("new publisher: %v", err)
+	}
+	env := bus.Envelope{
+		GlobalSeq: 1, AggregateID: characterID, AggregateType: characterevents.AggregateType, Version: 2,
+		EventType: characterevents.TypeCharacterRenamed,
+		Payload: mustJSONRaw(t, characterevents.CharacterRenamed{
+			Name: "Strider", OccurredAt: time.Now().UTC(),
+		}),
+		CreatedAt: time.Now().UTC(),
+	}
+	body, err := json.Marshal(env)
+	if err != nil {
+		t.Fatalf("marshal envelope: %v", err)
+	}
+	if err := pub.Publish(bus.Subject(characterevents.AggregateType), message.NewMessage(watermill.NewUUID(), body)); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+
+	matchingCh := make(chan string, 1)
+	go func() { matchingCh <- readSSEData(bufio.NewReader(matchingResp.Body)) }()
+	select {
+	case data := <-matchingCh:
+		if data == "" {
+			t.Fatal("matching client: read failed or connection closed unexpectedly")
+		}
+		var got realtimehub.Change
+		if err := json.Unmarshal([]byte(data), &got); err != nil {
+			t.Fatalf("unmarshal %q: %v", data, err)
+		}
+		if got.AggregateID != characterID.String() {
+			t.Fatalf("got AggregateID %s, want %s", got.AggregateID, characterID)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("matching client received nothing within 5s")
+	}
+
+	nonMatchingCh := make(chan string, 1)
+	go func() { nonMatchingCh <- readSSEData(bufio.NewReader(nonMatchingResp.Body)) }()
+	select {
+	case data := <-nonMatchingCh:
+		if data != "" {
+			t.Fatalf("non-matching client (different campaignId) received an event it should have been filtered out of: %s", data)
+		}
+	case <-time.After(time.Second):
+		// expected: nothing arrived within the window
+	}
 }

@@ -141,24 +141,26 @@ this up in a real deployment (see `internal/auth`). Stop with `docker compose do
 
 ## Configuration
 
-All four binaries are configured entirely via environment variables (`internal/config`):
+All five binaries are configured entirely via environment variables (`internal/config`):
 
 | Variable | Used by | Default |
 |---|---|---|
 | `DATABASE_URL` | all | `postgres://timadorus:timadorus@localhost:5432/timadorus?sslmode=disable` |
-| `NATS_URL` | command-api, projector, timadorus-engine | `nats://localhost:4222` |
+| `NATS_URL` | command-api, projector, timadorus-engine, realtime | `nats://localhost:4222` |
 | `COMMAND_API_ADDR` | command-api | `:8081` |
 | `QUERY_API_ADDR` | query-api | `:8082` |
 | `PROJECTOR_ADDR` | projector (health/readiness/metrics only — no public API) | `:8083` |
 | `TIMADORUS_ENGINE_ADDR` | timadorus-engine (health/readiness/metrics only — no public API) | `:8084` |
-| `JWT_JWKS_URL` | command-api, query-api | unset — fetches verification keys from an IdP |
-| `JWT_HMAC_SECRET` | command-api, query-api | unset — static HS256 secret, dev/test only |
-| `JWT_HMAC_KEY_ID` | command-api, query-api | `dev` — must match the `kid` on HMAC-signed test tokens |
-| `JWT_ISSUER` / `JWT_AUDIENCE` | command-api, query-api | unset — skips that check if unset |
+| `REALTIME_ADDR` | realtime (health/readiness/metrics, plus the public `GET /changes/stream` SSE route) | `:8085` |
+| `REALTIME_POOL_MAX_CONNS` | realtime | `8` |
+| `JWT_JWKS_URL` | command-api, query-api, realtime | unset — fetches verification keys from an IdP |
+| `JWT_HMAC_SECRET` | command-api, query-api, realtime | unset — static HS256 secret, dev/test only |
+| `JWT_HMAC_KEY_ID` | command-api, query-api, realtime | `dev` — must match the `kid` on HMAC-signed test tokens |
+| `JWT_ISSUER` / `JWT_AUDIENCE` | command-api, query-api, realtime | unset — skips that check if unset |
 
 ## Operational endpoints
 
-All four binaries expose (unauthenticated, exempt from OpenAPI schema validation):
+All five binaries expose (unauthenticated, exempt from OpenAPI schema validation):
 
 - `GET /healthz` — liveness
 - `GET /readyz` — readiness (pings the Postgres pool)
@@ -199,6 +201,7 @@ docker build -f Dockerfile.command-api      -t timadorus/command-api .
 docker build -f Dockerfile.projector        -t timadorus/projector .
 docker build -f Dockerfile.query-api        -t timadorus/query-api .
 docker build -f Dockerfile.timadorus-engine -t timadorus/timadorus-engine .
+docker build -f Dockerfile.realtime         -t timadorus/realtime .
 docker build -f Dockerfile.web              -t timadorus/web .
 ```
 

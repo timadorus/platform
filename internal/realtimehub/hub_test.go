@@ -1,6 +1,9 @@
 package realtimehub_test
 
 import (
+	"context"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -124,4 +127,141 @@ func TestHub_Unregister_SafeAfterBroadcastAlreadyDisconnected(t *testing.T) {
 	// Broadcast has already disconnected this client (its buffer overflowed above). Calling the
 	// unregister function Register returned must not panic (double-close) or deadlock.
 	unregister()
+}
+
+// TestHub_ConcurrentRegisterBroadcastUnregister_NoRaceNoDeadlock is the one test in this package
+// that actually exercises Hub from more than one goroutine at a time — every other test above
+// calls Register/Broadcast/receive step-by-step from the test's own single goroutine, so the race
+// detector has nothing concurrent to observe there. This drives Register/unregister, Broadcast,
+// and channel receives from many goroutines at once (including one client that never drains, to
+// exercise the overflow/eviction path under real concurrency rather than single-threaded
+// step-by-step), bounded to a fixed broadcast count and an overall timeout so it stays fast and
+// deterministic in CI.
+//
+// Delivery counts are inherently racy against the hub's own eviction of a slow client, so this
+// only asserts invariants that must hold regardless of interleaving: no panic, no deadlock within
+// the timeout, and every well-behaved/continuously-draining client receives at least a
+// sanity-checked minimum (i.e. more than zero) without ever blocking past a short per-receive
+// timeout.
+func TestHub_ConcurrentRegisterBroadcastUnregister_NoRaceNoDeadlock(t *testing.T) {
+	h := realtimehub.NewHub()
+
+	const (
+		broadcastIterations = 500
+		fastClientCount     = 4
+		churnerCount        = 3
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var wg sync.WaitGroup
+
+	// Register every fast client (and the one slow client that never drains) up front, before any
+	// concurrent churn/broadcast starts — so the "each fast client received something" assertion
+	// below can't flake on a client that simply hadn't registered yet by the time the broadcaster
+	// raced through its fixed iteration count.
+	type registered struct {
+		out        <-chan realtimehub.Change
+		unregister func()
+	}
+	fastClients := make([]registered, fastClientCount)
+	for i := range fastClients {
+		out, unregister := h.Register([]realtimehub.WatchClause{{Type: "entity", UniverseID: "u1"}})
+		fastClients[i] = registered{out: out, unregister: unregister}
+	}
+	_, unregisterSlow := h.Register([]realtimehub.WatchClause{{Type: "entity", UniverseID: "u1"}}) // registered but never read from
+
+	// ready gates the broadcaster: each fast-client goroutine signals it immediately after
+	// starting, before entering its receive loop. Without this, the broadcaster (a tight,
+	// non-blocking 500-iteration loop) can race through its whole run — evicting every fast
+	// client as if it were slow, since disconnect() drains a client's already-buffered values
+	// before closing it — before the scheduler has even run a freshly spawned goroutine once.
+	var ready sync.WaitGroup
+	ready.Add(fastClientCount)
+
+	counts := make([]int64, fastClientCount)
+	for i, fc := range fastClients {
+		wg.Add(1)
+		go func(idx int, out <-chan realtimehub.Change, unregister func()) {
+			defer wg.Done()
+			defer unregister()
+			ready.Done()
+			for {
+				select {
+				case _, ok := <-out:
+					if !ok {
+						return
+					}
+					atomic.AddInt64(&counts[idx], 1)
+				case <-ctx.Done():
+					return
+				case <-time.After(time.Second):
+					t.Errorf("fast client %d: no delivery within 1s — hub appears stuck", idx)
+					return
+				}
+			}
+		}(i, fc.out, fc.unregister)
+	}
+
+	// Churners: concurrently register a short-lived client, optionally receive once, and
+	// unregister — repeatedly, for the whole run — to stress Register/unregister racing against
+	// the live broadcaster and the fast/slow clients' own registry entries, not just delivery.
+	for i := 0; i < churnerCount; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
+				out, unregister := h.Register([]realtimehub.WatchClause{{Type: "entity", UniverseID: "u1"}})
+				select {
+				case <-out:
+				case <-time.After(5 * time.Millisecond):
+				case <-ctx.Done():
+				}
+				unregister()
+			}
+		}()
+	}
+
+	// Wait for every fast-client goroutine to be actively receiving (plus a short grace period for
+	// the last one to actually reach its select, just past ready.Done()) before letting the
+	// broadcaster loose.
+	ready.Wait()
+	time.Sleep(20 * time.Millisecond)
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		defer cancel() // tell every other goroutine broadcasting is done
+		defer unregisterSlow()
+		for i := 0; i < broadcastIterations; i++ {
+			h.Broadcast(realtimehub.ResolvedEvent{
+				Change:     realtimehub.Change{GlobalSeq: int64(i), AggregateType: "entity", AggregateID: "e1", EventType: "entity.renamed.v1"},
+				UniverseID: "u1",
+			})
+		}
+	}()
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting for concurrent goroutines to finish — possible deadlock")
+	}
+
+	for i, c := range counts {
+		if c == 0 {
+			t.Errorf("fast client %d received zero events; want at least some deliveries under concurrent load", i)
+		}
+	}
 }
