@@ -13,8 +13,11 @@ Master role lives in [`web/`](web/) — see `docs/PLAN.md` §15 and
 
 ## Architecture at a glance
 
-Three independently deployable Go binaries, one Postgres database, one NATS JetStream bus,
-plus a static SPA that talks to `command-api`/`query-api` directly from the browser:
+Five independently deployable Go binaries, one Postgres database, one NATS JetStream bus,
+plus a static SPA that talks to `command-api`/`query-api` directly from the browser. The
+diagram below shows the core three-binary event-sourcing pipeline; `timadorus-engine`
+(Ruleset catalog auto-registration) and `realtime` (SSE push of read-model changes, see
+Configuration below) sit alongside it:
 
 ```
 command-api  --write-->  Postgres (event store + outbox)  --relay-->  NATS JetStream
@@ -46,7 +49,7 @@ Every mutating and read endpoint requires a JWT bearer token. Aggregates are nev
 make dev-up
 ```
 
-`dev-up` stands up the **entire platform** — all three Go binaries plus the web SPA pod, fronted
+`dev-up` stands up the **entire platform** — all five Go binaries plus the web SPA pod, fronted
 by a real Gateway API controller and a real local OIDC provider — on a Kubernetes cluster: it
 targets whatever your current kubeconfig context already reaches, falling back to an existing
 `kind` cluster of its own name, and only creating a new `kind` cluster if neither is available.
@@ -217,5 +220,5 @@ archive cascading, event upcasting, snapshotting, and others).
 
 A Game Master web console (`web/`, see `docs/PLAN.md` §15) is built on top of this platform —
 Vue 3 + Tailwind, OIDC PKCE login, full create/manage UI for every aggregate type except
-Ruleset (which stays CLI-only), deployed as a fourth container alongside the three Go
+Ruleset (which stays CLI-only), deployed as a sixth container alongside the five Go
 binaries.
