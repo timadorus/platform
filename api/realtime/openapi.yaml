@@ -1,0 +1,46 @@
+openapi: "3.0.3"
+info:
+  title: Timadorus Realtime API
+  version: "1.0.0"
+  description: >
+    Server-Sent Events push for aggregate changes. Unlike api/command and api/query, this spec is
+    documentation only — cmd/realtime's handler is hand-written, not oapi-codegen generated, since
+    a long-lived streaming response doesn't fit the generated strict-handler request/response
+    shape every other endpoint in this codebase uses.
+paths:
+  /changes/stream:
+    get:
+      operationId: streamChanges
+      summary: >
+        Stream aggregate changes matching the given watch filter as Server-Sent Events. Each
+        event is a `data: <json>\n\n` frame whose JSON body matches the same shape
+        GET /universes/{universeId}/changes (api/query) already returns.
+      parameters:
+        - name: watch
+          in: query
+          required: false
+          schema:
+            type: string
+          description: >
+            URL-encoded JSON array of watch clauses (see
+            docs/superpowers/specs/2026-09-12-realtime-aggregate-updates-design.md Decision 3).
+            Omitted or empty matches nothing.
+        - name: access_token
+          in: query
+          required: true
+          schema:
+            type: string
+          description: >
+            The same bearer JWT used elsewhere via the Authorization header — passed as a query
+            parameter here because EventSource cannot set custom headers (see Decision 7).
+      responses:
+        "200":
+          description: An ongoing `text/event-stream` response.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "400":
+          description: The `watch` parameter was present but not valid JSON.
+        "401":
+          description: Missing or invalid `access_token`.
