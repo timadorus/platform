@@ -209,6 +209,17 @@ export async function installMockBackend(page: Page, state: MockState, auth: Moc
     let m: RouteMatch | null
 
     // ---- query API ----
+    // Plain list-all-Universes route (no :universeId segment) — backs UniversePickerView's own
+    // useUniverses().list(), which unlike every other query above has no parent resource to
+    // scope under. Must be checked before the :universeId route below in source order, though
+    // matchPath itself already requires a non-empty id segment and would not match this bare
+    // path anyway.
+    if (method === 'GET' && p === '/api/query/universes') {
+      return json(
+        route,
+        state.universes.filter((u) => !u.isArchived),
+      )
+    }
     if (method === 'GET' && (m = matchPath('/api/query/universes/:universeId', p))) {
       const universe = state.universes.find((u) => u.id === m!.params.universeId)
       return universe ? json(route, universe) : json(route, { title: 'not found' }, 404)
