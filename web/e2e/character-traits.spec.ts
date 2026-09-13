@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { createMockState, installMockBackend, type MockState } from './support/mockBackend'
 import { seedAuth } from './support/auth'
+import { startMockRealtimeStream } from './support/mockRealtimeStream'
 
 const CLIENT_ID = 'test-client'
 
@@ -44,8 +45,9 @@ test('the traits row shows the held traits and an Add Trait control whose picker
   const base = baseURL!
   const authority = `${base}/oidc`
   const state = seedState()
+  const realtime = await startMockRealtimeStream()
   await seedAuth(context, { baseURL: base, authority, clientId: CLIENT_ID })
-  const apiCalls = await installMockBackend(page, state, { baseURL: base, authority, clientId: CLIENT_ID })
+  const apiCalls = await installMockBackend(page, state, { baseURL: base, authority, clientId: CLIENT_ID, realtimeOrigin: realtime.origin })
 
   await page.goto('/universes/u1/campaigns/c1/characters/ch1')
 
@@ -84,18 +86,18 @@ test('the traits row shows the held traits and an Add Trait control whose picker
   // campaign-configuration.spec.ts does for the sibling Max Stat Budget flow.
   const character = state.characters.find((c) => c.id === 'ch1')!
   character.info = JSON.stringify({ stats: { traitPoints: 1, traits: ['agile', 'strong'] } })
-  state.changes.push({
-    globalSeq: (state.changes.at(-1)?.globalSeq ?? 0) + 1,
-    universeId: 'u1',
+  realtime.push({
+    globalSeq: 1,
     aggregateType: 'character',
     aggregateId: 'ch1',
     eventType: 'character.action_applied.v1',
     occurredAt: new Date().toISOString(),
   })
 
-  // 4. the panel picks it up via the change-feed poll and the pending status clears
-  await expect(page.getByText('Update requested — refreshing…')).not.toBeVisible({ timeout: 10000 })
+  // 4. the panel picks it up via the live push and the pending status clears
+  await expect(page.getByText('Update requested — refreshing…')).not.toBeVisible()
   await expect(baseInfo.getByText('agile, strong', { exact: true })).toBeVisible()
+  await realtime.close()
 })
 
 test('a Character with no traitPoints left shows no Add Trait button', async ({ page, context, baseURL }) => {
@@ -132,8 +134,9 @@ test('an unrelated Character change while an Add Trait request is pending does n
   const base = baseURL!
   const authority = `${base}/oidc`
   const state = seedState()
+  const realtime = await startMockRealtimeStream()
   await seedAuth(context, { baseURL: base, authority, clientId: CLIENT_ID })
-  await installMockBackend(page, state, { baseURL: base, authority, clientId: CLIENT_ID })
+  await installMockBackend(page, state, { baseURL: base, authority, clientId: CLIENT_ID, realtimeOrigin: realtime.origin })
 
   await page.goto('/universes/u1/campaigns/c1/characters/ch1')
 
@@ -150,19 +153,20 @@ test('an unrelated Character change while an Add Trait request is pending does n
   // sibling test for the Max Stat Budget save.
   const character = state.characters.find((c) => c.id === 'ch1')!
   character.name = 'Renamed Unrelated'
-  state.changes.push({
-    globalSeq: (state.changes.at(-1)?.globalSeq ?? 0) + 1,
-    universeId: 'u1',
+  realtime.push({
+    globalSeq: 1,
     aggregateType: 'character',
     aggregateId: 'ch1',
     eventType: 'character.renamed.v1',
     occurredAt: new Date().toISOString(),
   })
 
-  // Give the change-feed poll (5s interval) time to land and be (mis)handled.
-  await page.waitForTimeout(6000)
+  // Settle window — same reasoning as campaign-configuration.spec.ts's sibling test: there is no
+  // confirming marker to assert on, since the point is that nothing changes.
+  await page.waitForTimeout(500)
 
   await expect(page.getByText('Update requested — refreshing…')).toBeVisible()
+  await realtime.close()
 })
 
 test('an Add Trait request that never gets confirmed times out with an error and re-enables Add Trait', async ({

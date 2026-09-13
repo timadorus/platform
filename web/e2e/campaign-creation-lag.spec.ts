@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { createMockState, installMockBackend, type MockState } from './support/mockBackend'
 import { seedAuth } from './support/auth'
+import { startMockRealtimeStream } from './support/mockRealtimeStream'
 
 const CLIENT_ID = 'test-client'
 
@@ -92,8 +93,9 @@ test('a change-feed reload during the initial lag neither strands the panel on "
   // background change-feed reload (silent: true) pre-empting the still-in-flight initial
   // (non-silent) load.
   const state = seedState({ createVisibilityDelayMs: 8000 })
+  const realtime = await startMockRealtimeStream()
   await seedAuth(context, { baseURL: base, authority, clientId: CLIENT_ID })
-  await installMockBackend(page, state, { baseURL: base, authority, clientId: CLIENT_ID })
+  await installMockBackend(page, state, { baseURL: base, authority, clientId: CLIENT_ID, realtimeOrigin: realtime.origin })
 
   await page.goto('/universes/u1/manage')
   await page.getByRole('button', { name: '+ Create Campaign' }).click()
@@ -111,13 +113,11 @@ test('a change-feed reload during the initial lag neither strands the panel on "
   await page.waitForTimeout(300)
 
   // This test's own state is fresh (nextId starts at 1) and this is the only create-Campaign
-  // command it issues, so the new Campaign is deterministically 'campaign-1'. Push a matching
-  // change directly onto state.changes, mirroring universe-change-feed.spec.ts's pattern of
-  // simulating an externally-made change for the poller to pick up rather than going through a
-  // command route.
-  state.changes.push({
+  // command it issues, so the new Campaign is deterministically 'campaign-1'. Push a live SSE
+  // frame directly — delivered near-instantly (well within the 8s lag window, same as the old
+  // 5s-poll version's timing intent, just no longer gated by a poll interval).
+  realtime.push({
     globalSeq: 1,
-    universeId: 'u1',
     aggregateType: 'campaign',
     aggregateId: 'campaign-1',
     eventType: 'campaign.created.v1',
@@ -143,9 +143,8 @@ test('a change-feed reload during the initial lag neither strands the panel on "
   // itself was never actually invalidated.
   const created = state.campaigns.find((c) => c.id === 'campaign-1')!
   created.visibleAt = Date.now() + 999_999_999
-  state.changes.push({
+  realtime.push({
     globalSeq: 2,
-    universeId: 'u1',
     aggregateType: 'campaign',
     aggregateId: 'campaign-1',
     eventType: 'campaign.renamed.v1',
@@ -157,4 +156,5 @@ test('a change-feed reload during the initial lag neither strands the panel on "
   await page.waitForTimeout(16_000)
   await expect(page.getByRole('heading', { name: 'Laggy Campaign' })).toBeVisible()
   await expect(page.getByText('Campaign not found.')).not.toBeVisible()
+  await realtime.close()
 })

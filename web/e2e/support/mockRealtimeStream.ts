@@ -29,10 +29,15 @@ export async function startMockRealtimeStream(): Promise<MockRealtimeStream> {
   const clients: http.ServerResponse[] = []
   const server = http.createServer((req, res) => {
     if (req.url?.startsWith('/changes/stream')) {
+      // The page is served from a different origin (e.g. http://localhost:4173) than this mock
+      // server's own ephemeral port, so the browser's EventSource treats every request here as
+      // cross-origin and enforces CORS — without this header the connection is blocked outright
+      // (net::ERR_FAILED, no onopen/onerror ever fires) before a single frame can be written.
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         Connection: 'keep-alive',
+        'Access-Control-Allow-Origin': '*',
       })
       clients.push(res)
       req.on('close', () => {

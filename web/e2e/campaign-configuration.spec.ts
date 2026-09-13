@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { createMockState, installMockBackend, type MockState } from './support/mockBackend'
 import { seedAuth } from './support/auth'
+import { startMockRealtimeStream } from './support/mockRealtimeStream'
 
 const CLIENT_ID = 'test-client'
 
@@ -32,8 +33,9 @@ test('changing Max Stat Budget sends the setMaxStatBudget action and reflects th
   const base = baseURL!
   const authority = `${base}/oidc`
   const state = seedState()
+  const realtime = await startMockRealtimeStream()
   await seedAuth(context, { baseURL: base, authority, clientId: CLIENT_ID })
-  const apiCalls = await installMockBackend(page, state, { baseURL: base, authority, clientId: CLIENT_ID })
+  const apiCalls = await installMockBackend(page, state, { baseURL: base, authority, clientId: CLIENT_ID, realtimeOrigin: realtime.origin })
 
   await page.goto('/universes/u1/campaigns/c1')
   await page.getByRole('tab', { name: 'Configuration' }).click()
@@ -57,18 +59,18 @@ test('changing Max Stat Budget sends the setMaxStatBudget action and reflects th
   // does for an externally-made change.
   const campaign = state.campaigns.find((c) => c.id === 'c1')!
   campaign.configuration = JSON.stringify({ characterCreation: { maxStatBudget: 45 } })
-  state.changes.push({
-    globalSeq: (state.changes.at(-1)?.globalSeq ?? 0) + 1,
-    universeId: 'u1',
+  realtime.push({
+    globalSeq: 1,
     aggregateType: 'campaign',
     aggregateId: 'c1',
     eventType: 'campaign.configuration_changed.v1',
     occurredAt: new Date().toISOString(),
   })
 
-  // 4. the panel picks it up via the existing change-feed poll and the pending status clears
-  await expect(page.getByText('Update requested')).not.toBeVisible({ timeout: 10000 })
+  // 4. the panel picks it up via the live push and the pending status clears
+  await expect(page.getByText('Update requested')).not.toBeVisible()
   await expect(budgetInput).toHaveValue('45')
+  await realtime.close()
 })
 
 test('an unrelated Campaign change while a save is pending does not revert the still-pending input or status', async ({
@@ -79,8 +81,9 @@ test('an unrelated Campaign change while a save is pending does not revert the s
   const base = baseURL!
   const authority = `${base}/oidc`
   const state = seedState()
+  const realtime = await startMockRealtimeStream()
   await seedAuth(context, { baseURL: base, authority, clientId: CLIENT_ID })
-  await installMockBackend(page, state, { baseURL: base, authority, clientId: CLIENT_ID })
+  await installMockBackend(page, state, { baseURL: base, authority, clientId: CLIENT_ID, realtimeOrigin: realtime.origin })
 
   await page.goto('/universes/u1/campaigns/c1')
   await page.getByRole('tab', { name: 'Configuration' }).click()
@@ -94,28 +97,31 @@ test('an unrelated Campaign change while a save is pending does not revert the s
   // this must not be mistaken for confirmation of the pending save.
   const campaign = state.campaigns.find((c) => c.id === 'c1')!
   campaign.name = 'Renamed Unrelated'
-  state.changes.push({
-    globalSeq: (state.changes.at(-1)?.globalSeq ?? 0) + 1,
-    universeId: 'u1',
+  realtime.push({
+    globalSeq: 1,
     aggregateType: 'campaign',
     aggregateId: 'c1',
     eventType: 'campaign.renamed.v1',
     occurredAt: new Date().toISOString(),
   })
 
-  // Give the change-feed poll (5s interval) time to land and be (mis)handled.
-  await page.waitForTimeout(6000)
+  // Settle window: there is no confirming marker to assert on here (the point of this test is
+  // that NOTHING changes), so a fixed wait is the correct tool — much shorter than the old
+  // poll-interval wait now that delivery isn't gated by a 5s interval any more.
+  await page.waitForTimeout(500)
 
   await expect(page.getByText('Update requested')).toBeVisible()
   await expect(budgetInput).toHaveValue('45')
+  await realtime.close()
 })
 
 test('an unrelated Campaign change does not wipe an unsaved Max Stat Budget draft', async ({ page, context, baseURL }) => {
   const base = baseURL!
   const authority = `${base}/oidc`
   const state = seedState()
+  const realtime = await startMockRealtimeStream()
   await seedAuth(context, { baseURL: base, authority, clientId: CLIENT_ID })
-  await installMockBackend(page, state, { baseURL: base, authority, clientId: CLIENT_ID })
+  await installMockBackend(page, state, { baseURL: base, authority, clientId: CLIENT_ID, realtimeOrigin: realtime.origin })
 
   await page.goto('/universes/u1/campaigns/c1')
   await page.getByRole('tab', { name: 'Configuration' }).click()
@@ -126,18 +132,18 @@ test('an unrelated Campaign change does not wipe an unsaved Max Stat Budget draf
 
   const campaign = state.campaigns.find((c) => c.id === 'c1')!
   campaign.name = 'Renamed Unrelated'
-  state.changes.push({
-    globalSeq: (state.changes.at(-1)?.globalSeq ?? 0) + 1,
-    universeId: 'u1',
+  realtime.push({
+    globalSeq: 1,
     aggregateType: 'campaign',
     aggregateId: 'c1',
     eventType: 'campaign.renamed.v1',
     occurredAt: new Date().toISOString(),
   })
 
-  await page.waitForTimeout(6000)
+  await page.waitForTimeout(500)
 
   await expect(budgetInput).toHaveValue('99')
+  await realtime.close()
 })
 
 test('Max Stat Budget updates when the configuration changes with no pending save in this session', async ({
@@ -148,8 +154,9 @@ test('Max Stat Budget updates when the configuration changes with no pending sav
   const base = baseURL!
   const authority = `${base}/oidc`
   const state = seedState()
+  const realtime = await startMockRealtimeStream()
   await seedAuth(context, { baseURL: base, authority, clientId: CLIENT_ID })
-  await installMockBackend(page, state, { baseURL: base, authority, clientId: CLIENT_ID })
+  await installMockBackend(page, state, { baseURL: base, authority, clientId: CLIENT_ID, realtimeOrigin: realtime.origin })
 
   await page.goto('/universes/u1/campaigns/c1')
   await page.getByRole('tab', { name: 'Configuration' }).click()
@@ -162,16 +169,16 @@ test('Max Stat Budget updates when the configuration changes with no pending sav
   // there is no pending save to confirm.
   const campaign = state.campaigns.find((c) => c.id === 'c1')!
   campaign.configuration = JSON.stringify({ characterCreation: { maxStatBudget: 50 } })
-  state.changes.push({
-    globalSeq: (state.changes.at(-1)?.globalSeq ?? 0) + 1,
-    universeId: 'u1',
+  realtime.push({
+    globalSeq: 1,
     aggregateType: 'campaign',
     aggregateId: 'c1',
     eventType: 'campaign.configuration_changed.v1',
     occurredAt: new Date().toISOString(),
   })
 
-  await expect(budgetInput).toHaveValue('50', { timeout: 10000 })
+  await expect(budgetInput).toHaveValue('50')
+  await realtime.close()
 })
 
 test('a save that never gets confirmed times out with an error and re-enables Save', async ({ page, context, baseURL }) => {

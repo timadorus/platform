@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { createMockState, installMockBackend, type MockState } from './support/mockBackend'
 import { seedAuth } from './support/auth'
+import { startMockRealtimeStream } from './support/mockRealtimeStream'
 
 const CLIENT_ID = 'test-client'
 const ABBRS = ['ST', 'AG', 'CO', 'QU', 'SD', 'ME', 'RE', 'EM', 'PR', 'IN']
@@ -231,8 +232,9 @@ test('Submit sends the submitPot payload with all 10 abbreviations, shows pendin
   const base = baseURL!
   const authority = `${base}/oidc`
   const state = seedState({ statBudget: 40 })
+  const realtime = await startMockRealtimeStream()
   await seedAuth(context, { baseURL: base, authority, clientId: CLIENT_ID })
-  const apiCalls = await installMockBackend(page, state, { baseURL: base, authority, clientId: CLIENT_ID })
+  const apiCalls = await installMockBackend(page, state, { baseURL: base, authority, clientId: CLIENT_ID, realtimeOrigin: realtime.origin })
 
   await page.goto('/universes/u1/campaigns/c1/characters/ch1')
   await page.getByTestId('attributes-card').getByRole('button', { name: 'Assign Stats Budget' }).click()
@@ -268,17 +270,17 @@ test('Submit sends the submitPot payload with all 10 abbreviations, shows pendin
   info.stats.attributes.ST.pot = 60
   info.stats.statBudget = 30
   character.info = JSON.stringify(info)
-  state.changes.push({
-    globalSeq: (state.changes.at(-1)?.globalSeq ?? 0) + 1,
-    universeId: 'u1',
+  realtime.push({
+    globalSeq: 1,
     aggregateType: 'character',
     aggregateId: 'ch1',
     eventType: 'character.action_applied.v1',
     occurredAt: new Date().toISOString(),
   })
 
-  await expect(dialog).not.toBeVisible({ timeout: 10000 })
+  await expect(dialog).not.toBeVisible()
   await expect(page.getByTestId('attribute-ST-pot')).toHaveText('60')
+  await realtime.close()
 })
 
 test('a submitPot request that never gets confirmed times out with an error and re-enables Cancel/Submit', async ({
