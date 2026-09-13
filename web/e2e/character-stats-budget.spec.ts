@@ -389,6 +389,32 @@ test('an attribute granted by a matching trait raises its own ceiling to 100, le
   }
 })
 
+test('the Agile and Quick traits raise their own attribute\'s ceiling to 100 exactly like Strong does', async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  const base = baseURL!
+  const authority = `${base}/oidc`
+  const state = seedState({ statBudget: 40, traits: ['strong', 'agile', 'quick'] })
+  await seedAuth(context, { baseURL: base, authority, clientId: CLIENT_ID })
+  await installMockBackend(page, state, { baseURL: base, authority, clientId: CLIENT_ID })
+
+  await page.goto('/universes/u1/campaigns/c1/characters/ch1')
+  await page.getByTestId('attributes-card').getByRole('button', { name: 'Assign Stats Budget' }).click()
+  const dialog = page.getByRole('dialog')
+
+  // All three traited attributes reach 100, not just ST — a typo in the Agile or Quick row of
+  // TRAIT_ATTRIBUTES (web/src/lib/attributes.ts) would slip past the Strong-only test above but
+  // surfaces here.
+  for (const abbr of ['ST', 'AG', 'QU']) {
+    await expect(dialog.getByTestId(`assign-pot-${abbr}`)).toHaveAttribute('max', '100')
+  }
+  for (const abbr of ABBRS.filter((a) => !['ST', 'AG', 'QU'].includes(a))) {
+    await expect(dialog.getByTestId(`assign-pot-${abbr}`)).toHaveAttribute('max', '95')
+  }
+})
+
 test('a traited attribute accepts a blur-time edit up to 100, while an untraited one on the same character still reverts', async ({
   page,
   context,
@@ -416,6 +442,32 @@ test('a traited attribute accepts a blur-time edit up to 100, while an untraited
   await agInput.fill('96')
   await agInput.blur()
   await expect(agInput).toHaveValue('50')
+})
+
+test('a value of 101 reverts on every traited attribute, even though their own ceiling is raised to 100', async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  const base = baseURL!
+  const authority = `${base}/oidc`
+  const state = seedState({ statBudget: 40, traits: ['strong', 'agile', 'quick'] })
+  await seedAuth(context, { baseURL: base, authority, clientId: CLIENT_ID })
+  await installMockBackend(page, state, { baseURL: base, authority, clientId: CLIENT_ID })
+
+  await page.goto('/universes/u1/campaigns/c1/characters/ch1')
+  await page.getByTestId('attributes-card').getByRole('button', { name: 'Assign Stats Budget' }).click()
+  const dialog = page.getByRole('dialog')
+
+  // One past the raised ceiling still reverts on every attribute that has one — not just the
+  // untraited 95-ceiling case the previous test already covers.
+  for (const abbr of ['ST', 'AG', 'QU']) {
+    const input = dialog.getByTestId(`assign-pot-${abbr}`)
+    await input.fill('101')
+    await input.blur()
+    await expect(input).toHaveValue('50')
+  }
+  await expect(dialog.getByTestId('budget-remaining')).toHaveText('Points remaining: 40')
 })
 
 test('the explanation text notes that a trait-granted attribute can reach 100', async ({ page, context, baseURL }) => {
