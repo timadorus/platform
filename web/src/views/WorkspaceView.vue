@@ -3,7 +3,6 @@ import { computed, onMounted, onUnmounted, provide, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUniverses, type UniverseSummary } from '@/composables/useUniverses'
 import { useCampaigns, type CampaignSummary } from '@/composables/useCampaigns'
-import { useChangeFeed } from '@/composables/useChangeFeed'
 import AppHeader from '@/components/layout/AppHeader.vue'
 import AppSidebar from '@/components/layout/AppSidebar.vue'
 import CharactersPanel from '@/components/layout/CharactersPanel.vue'
@@ -36,9 +35,6 @@ provide('bumpSidebarRefresh', () => {
 const pendingEntityId = ref<string | null>(null)
 provide('pendingEntityId', pendingEntityId)
 
-const { lastChange: lastAggregateChange, start: startChangeFeed, stop: stopChangeFeed } = useChangeFeed()
-provide('lastAggregateChange', lastAggregateChange)
-
 // loadController is aborted both on unmount and at the start of every new load() call — mirrors
 // CampaignOverviewPanel.vue/CharacterDetailView.vue's identical fix. Without it, an in-flight
 // waitForCampaign keeps polling for up to 15s after this component unmounts (every other
@@ -57,10 +53,7 @@ async function load() {
 
 onMounted(load)
 watch([universeId, campaignId], load)
-onMounted(() => startChangeFeed(universeId.value))
-watch(universeId, startChangeFeed)
 onUnmounted(() => {
-  stopChangeFeed()
   loadController?.abort()
 })
 // Campaign rename/archive now happen inside CampaignOverviewPanel.vue (the workspace route's
