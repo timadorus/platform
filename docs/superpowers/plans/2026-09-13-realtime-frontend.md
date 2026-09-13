@@ -703,9 +703,19 @@ This is the one panel whose current filter is looser than its own scope (today's
     })
   }
   ```
-  with:
+  with (`props.campaignId` comes from `WorkspaceView.vue`'s own `computed(() => route.params.campaignId as string)`, and vue-router reuses `WorkspaceView`'s instance — and therefore this panel's — across a navigation between sibling Campaigns, so the registration must be reactive, not one-shot; `onUnmounted` is already imported in this file):
   ```ts
-  watchAggregate({ type: 'character', campaignId: props.campaignId })
+  let unwatchCharacters: (() => void) | null = null
+  watch(
+    () => props.campaignId,
+    (id) => {
+      unwatchCharacters?.()
+      unwatchCharacters = watchAggregate({ type: 'character', campaignId: id })
+    },
+    { immediate: true },
+  )
+  onUnmounted(() => unwatchCharacters?.())
+
   const lastAggregateChange = inject<Ref<AggregateChange | null>>('lastAggregateChange')
   if (lastAggregateChange) {
     watch(lastAggregateChange, (change) => {
@@ -733,7 +743,7 @@ This is the one panel whose current filter is looser than its own scope (today's
 
 ### Task 7: `EntitiesPanel.vue` + `ObjectsPanel.vue` — universe-scoped `watchAggregate`
 
-Both panels are near-identical universe-scoped search panels; the substitution is the same one-line pattern in each.
+Both panels are near-identical universe-scoped search panels; the substitution is the same pattern in each. **Both receive their scope as a prop from `WorkspaceView.vue`, where it's a `computed(() => route.params.universeId as string)`** — vue-router reuses `WorkspaceView`'s instance (and therefore these child panels' instances) across a navigation between sibling Campaigns of *different* Universes, so a plain one-shot `watchAggregate(...)` call would go stale exactly like Task 6's did before its fix round. Both panels need the same reactive re-registration pattern Task 6 ended up using: watch the prop directly (Vue props are already reactive — no need to wrap in a separate `computed()`), re-registering on change and unregistering the old clause first.
 
 **Files:**
 - Modify: `web/src/components/layout/EntitiesPanel.vue`
@@ -746,9 +756,19 @@ Both panels are near-identical universe-scoped search panels; the substitution i
   import { watchAggregate } from '@/composables/useAggregateWatch'
   ```
 
-  Add the registration, right before the existing `lastAggregateChange` block:
+  Add the reactive registration, right before the existing `lastAggregateChange` block (`onUnmounted` is already imported in this file):
   ```ts
-  watchAggregate({ type: 'entity', universeId: props.universeId })
+  let unwatchEntities: (() => void) | null = null
+  watch(
+    () => props.universeId,
+    (id) => {
+      unwatchEntities?.()
+      unwatchEntities = watchAggregate({ type: 'entity', universeId: id })
+    },
+    { immediate: true },
+  )
+  onUnmounted(() => unwatchEntities?.())
+
   const lastAggregateChange = inject<Ref<AggregateChange | null>>('lastAggregateChange')
   ```
 
@@ -756,12 +776,29 @@ Both panels are near-identical universe-scoped search panels; the substitution i
 
 - [ ] **Step 2: `ObjectsPanel.vue`**
 
-  Same pattern:
+  Add the import:
   ```ts
   import { watchAggregate } from '@/composables/useAggregateWatch'
   ```
+
+  This file does not currently import `onUnmounted` — replace its existing `import { inject, onMounted, ref, watch, type Ref } from 'vue'` line with:
   ```ts
-  watchAggregate({ type: 'object', universeId: props.universeId })
+  import { inject, onMounted, onUnmounted, ref, watch, type Ref } from 'vue'
+  ```
+
+  Add the same reactive pattern:
+  ```ts
+  let unwatchObjects: (() => void) | null = null
+  watch(
+    () => props.universeId,
+    (id) => {
+      unwatchObjects?.()
+      unwatchObjects = watchAggregate({ type: 'object', universeId: id })
+    },
+    { immediate: true },
+  )
+  onUnmounted(() => unwatchObjects?.())
+
   const lastAggregateChange = inject<Ref<AggregateChange | null>>('lastAggregateChange')
   ```
 
