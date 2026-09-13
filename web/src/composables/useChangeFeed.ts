@@ -105,13 +105,15 @@ export function useChangeFeed() {
   // Reopen whenever the set of registered clauses changes (a component mounted/unmounted, or
   // its own clause's scope changed) — does NOT touch `cursor`, so the catch-up this triggers
   // (via openStream's onopen) resumes from exactly where the feed already was, per Decision 6.
-  // Unconditional (not gated on `eventSource` already being open): per Decision 6, the "watch
-  // all universes" picker clause (registered with no Universe ever in scope, e.g. a cold load
-  // of the bare "/" route) must still bring the connection up on its own — App.vue's own
-  // `watch(universeId, ...)` never calls start()/openStream() for an empty id, so this is the
-  // only place that can open the very first connection for that case.
+  // Also fires when no connection exists yet AND no start() is in flight for any Universe
+  // (currentUniverseId still empty) — this is what lets the bare "watch all universes" picker
+  // clause (no Universe ever in scope, e.g. a cold load of the bare "/" route) bring the
+  // connection up on its own, since App.vue's own watch(universeId, ...) never calls
+  // start()/openStream() for an empty id. When currentUniverseId IS set but eventSource is still
+  // null, a start() call's own cursor-fetch is in flight and will call openStream() itself once
+  // it resolves — reopening here too would race it and can double-open the same URL back-to-back.
   vueWatch(watchedClauses, () => {
-    openStream()
+    if (eventSource || !currentUniverseId) openStream()
   })
 
   // start establishes (or switches) which Universe's catch-up-poll cursor is in scope — called
