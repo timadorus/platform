@@ -42,7 +42,17 @@ if (sidebarRefreshSignal) {
 }
 const pendingEntityId = inject<Ref<string | null>>('pendingEntityId')
 
-watchAggregate({ type: 'character', campaignId: props.campaignId })
+let unwatchCharacters: (() => void) | null = null
+watch(
+  () => props.campaignId,
+  (id) => {
+    unwatchCharacters?.()
+    unwatchCharacters = watchAggregate({ type: 'character', campaignId: id })
+  },
+  { immediate: true },
+)
+onUnmounted(() => unwatchCharacters?.())
+
 const lastAggregateChange = inject<Ref<AggregateChange | null>>('lastAggregateChange')
 if (lastAggregateChange) {
   watch(lastAggregateChange, (change) => {
