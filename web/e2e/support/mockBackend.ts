@@ -132,6 +132,14 @@ export interface MockAuthConfig {
   baseURL: string
   authority: string
   clientId: string
+  // realtimeOrigin, when set, points config.json's realtimeApiBaseUrl at a real
+  // startMockRealtimeStream() server and makes the route handler below pass its requests
+  // straight through to it (unintercepted). Unset (the default, every existing call site)
+  // means requests to /api/realtime/changes/stream are left permanently pending — a real
+  // EventSource against that is harmlessly stuck CONNECTING forever (verified: no onerror, no
+  // reconnect storm), which is exactly correct for the many tests that don't exercise the
+  // realtime feature at all and would otherwise see needless background reconnect noise.
+  realtimeOrigin?: string
 }
 
 // installMockBackend intercepts /config.json, the OIDC well-known endpoint, and every
@@ -149,7 +157,7 @@ export interface MockAuthConfig {
 // see below), and unmocked commands now fail loudly with a 501 (see the fallback below).
 export async function installMockBackend(page: Page, state: MockState, auth: MockAuthConfig): Promise<string[]> {
   const apiCalls: string[] = []
-  const { baseURL, authority, clientId } = auth
+  const { baseURL, authority, clientId, realtimeOrigin } = auth
 
   function json(route: Route, body: unknown, status = 200) {
     return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
@@ -161,10 +169,19 @@ export async function installMockBackend(page: Page, state: MockState, auth: Moc
     const p = url.pathname
     const method = req.method()
 
+    if (realtimeOrigin && url.origin === realtimeOrigin) return route.continue()
+
+    if (p === '/api/realtime/changes/stream') {
+      // Deliberately never call route.fulfill/continue/abort — see MockAuthConfig.realtimeOrigin's
+      // doc comment above for why this is the correct, harmless default.
+      return
+    }
+
     if (p === '/config.json') {
       return json(route, {
         commandApiBaseUrl: `${baseURL}/api/command`,
         queryApiBaseUrl: `${baseURL}/api/query`,
+        realtimeApiBaseUrl: realtimeOrigin ?? `${baseURL}/api/realtime`,
         oidc: {
           authority,
           clientId,
