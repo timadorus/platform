@@ -1,4 +1,4 @@
-.PHONY: build build-tools test test-race lint generate migrate-up migrate-down test-e2e dev-up dev-down
+.PHONY: build build-tools web-build test test-race lint generate migrate-up migrate-down test-e2e dev-up dev-down
 
 DATABASE_URL ?= postgres://timadorus:timadorus@localhost:5432/timadorus?sslmode=disable
 BINDIR	     ?= $(CURDIR)/bin
@@ -8,6 +8,13 @@ build:
 
 build-tools: $(BINDIR)
 	go build -o $(BINDIR)/timadorusctl ./cmd/timadorusctl
+
+# Rebuilds the SPA's static artifacts (web/dist) after a local edit under web/ — the same
+# typecheck + vite build CI's web-build job runs (.github/workflows/ci.yml), without npm ci or
+# the e2e suite, for a fast local rebuild loop. Assumes web/node_modules is already installed
+# (`cd web && npm install`).
+web-build:
+	cd web && npm run build
 
 test:
 	go test ./...
