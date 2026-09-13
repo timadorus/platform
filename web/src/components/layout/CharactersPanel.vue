@@ -7,6 +7,7 @@ import { useCampaigns } from '@/composables/useCampaigns'
 import { useUsers } from '@/composables/useUsers'
 import CharacterCard from './CharacterCard.vue'
 import CreateCharacterModal from '@/components/modals/CreateCharacterModal.vue'
+import { watchAggregate } from '@/composables/useAggregateWatch'
 import type { AggregateChange } from '@/composables/useChangeFeed'
 
 const props = defineProps<{ campaignId: string }>()
@@ -41,6 +42,7 @@ if (sidebarRefreshSignal) {
 }
 const pendingEntityId = inject<Ref<string | null>>('pendingEntityId')
 
+watchAggregate({ type: 'character', campaignId: props.campaignId })
 const lastAggregateChange = inject<Ref<AggregateChange | null>>('lastAggregateChange')
 if (lastAggregateChange) {
   watch(lastAggregateChange, (change) => {
