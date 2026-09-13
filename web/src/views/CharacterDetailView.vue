@@ -176,7 +176,7 @@ async function onSubmitReassignPlayer(userId: string) {
     <BaseTabs :tabs="tabs" v-model="activeTab" class="mb-4" />
 
     <div v-if="activeTab === 'Stats'" class="flex flex-wrap gap-4">
-      <AttributesTable class="flex-1" :attributes="attributes" :character-id="character.id" :stat-budget="statBudget" />
+      <AttributesTable class="flex-1" :attributes="attributes" :traits="traits" :character-id="character.id" :stat-budget="statBudget" />
       <BaseInfoTable
         :key="character.id"
         class="flex-1"

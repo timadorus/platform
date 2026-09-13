@@ -3,10 +3,11 @@ import { computed, ref } from 'vue'
 import BaseModal from '@/components/common/BaseModal.vue'
 import BaseButton from '@/components/common/BaseButton.vue'
 import ErrorBanner from '@/components/common/ErrorBanner.vue'
-import { ATTRIBUTES, potCost } from '@/lib/attributes'
+import { ATTRIBUTES, potCost, TRAIT_ATTRIBUTES } from '@/lib/attributes'
 
 const props = defineProps<{
   attributes: Record<string, { temp: number; pot: number; bonus: number }>
+  traits: string[]
   statBudget: number
   status: 'idle' | 'pending' | 'error'
   errorMessage: string | null
@@ -40,13 +41,24 @@ const totalSpent = computed(() =>
 )
 const budgetRemaining = computed(() => props.statBudget - totalSpent.value)
 
-// The highest Pot value this modal will let a player reach — lower than the engine's own
-// absolute cap of 100 (internal/engine/timadorus/character_processor.go). Deliberately a
-// UI-only restriction: the engine still accepts up to 100 from any other caller, but this modal
-// never asks for more than 95, matching the explanation text below and the native `max` attribute
-// on each input (which is what makes the browser's own spinner arrows/arrow-key stepping respect
-// it too, not just the blur-time check here).
+// The highest Pot value this modal will let a player reach for an attribute with no matching
+// trait — lower than the engine's own absolute cap of 100
+// (internal/engine/timadorus/character_processor.go). Deliberately a UI-only restriction: the
+// engine still accepts up to 100 from any other caller, but this modal never asks for more than
+// 95 by default, matching the explanation text below and the native `max` attribute on each
+// input (which is what makes the browser's own spinner arrows/arrow-key stepping respect it
+// too, not just the blur-time check here). An attribute the character has a matching trait for
+// gets the full 100 instead — see ceilingFor below.
 const POT_CEILING = 95
+
+// The ceiling for one specific attribute: 100 if the character has a trait that grants abbr a
+// Pot bonus (TRAIT_ATTRIBUTES — Strong/Agile/Quick raise ST/AG/QU respectively), otherwise the
+// default POT_CEILING. Every attribute with no matching trait in TRAIT_ATTRIBUTES always
+// resolves to POT_CEILING, since no trait exists that could ever raise its cap.
+function ceilingFor(abbr: string): number {
+  const hasMatchingTrait = props.traits.some((trait) => TRAIT_ATTRIBUTES[trait] === abbr)
+  return hasMatchingTrait ? 100 : POT_CEILING
+}
 
 // The native `max` a given field's input should carry right now. Once the remaining budget hits
 // zero, no field can be increased any further — including the field that spent the last point —
@@ -54,10 +66,10 @@ const POT_CEILING = 95
 // spinner arrows and arrow-key stepping in place. This re-evaluates on every keystroke (draft is
 // read reactively both directly and via budgetRemaining), so a field that's later decreased back
 // down (freeing budget — floor still applies, but a field can be lowered from a value it was
-// itself raised to) immediately regains room up to POT_CEILING again.
+// itself raised to) immediately regains room up to its own ceiling (ceilingFor) again.
 function maxFor(abbr: string): number {
   if (budgetRemaining.value <= 0) return draft.value[abbr]
-  return POT_CEILING
+  return ceilingFor(abbr)
 }
 
 // Runs when a Pot input loses focus. By this point v-model.number has already written the
@@ -68,7 +80,7 @@ function onBlur(abbr: string) {
   const value = draft.value[abbr]
   const floor = initialPot[abbr]
   const valid =
-    Number.isInteger(value) && value >= floor && value <= POT_CEILING && totalSpent.value <= props.statBudget
+    Number.isInteger(value) && value >= floor && value <= ceilingFor(abbr) && totalSpent.value <= props.statBudget
   if (!valid) {
     draft.value[abbr] = lastValid.value[abbr]
   } else {
@@ -144,7 +156,7 @@ function onClose() {
 
     <div class="mb-4 rounded-md border border-slate-100 bg-slate-50 p-3 text-xs text-slate-600">
       <p class="mb-1 font-medium text-slate-900" data-testid="budget-remaining">Points remaining: {{ budgetRemaining }}</p>
-      <p>Set potential values. Pot &le; 90 equals 1 budget point per attribute point. 91-95 cost 5 budget points per attribute point.</p>
+      <p>Set potential values. Pot &le; 90 equals 1 budget point per attribute point. 91-95 cost 5 budget points per attribute point. An attribute granted by a matching trait (Strong, Agile, Quick) can reach 100.</p>
     </div>
 
     <span v-if="status === 'pending'" class="mb-3 block text-xs text-slate-400">Update requested — refreshing…</span>

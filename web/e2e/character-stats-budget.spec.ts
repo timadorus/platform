@@ -15,7 +15,7 @@ function defaultAttributes(overrides: Partial<Record<string, number>> = {}) {
 }
 
 function seedState(
-  opts: { statBudget?: number; attrs?: Partial<Record<string, number>> } = {},
+  opts: { statBudget?: number; attrs?: Partial<Record<string, number>>; traits?: string[] } = {},
   overrides: Partial<MockState> = {},
 ): MockState {
   return createMockState({
@@ -42,7 +42,12 @@ function seedState(
         playerUserId: 'user-1',
         isArchived: false,
         info: JSON.stringify({
-          stats: { traitPoints: 2, traits: [], attributes: defaultAttributes(opts.attrs), statBudget: opts.statBudget ?? 40 },
+          stats: {
+            traitPoints: 2,
+            traits: opts.traits ?? [],
+            attributes: defaultAttributes(opts.attrs),
+            statBudget: opts.statBudget ?? 40,
+          },
         }),
       },
     ],
@@ -361,4 +366,69 @@ test('pressing Enter in a Pot field moves focus to the next attribute, wrapping 
   await dialog.getByTestId('assign-pot-IN').click()
   await dialog.getByTestId('assign-pot-IN').press('Enter')
   await expect(dialog.getByTestId('assign-pot-ST')).toBeFocused()
+})
+
+test('an attribute granted by a matching trait raises its own ceiling to 100, leaving others at 95', async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  const base = baseURL!
+  const authority = `${base}/oidc`
+  const state = seedState({ statBudget: 40, traits: ['strong'] })
+  await seedAuth(context, { baseURL: base, authority, clientId: CLIENT_ID })
+  await installMockBackend(page, state, { baseURL: base, authority, clientId: CLIENT_ID })
+
+  await page.goto('/universes/u1/campaigns/c1/characters/ch1')
+  await page.getByTestId('attributes-card').getByRole('button', { name: 'Assign Stats Budget' }).click()
+  const dialog = page.getByRole('dialog')
+
+  await expect(dialog.getByTestId('assign-pot-ST')).toHaveAttribute('max', '100')
+  for (const abbr of ABBRS.filter((a) => a !== 'ST')) {
+    await expect(dialog.getByTestId(`assign-pot-${abbr}`)).toHaveAttribute('max', '95')
+  }
+})
+
+test('a traited attribute accepts a blur-time edit up to 100, while an untraited one on the same character still reverts', async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  const base = baseURL!
+  const authority = `${base}/oidc`
+  // Budget of 100 covers ST 50->100: (90-50)*1 + (100-90)*5 = 40 + 50 = 90, leaving 10.
+  const state = seedState({ statBudget: 100, traits: ['strong'] })
+  await seedAuth(context, { baseURL: base, authority, clientId: CLIENT_ID })
+  await installMockBackend(page, state, { baseURL: base, authority, clientId: CLIENT_ID })
+
+  await page.goto('/universes/u1/campaigns/c1/characters/ch1')
+  await page.getByTestId('attributes-card').getByRole('button', { name: 'Assign Stats Budget' }).click()
+  const dialog = page.getByRole('dialog')
+  const stInput = dialog.getByTestId('assign-pot-ST')
+  const agInput = dialog.getByTestId('assign-pot-AG')
+
+  await stInput.fill('100')
+  await stInput.blur()
+  await expect(stInput).toHaveValue('100')
+  await expect(dialog.getByTestId('budget-remaining')).toHaveText('Points remaining: 10')
+
+  // AG has no matching trait on this character, so 96 (above its own 95 ceiling) still reverts.
+  await agInput.fill('96')
+  await agInput.blur()
+  await expect(agInput).toHaveValue('50')
+})
+
+test('the explanation text notes that a trait-granted attribute can reach 100', async ({ page, context, baseURL }) => {
+  const base = baseURL!
+  const authority = `${base}/oidc`
+  const state = seedState({ statBudget: 40 })
+  await seedAuth(context, { baseURL: base, authority, clientId: CLIENT_ID })
+  await installMockBackend(page, state, { baseURL: base, authority, clientId: CLIENT_ID })
+
+  await page.goto('/universes/u1/campaigns/c1/characters/ch1')
+  await page.getByTestId('attributes-card').getByRole('button', { name: 'Assign Stats Budget' }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(
+    dialog.getByText('An attribute granted by a matching trait (Strong, Agile, Quick) can reach 100.'),
+  ).toBeVisible()
 })

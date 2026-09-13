@@ -16,6 +16,18 @@ export const ATTRIBUTES = [
   { name: 'Intuition', abbr: 'IN' },
 ] as const
 
+// Traits that grant a flat Pot bonus to one specific attribute, mirroring
+// traitAttributeBonuses in internal/engine/timadorus/trait_hooks.go — used here only to know
+// which attribute abbreviation a given trait is "for" (not the bonus amount itself, which the
+// engine applies automatically and independently of this modal's ceiling). Drives
+// AssignStatsBudgetModal.vue's per-attribute Pot ceiling — see
+// docs/superpowers/specs/2026-09-07-assign-stats-budget-design.md's 2026-09-13 addendum.
+export const TRAIT_ATTRIBUTES: Record<string, string> = {
+  strong: 'ST',
+  agile: 'AG',
+  quick: 'QU',
+}
+
 // potCost computes the statBudget cost of raising a single attribute's Pot from initial to
 // target, per the tiered rule from
 // docs/superpowers/specs/2026-09-07-assign-stats-budget-design.md Decision 1: the portion of the

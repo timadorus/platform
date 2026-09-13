@@ -6,6 +6,7 @@ import AssignStatsBudgetModal from './AssignStatsBudgetModal.vue'
 
 const props = defineProps<{
   attributes: Record<string, { temp: number; pot: number; bonus: number }>
+  traits: string[]
   characterId: string
   statBudget: number
 }>()
@@ -132,6 +133,7 @@ onUnmounted(clearSubmitPotTimeout)
     <AssignStatsBudgetModal
       v-if="showAssignModal"
       :attributes="attributes"
+      :traits="traits"
       :stat-budget="statBudget"
       :status="submitPotStatus"
       :error-message="submitPotError"
