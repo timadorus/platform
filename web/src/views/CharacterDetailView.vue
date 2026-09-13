@@ -5,6 +5,7 @@ import { useCharacters, type CharacterSummary } from '@/composables/useCharacter
 import { useCampaigns, type CampaignSummary } from '@/composables/useCampaigns'
 import type { AggregateChange } from '@/composables/useChangeFeed'
 import { useUsers } from '@/composables/useUsers'
+import { watchAggregate } from '@/composables/useAggregateWatch'
 import BaseButton from '@/components/common/BaseButton.vue'
 import ErrorBanner from '@/components/common/ErrorBanner.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -110,6 +111,17 @@ async function load(opts: { silent?: boolean } = {}) {
 onMounted(() => load())
 watch(characterId, () => load())
 onUnmounted(() => loadController?.abort())
+
+let unwatchCharacter: (() => void) | null = null
+watch(
+  characterId,
+  (id) => {
+    unwatchCharacter?.()
+    unwatchCharacter = watchAggregate({ type: 'character', aggregateId: id })
+  },
+  { immediate: true },
+)
+onUnmounted(() => unwatchCharacter?.())
 
 const lastAggregateChange = inject<Ref<AggregateChange | null>>('lastAggregateChange')
 if (lastAggregateChange) {

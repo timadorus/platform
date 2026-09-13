@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, inject, onMounted, ref, watch, type Ref } from 'vue'
+import { computed, inject, onMounted, onUnmounted, ref, watch, type Ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useObjects, type ObjectSummary } from '@/composables/useObjects'
 import type { AggregateChange } from '@/composables/useChangeFeed'
+import { watchAggregate } from '@/composables/useAggregateWatch'
 import BaseButton from '@/components/common/BaseButton.vue'
 import ErrorBanner from '@/components/common/ErrorBanner.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -26,6 +27,17 @@ async function load() {
 }
 onMounted(load)
 watch(objectId, load)
+
+let unwatchObject: (() => void) | null = null
+watch(
+  objectId,
+  (id) => {
+    unwatchObject?.()
+    unwatchObject = watchAggregate({ type: 'object', aggregateId: id })
+  },
+  { immediate: true },
+)
+onUnmounted(() => unwatchObject?.())
 
 const lastAggregateChange = inject<Ref<AggregateChange | null>>('lastAggregateChange')
 if (lastAggregateChange) {
