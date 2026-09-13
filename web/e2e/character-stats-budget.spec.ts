@@ -90,7 +90,7 @@ test('the button opens a modal listing all 10 attributes’ Pot values and the e
     await expect(dialog.getByTestId(`assign-pot-${abbr}`)).toHaveValue('50')
   }
   await expect(
-    dialog.getByText('Set potential values. Pot ≤ 90 equals 1 budget point per attribute point. 91-95 cost 5 budget points per attribute point.'),
+    dialog.getByText('Set potential values. Pot ≤ 90 equals 1 budget point per attribute point. 91-100 cost 5 budget points per attribute point.'),
   ).toBeVisible()
 })
 

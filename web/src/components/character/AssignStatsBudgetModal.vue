@@ -156,7 +156,7 @@ function onClose() {
 
     <div class="mb-4 rounded-md border border-slate-100 bg-slate-50 p-3 text-xs text-slate-600">
       <p class="mb-1 font-medium text-slate-900" data-testid="budget-remaining">Points remaining: {{ budgetRemaining }}</p>
-      <p>Set potential values. Pot &le; 90 equals 1 budget point per attribute point. 91-95 cost 5 budget points per attribute point. An attribute granted by a matching trait (Strong, Agile, Quick) can reach 100.</p>
+      <p>Set potential values. Pot &le; 90 equals 1 budget point per attribute point. 91-100 cost 5 budget points per attribute point. An attribute granted by a matching trait (Strong, Agile, Quick) can reach 100.</p>
     </div>
 
     <span v-if="status === 'pending'" class="mb-3 block text-xs text-slate-400">Update requested — refreshing…</span>
