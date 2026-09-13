@@ -45,8 +45,13 @@ export function useChangeFeed() {
   // interval) — called every time the SSE connection opens, by openStream()'s onopen handler
   // below. Reuses the original poll() implementation's request/response handling verbatim.
   let inFlight = false
+  let pendingRetry = false
   async function catchUp() {
-    if (inFlight || !currentUniverseId) return
+    if (inFlight) {
+      pendingRetry = true
+      return
+    }
+    if (!currentUniverseId) return
     inFlight = true
     const myEpoch = epoch
     try {
@@ -66,6 +71,10 @@ export function useChangeFeed() {
       console.error('useChangeFeed: catch-up poll failed', err)
     } finally {
       inFlight = false
+      if (pendingRetry) {
+        pendingRetry = false
+        void catchUp()
+      }
     }
   }
 
