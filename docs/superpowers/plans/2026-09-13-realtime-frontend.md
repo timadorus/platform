@@ -1076,7 +1076,7 @@ These are the two views this whole feature exists to fix (design spec's Context 
 
   Replace the existing `import { computed, onMounted, ref } from 'vue'` line with:
   ```ts
-  import { computed, inject, onMounted, ref, watch, type Ref } from 'vue'
+  import { computed, inject, onMounted, onUnmounted, ref, watch, type Ref } from 'vue'
   ```
 
   Add two new import lines:
@@ -1096,6 +1096,7 @@ These are the two views this whole feature exists to fix (design spec's Context 
     },
     { immediate: true },
   )
+  onUnmounted(() => unwatchCampaigns?.())
 
   const lastAggregateChange = inject<Ref<AggregateChange | null>>('lastAggregateChange')
   if (lastAggregateChange) {
@@ -1105,7 +1106,7 @@ These are the two views this whole feature exists to fix (design spec's Context 
   }
   ```
 
-  This file doesn't currently import `onUnmounted`, and doesn't need to here either — unlike Tasks 8/9/10, this view is never reused across a *different* Universe's picker via vue-router's param-only reuse in a way that would leak the old watch (a full remount happens on navigation between top-level picker instances in practice); if a reviewer determines vue-router does reuse this instance across a `universeId` change in some navigation path, add `onUnmounted(() => unwatchCampaigns?.())` the same way Task 8 does — treat this as a "verify against the router's actual behavior" checkpoint, not an assumption to leave unchecked.
+  This file doesn't currently import `onUnmounted` — add it to the merged `vue` import line above. It IS needed here, same as Tasks 8/9/10: `campaign-picker` (`/universes/:universeId`) is a single route record with no `:key` on `App.vue`'s `<router-view>`, so vue-router reuses this component instance across a `universeId`-only param change (e.g. a deep link from one Universe's campaign picker straight to a different Universe's) — without this cleanup, a later re-registration inside the `watch` callback above runs outside any active Vue effect scope (only the *first*, immediate invocation runs inside one, during `<script setup>`'s own synchronous evaluation), so `watchAggregate`'s own `onScopeDispose` auto-cleanup does not apply to it and the stale clause would leak until this instance is eventually destroyed for an unrelated reason.
 
 - [ ] **Step 3: Typecheck**
 
