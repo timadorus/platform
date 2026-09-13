@@ -170,3 +170,34 @@ statBudget copy" line called for in Decision 5 was removed from the modal (the l
 remaining" readout — relabeled "Points remaining" — is the only budget figure shown now). Pressing
 Enter in a Pot field also moves focus to the next attribute in `ATTRIBUTES` order, wrapping from
 Intuition back to Strength.
+
+## Addendum (2026-09-13): trait-based Pot ceiling of 100
+
+A further follow-up raises the modal's own per-field ceiling from 95 to 100 — matching the
+engine's absolute cap — for an attribute the character has a matching trait for. Today that's
+exactly three pairings, hardcoded in `internal/engine/timadorus/trait_hooks.go`'s
+`traitAttributeBonuses` (the only rows in `traits.yaml`): Strong→ST, Agile→AG, Quick→QU. The other
+seven attributes have no trait that could ever raise their cap, so they (and ST/AG/QU on a
+character who lacks the matching trait) keep the existing 95 ceiling. No engine change: `trySubmitPot`
+already accepts up to 100 from any caller (Decision 4/7 above); this only lifts the SPA's own
+tighter UI restriction for the specific attributes a trait applies to.
+
+- **Mapping** lives in `web/src/lib/attributes.ts` as a new exported `TRAIT_ATTRIBUTES: Record<string,
+  string>` (`{ strong: 'ST', agile: 'AG', quick: 'QU' }`), mirroring `traitAttributeBonuses`'s
+  trait→abbreviation pairing but not its bonus amount — the +5 auto-bonus on trait acquisition is
+  a separate, already-existing mechanic (`attributeBonusHook`), untouched by this change.
+- **Plumbing:** `AssignStatsBudgetModal.vue` gains a new prop `traits: string[]`. `AttributesTable.vue`
+  gains the same prop and passes it straight through (mirroring how it already passes `statBudget`/
+  `characterId`). `CharacterDetailView.vue` passes its existing `traits` computed (already used by
+  `BaseInfoTable`) down to `AttributesTable` too.
+- **Modal logic:** `maxFor(abbr)` and `onBlur(abbr)`'s validation both replace the flat `POT_CEILING`
+  constant with a new `ceilingFor(abbr)`: 100 if any of `props.traits` maps (via `TRAIT_ATTRIBUTES`) to
+  that abbreviation, else the existing 95. The native `min`/`max` HTML attributes on each `<input>`
+  follow automatically since they already read from `maxFor`.
+- **Explanation text** gains a trailing sentence: *"An attribute granted by a matching trait (Strong,
+  Agile, Quick) can reach 100."* The cost-tier wording (≤90 = 1pt, 91+ = 5pt) is unchanged — only the
+  ceiling moves, not the cost formula.
+- **Testing:** extend `character-stats-budget.spec.ts` with a case seeding `traits: ['strong']` —
+  confirms ST's Pot input carries `max="100"` while every other attribute's still shows `max="95"`,
+  and that a blur-time edit up to 100 on ST is accepted while the same value on another attribute on
+  the same character still reverts.
