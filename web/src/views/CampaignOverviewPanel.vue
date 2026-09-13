@@ -3,6 +3,7 @@ import { computed, inject, onMounted, onUnmounted, ref, watch, type Ref } from '
 import { useRoute, useRouter } from 'vue-router'
 import { useCampaigns, type CampaignSummary } from '@/composables/useCampaigns'
 import type { AggregateChange } from '@/composables/useChangeFeed'
+import { watchAggregate } from '@/composables/useAggregateWatch'
 import { useRulesets } from '@/composables/useRulesets'
 import { useUsers } from '@/composables/useUsers'
 import { useCharacters } from '@/composables/useCharacters'
@@ -103,6 +104,17 @@ async function load(opts: { silent?: boolean } = {}) {
 onMounted(() => load())
 watch([universeId, campaignId], () => load())
 onUnmounted(() => loadController?.abort())
+
+let unwatchCampaign: (() => void) | null = null
+watch(
+  campaignId,
+  (id) => {
+    unwatchCampaign?.()
+    unwatchCampaign = watchAggregate({ type: 'campaign', aggregateId: id })
+  },
+  { immediate: true },
+)
+onUnmounted(() => unwatchCampaign?.())
 
 const lastAggregateChange = inject<Ref<AggregateChange | null>>('lastAggregateChange')
 if (lastAggregateChange) {
