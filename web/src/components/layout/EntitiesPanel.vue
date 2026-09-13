@@ -2,6 +2,7 @@
 import { inject, onMounted, onUnmounted, ref, watch, type Ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useEntities } from '@/composables/useEntities'
+import { watchAggregate } from '@/composables/useAggregateWatch'
 import SearchableAggregatePanel from './SearchableAggregatePanel.vue'
 import CreateEntityModal from '@/components/modals/CreateEntityModal.vue'
 import AdvancedSearchStubModal from './AdvancedSearchStubModal.vue'
@@ -58,6 +59,17 @@ if (pendingEntityId) {
 }
 
 onUnmounted(() => pendingEntityController?.abort())
+
+let unwatchEntities: (() => void) | null = null
+watch(
+  () => props.universeId,
+  (id) => {
+    unwatchEntities?.()
+    unwatchEntities = watchAggregate({ type: 'entity', universeId: id })
+  },
+  { immediate: true },
+)
+onUnmounted(() => unwatchEntities?.())
 
 const lastAggregateChange = inject<Ref<AggregateChange | null>>('lastAggregateChange')
 if (lastAggregateChange) {

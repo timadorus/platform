@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { inject, onMounted, ref, watch, type Ref } from 'vue'
+import { inject, onMounted, onUnmounted, ref, watch, type Ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useObjects } from '@/composables/useObjects'
+import { watchAggregate } from '@/composables/useAggregateWatch'
 import SearchableAggregatePanel from './SearchableAggregatePanel.vue'
 import CreateObjectModal from '@/components/modals/CreateObjectModal.vue'
 import AdvancedSearchStubModal from './AdvancedSearchStubModal.vue'
@@ -36,6 +37,17 @@ if (sidebarRefreshSignal) {
     search(props.universeId, currentQuery.value)
   })
 }
+
+let unwatchObjects: (() => void) | null = null
+watch(
+  () => props.universeId,
+  (id) => {
+    unwatchObjects?.()
+    unwatchObjects = watchAggregate({ type: 'object', universeId: id })
+  },
+  { immediate: true },
+)
+onUnmounted(() => unwatchObjects?.())
 
 const lastAggregateChange = inject<Ref<AggregateChange | null>>('lastAggregateChange')
 if (lastAggregateChange) {
