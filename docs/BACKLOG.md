@@ -334,3 +334,54 @@ up; don't grow this file into a design doc.
   `cmd/projector`'s own equivalent gap — but worth tightening if this binary ever needs to support
   an in-process restart without a full process exit.
 
+## Web SPA — realtime change feed (`web/src/composables/useChangeFeed.ts` and friends)
+
+Frontend half of the same realtime-aggregate-updates feature as the `cmd/realtime` section above;
+found during that half's own final-review fix pass.
+
+- [ ] **No `onerror` recovery on a terminally-closed `EventSource`.** A non-2xx response (e.g.
+  token expiry) closes the browser's `EventSource` permanently with no reopen —
+  `useChangeFeed.ts` never re-creates it, so the app silently loses live updates until an
+  unrelated route/clause change happens to call `openStream()` again. Distinct from "detecting
+  reconnects via `onerror`" (which this design deliberately avoids, relying on the browser's own
+  silent auto-reconnect instead) — this is recovering from a stream the browser has already given
+  up on for good (`readyState === EventSource.CLOSED`).
+
+- [ ] **`useChangeFeed.ts` opens two connections and does a wasted full-history catch-up on
+  universe entry.** Entering/switching a Universe can open a stream via the `watchedClauses`
+  watcher (triggered by components mounting) before `start()`'s own cursor fetch resolves and
+  opens a second one — both harmless individually (the final-review fix pass made catch-up safe
+  to run redundantly, including for a backlog spanning more than one page) but wasteful. A
+  `startPending` flag expressing "a `start()` cursor-fetch is in flight" (instead of overloading
+  `currentUniverseId`'s truthiness for that) would let the watcher defer more precisely.
+
+- [ ] **`UniverseOverviewPanel.vue` doesn't refresh its own Campaigns list on a live Campaign
+  change.** It renders a Campaigns list (via `listByUniverse`) but only registers a
+  `{type:'universe', aggregateId}` watch; `CampaignPickerView.vue`, which renders the same kind of
+  list, correctly registers `{type:'campaign', universeId}` too. Not a regression (matches this
+  view's pre-existing behavior), but a live-refresh gap this feature's own stated goal should
+  probably have closed. Follow-up: add the same `{type:'campaign', universeId}` registration
+  `UniverseOverviewPanel.vue` already has for `{type:'universe', ...}`, alongside a call to re-run
+  `listByUniverse` when a matching change arrives.
+
+- [ ] **`CampaignPickerView.vue` doesn't refresh its Campaign list on a `universeId`-only
+  navigation.** It loads the list in `onMounted` only; its `watchAggregate` registration IS
+  reactive to `universeId` changes (added in Task 11), but nothing re-triggers `listByUniverse()`
+  itself when `universeId` changes via route-instance-reuse (only when a live change arrives for
+  the currently-watched universe). Pre-existing gap, made newly visible by this feature's own
+  reactive-clause work.
+
+- [ ] **`useChangeFeed.ts`'s `es.onmessage` has no try/catch around `JSON.parse(e.data)`.** A
+  malformed SSE payload would throw synchronously in the handler. Carried over from this
+  composable's own original task review (already noted there, now consolidated here since that
+  per-task review ledger is about to be deleted).
+
+- [ ] **`web/e2e/support/mockRealtimeStream.ts`'s `push()` has no `res.on('error')` guard** and
+  doesn't defend against a narrow write-after-disconnect race (a client whose socket disconnected
+  but whose `'close'` event hasn't yet fired and spliced it out of the tracked list) — could throw
+  an unhandled error in the mock server process in a narrow window. Not currently exercised by any
+  test. Carried over from this file's own original task review.
+
+  See also "No SSE heartbeat" above (`cmd/realtime` section) — a backend-side gap in the same
+  feature, not duplicated here.
+

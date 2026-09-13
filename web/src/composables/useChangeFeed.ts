@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { nextTick, ref } from 'vue'
 import { watch as vueWatch } from 'vue'
 import { getQueryClient } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
@@ -60,9 +60,14 @@ export function useChangeFeed() {
       })
       if (myEpoch !== epoch) return
       if (!error && data) {
-        for (const change of data as AggregateChange[]) {
+        const batch = data as AggregateChange[]
+        for (const change of batch) {
           applyChange(change)
+          await nextTick()
+          if (myEpoch !== epoch) return
         }
+        // GET /changes is capped at 20 rows server-side; a full page means there may be more behind it.
+        if (batch.length === 20) pendingRetry = true
       }
     } catch (err) {
       // fetch rejects (throws) on a genuine network failure (offline, DNS, connection reset)
@@ -133,11 +138,18 @@ export function useChangeFeed() {
         params: { path: { universeId } },
       })
       if (myEpoch !== epoch) return // a newer start() call has already superseded this one
-      if (error || !data) return // leave cursor at 0; a later start() (e.g. a route change) retries
-      cursor = data.globalSeq
+      // A cursor-fetch failure leaves cursor at 0 — a degraded-but-correct starting point (worst
+      // case: the next catch-up re-fetches from the beginning, which the pendingRetry mechanism
+      // above now safely drains even for a large backlog). Open the stream regardless: leaving
+      // eventSource null here would permanently wedge the watchedClauses watcher's gate below
+      // (`if (eventSource || !currentUniverseId) openStream()`), since App.vue only re-calls
+      // start() when universeId actually changes — a single transient failure must not
+      // permanently kill live updates for the rest of the session.
+      if (!error && data) cursor = data.globalSeq
       openStream()
     } catch (err) {
       console.error('useChangeFeed: start failed', err)
+      if (myEpoch === epoch) openStream()
     }
   }
 
@@ -150,6 +162,8 @@ export function useChangeFeed() {
     eventSource = null
     currentUniverseId = ''
     cursor = 0
+    inFlight = false
+    pendingRetry = false
   }
 
   return { lastChange, start, stop }

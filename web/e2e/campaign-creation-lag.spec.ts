@@ -88,10 +88,10 @@ test('a change-feed reload during the initial lag neither strands the panel on "
   test.setTimeout(60_000)
   const base = baseURL!
   const authority = `${base}/oidc`
-  // 8000ms is long enough that useChangeFeed's 5s poll interval lands mid-lag, well before the
-  // Campaign becomes visible — reproducing the exact race from the final-review fix brief: a
-  // background change-feed reload (silent: true) pre-empting the still-in-flight initial
-  // (non-silent) load.
+  // 8000ms leaves comfortable margin for the live SSE push below (fired just after the workspace
+  // mounts) to land well before the Campaign becomes visible — reproducing the exact race from
+  // the final-review fix brief: a background change-feed reload (silent: true) pre-empting the
+  // still-in-flight initial (non-silent) load.
   const state = seedState({ createVisibilityDelayMs: 8000 })
   const realtime = await startMockRealtimeStream()
   await seedAuth(context, { baseURL: base, authority, clientId: CLIENT_ID })
@@ -108,7 +108,8 @@ test('a change-feed reload during the initial lag neither strands the panel on "
 
   // Confirm the workspace has mounted (so useChangeFeed's start() has already fetched its initial
   // cursor) before seeding the matching change below — seeding it any earlier would bake this
-  // change into that initial cursor fetch, and the poll would never see it as "new".
+  // change into that initial cursor fetch, and the live SSE push would be ignored as stale
+  // (its globalSeq would already be <= cursor).
   await expect(page.getByText('Loading…')).toBeVisible()
   await page.waitForTimeout(300)
 
@@ -125,8 +126,8 @@ test('a change-feed reload during the initial lag neither strands the panel on "
   })
 
   // Regression for Important #1 (a silent reload aborting an in-flight non-silent load and
-  // stranding the panel on "Loading…" forever): useChangeFeed's poll (every 5s) picks up the
-  // change above well before the 8s visibility delay elapses, firing load({silent:true}) while the
+  // stranding the panel on "Loading…" forever): the live SSE push above lands well before the
+  // 8s visibility delay elapses, firing load({silent:true}) while the
   // original non-silent load is still polling waitForCampaign. Before the fix, that silent load
   // unconditionally aborted the in-flight one, whose own early
   // `if (controller.signal.aborted) return` fired before it ever cleared `loading` — and the

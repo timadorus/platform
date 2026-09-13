@@ -346,3 +346,57 @@ test('a dropped SSE connection still catches up via the polling fallback on reco
   // delivers it. Generous timeout: covers the browser's own auto-reconnect delay.
   await expect(entitiesSection.getByText('Bilbo')).toBeVisible({ timeout: 10000 })
 })
+
+test('a dropped connection\'s catch-up batch updates every affected sidebar, not just the last one', async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  const base = baseURL!
+  const authority = `${base}/oidc`
+  const state = seedState()
+  const realtime = await startMockRealtimeStream()
+  await seedAuth(context, { baseURL: base, authority, clientId: CLIENT_ID })
+  await installMockBackend(page, state, { baseURL: base, authority, clientId: CLIENT_ID, realtimeOrigin: realtime.origin })
+
+  await page.goto('/universes/u1/campaigns/c1')
+  const entitiesSection = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Entities' }) })
+  const charactersSection = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Characters' }) })
+  await expect(entitiesSection.getByText('Aragorn')).toBeVisible()
+
+  // Same shape as "a batch of live changes..." above, but delivered via the catch-up poll (not
+  // a live push) — regression coverage for the bug where a synchronous apply loop with no
+  // per-change yield let Vue's flush:'pre' watch coalesce a multi-change batch down to only the
+  // last change ever reaching a watcher.
+  state.entities.push({ id: 'e2', name: 'Gimli', universeId: 'u1', isArchived: false })
+  state.characters.push({
+    id: 'ch2',
+    name: 'Legolas',
+    campaignId: 'c1',
+    entityId: 'e3',
+    playerUserId: 'user-1',
+    isArchived: false,
+  })
+  state.changes.push(
+    {
+      globalSeq: 1,
+      universeId: 'u1',
+      aggregateType: 'entity',
+      aggregateId: 'e2',
+      eventType: 'entity.created.v1',
+      occurredAt: new Date().toISOString(),
+    },
+    {
+      globalSeq: 2,
+      universeId: 'u1',
+      aggregateType: 'character',
+      aggregateId: 'ch2',
+      eventType: 'character.created.v1',
+      occurredAt: new Date().toISOString(),
+    },
+  )
+  await realtime.close()
+
+  await expect(entitiesSection.getByText('Gimli')).toBeVisible({ timeout: 10000 })
+  await expect(charactersSection.getByText('Legolas')).toBeVisible({ timeout: 10000 })
+})
