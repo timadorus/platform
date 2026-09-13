@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, inject, onMounted, onUnmounted, ref, watch, type Ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useCampaigns } from '@/composables/useCampaigns'
 import { useUniverses, type UniverseSummary } from '@/composables/useUniverses'
 import { useSelectionStore } from '@/stores/selection'
+import { watchAggregate } from '@/composables/useAggregateWatch'
+import type { AggregateChange } from '@/composables/useChangeFeed'
 import AggregatePickerGrid from '@/components/pickers/AggregatePickerGrid.vue'
 import CreateCampaignModal from '@/components/modals/CreateCampaignModal.vue'
 import ErrorBanner from '@/components/common/ErrorBanner.vue'
@@ -51,6 +53,31 @@ onMounted(async () => {
   checkingStoredSelection.value = false
   await listByUniverse(universeId.value)
 })
+
+let unwatchCampaigns: (() => void) | null = null
+watch(
+  universeId,
+  (id) => {
+    unwatchCampaigns?.()
+    unwatchCampaigns = watchAggregate({ type: 'campaign', universeId: id })
+  },
+  { immediate: true },
+)
+// vue-router reuses this component instance across a universeId-only change on the
+// campaign-picker route (no :key on App.vue's <router-view>) — same mechanics as
+// UniverseOverviewPanel.vue's (Task 9) universeId watch. Registrations made from inside a
+// watch callback that fires after setup has finished run outside the component's active
+// effect scope, so watchAggregate's own onScopeDispose guard does not catch them; only the
+// very first (immediate) call is scope-tracked. This onUnmounted is required to release
+// whichever registration is currently active when the instance is actually torn down.
+onUnmounted(() => unwatchCampaigns?.())
+
+const lastAggregateChange = inject<Ref<AggregateChange | null>>('lastAggregateChange')
+if (lastAggregateChange) {
+  watch(lastAggregateChange, (change) => {
+    if (change?.aggregateType === 'campaign') listByUniverse(universeId.value)
+  })
+}
 
 function onCreated(id: string) {
   showCreate.value = false

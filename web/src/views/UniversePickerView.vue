@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { inject, onMounted, ref, watch, type Ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUniverses } from '@/composables/useUniverses'
 import { useSelectionStore } from '@/stores/selection'
+import { watchAggregate } from '@/composables/useAggregateWatch'
+import type { AggregateChange } from '@/composables/useChangeFeed'
 import AggregatePickerGrid from '@/components/pickers/AggregatePickerGrid.vue'
 import CreateUniverseModal from '@/components/modals/CreateUniverseModal.vue'
 import ErrorBanner from '@/components/common/ErrorBanner.vue'
@@ -36,6 +38,14 @@ onMounted(async () => {
   checkingStoredSelection.value = false
   await list()
 })
+
+watchAggregate({ type: 'universe' })
+const lastAggregateChange = inject<Ref<AggregateChange | null>>('lastAggregateChange')
+if (lastAggregateChange) {
+  watch(lastAggregateChange, (change) => {
+    if (change?.aggregateType === 'universe') list()
+  })
+}
 
 function onCreated(id: string) {
   showCreate.value = false
