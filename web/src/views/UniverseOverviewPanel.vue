@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, inject, onMounted, onUnmounted, ref, watch, type Ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUniverses, type UniverseSummary } from '@/composables/useUniverses'
 import { useUsers } from '@/composables/useUsers'
 import { useCampaigns } from '@/composables/useCampaigns'
-import { useChangeFeed } from '@/composables/useChangeFeed'
+import { watchAggregate } from '@/composables/useAggregateWatch'
+import type { AggregateChange } from '@/composables/useChangeFeed'
 import { useSelectionStore } from '@/stores/selection'
 import AppHeader from '@/components/layout/AppHeader.vue'
 import BaseButton from '@/components/common/BaseButton.vue'
@@ -58,16 +59,25 @@ async function load(opts: { silent?: boolean } = {}) {
 onMounted(() => load())
 watch(universeId, () => load())
 
-const { lastChange: lastAggregateChange, start: startChangeFeed, stop: stopChangeFeed } = useChangeFeed()
-onMounted(() => startChangeFeed(universeId.value))
-watch(universeId, startChangeFeed)
-onUnmounted(stopChangeFeed)
+let unwatchUniverse: (() => void) | null = null
+watch(
+  universeId,
+  (id) => {
+    unwatchUniverse?.()
+    unwatchUniverse = watchAggregate({ type: 'universe', aggregateId: id })
+  },
+  { immediate: true },
+)
+onUnmounted(() => unwatchUniverse?.())
 
-watch(lastAggregateChange, (change) => {
-  if (change?.aggregateType === 'universe' && change.aggregateId.toLowerCase() === universeId.value.toLowerCase()) {
-    load({ silent: true })
-  }
-})
+const lastAggregateChange = inject<Ref<AggregateChange | null>>('lastAggregateChange')
+if (lastAggregateChange) {
+  watch(lastAggregateChange, (change) => {
+    if (change?.aggregateType === 'universe' && change.aggregateId.toLowerCase() === universeId.value.toLowerCase()) {
+      load({ silent: true })
+    }
+  })
+}
 
 function startEditName() {
   if (!universe.value) return
