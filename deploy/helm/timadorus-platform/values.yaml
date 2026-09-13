@@ -56,6 +56,7 @@ web:
   config:
     commandApiBaseUrl: ""
     queryApiBaseUrl: ""
+    realtimeApiBaseUrl: ""
     oidc:
       authority: ""
       clientId: ""
@@ -106,6 +107,8 @@ realtime:
     limits:
       cpu: 500m
       memory: 256Mi
+  route:
+    hostname: ""
 
 migration:
   image:

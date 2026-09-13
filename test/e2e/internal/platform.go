@@ -16,6 +16,7 @@ const (
 	// kubectl port-forward directly (see portforward.go / devcluster's printStatus).
 	commandAPIHostname = "command-api.platform.test"
 	queryAPIHostname   = "query-api.platform.test"
+	realtimeHostname   = "realtime.platform.test"
 	webHostname        = "web.platform.test"
 )
 
@@ -71,13 +72,14 @@ type PlatformInstallInputs struct {
 
 	// New. Empty string (the zero value) preserves today's placeholder behavior — only
 	// devcluster sets these, to Zitadel's real values (Task 5).
-	PathRoutingHostname  string // sets gateway.pathRouting.hostname when non-empty
-	OIDCAuthority        string
-	OIDCClientID         string
-	OIDCRedirectURI      string
-	OIDCPostLogoutURI    string
-	WebCommandAPIBaseURL string // web.config.commandApiBaseUrl when OIDCAuthority is set
-	WebQueryAPIBaseURL   string // web.config.queryApiBaseUrl when OIDCAuthority is set
+	PathRoutingHostname   string // sets gateway.pathRouting.hostname when non-empty
+	OIDCAuthority         string
+	OIDCClientID          string
+	OIDCRedirectURI       string
+	OIDCPostLogoutURI     string
+	WebCommandAPIBaseURL  string // web.config.commandApiBaseUrl when OIDCAuthority is set
+	WebQueryAPIBaseURL    string // web.config.queryApiBaseUrl when OIDCAuthority is set
+	WebRealtimeAPIBaseURL string // web.config.realtimeApiBaseUrl when OIDCAuthority is set
 }
 
 // imageValuesKey maps a Dockerfile/component name to its chart values key.
@@ -117,6 +119,7 @@ func InstallPlatform(in PlatformInstallInputs) error {
 		"--set", "gateway.gatewayClassName=" + in.GatewayClassName,
 		"--set", "commandApi.route.hostname=" + commandAPIHostname,
 		"--set", "queryApi.route.hostname=" + queryAPIHostname,
+		"--set", "realtime.route.hostname=" + realtimeHostname,
 		"--set", "web.route.hostname=" + webHostname,
 		"--wait", "--timeout", "5m",
 	}
@@ -152,11 +155,13 @@ func InstallPlatform(in PlatformInstallInputs) error {
 	// supplied real values, these just need to be non-empty to satisfy Helm's `required`
 	// checks and let the web Deployment's pod become Ready for `--wait`.
 	webCommandAPIBaseURL, webQueryAPIBaseURL := "http://placeholder.e2e.test", "http://placeholder.e2e.test"
+	webRealtimeAPIBaseURL := "http://placeholder.e2e.test"
 	oidcAuthority, oidcClientID := "http://placeholder.e2e.test", "e2e-placeholder"
 	oidcRedirectURI, oidcPostLogoutURI := "http://placeholder.e2e.test/login", "http://placeholder.e2e.test/"
 	if in.OIDCAuthority != "" {
 		webCommandAPIBaseURL = in.WebCommandAPIBaseURL
 		webQueryAPIBaseURL = in.WebQueryAPIBaseURL
+		webRealtimeAPIBaseURL = in.WebRealtimeAPIBaseURL
 		oidcAuthority = in.OIDCAuthority
 		oidcClientID = in.OIDCClientID
 		oidcRedirectURI = in.OIDCRedirectURI
@@ -165,6 +170,7 @@ func InstallPlatform(in PlatformInstallInputs) error {
 	args = append(args,
 		"--set", "web.config.commandApiBaseUrl="+webCommandAPIBaseURL,
 		"--set", "web.config.queryApiBaseUrl="+webQueryAPIBaseURL,
+		"--set", "web.config.realtimeApiBaseUrl="+webRealtimeAPIBaseURL,
 		"--set", "web.config.oidc.authority="+oidcAuthority,
 		"--set", "web.config.oidc.clientId="+oidcClientID,
 		"--set", "web.config.oidc.redirectUri="+oidcRedirectURI,

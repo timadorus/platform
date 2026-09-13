@@ -10,6 +10,7 @@ data:
     {
       "commandApiBaseUrl": {{ required "web.config.commandApiBaseUrl is required" .Values.web.config.commandApiBaseUrl | quote }},
       "queryApiBaseUrl": {{ required "web.config.queryApiBaseUrl is required" .Values.web.config.queryApiBaseUrl | quote }},
+      "realtimeApiBaseUrl": {{ required "web.config.realtimeApiBaseUrl is required" .Values.web.config.realtimeApiBaseUrl | quote }},
       "oidc": {
         "authority": {{ required "web.config.oidc.authority is required" .Values.web.config.oidc.authority | quote }},
         "clientId": {{ required "web.config.oidc.clientId is required" .Values.web.config.oidc.clientId | quote }},

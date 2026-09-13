@@ -1,6 +1,7 @@
 export interface RuntimeConfig {
   commandApiBaseUrl: string
   queryApiBaseUrl: string
+  realtimeApiBaseUrl: string
   oidc: {
     authority: string
     clientId: string
@@ -23,5 +24,13 @@ export async function loadRuntimeConfig(): Promise<RuntimeConfig> {
     throw new Error(`failed to load /config.json: ${res.status}`)
   }
   cached = (await res.json()) as RuntimeConfig
+  return cached
+}
+
+// getRuntimeConfig is a synchronous accessor for code that runs after boot (every composable
+// and component — main.ts always awaits loadRuntimeConfig() before mounting the app). Mirrors
+// api/client.ts's getQueryClient()/getCommandClient() "not initialized" guard.
+export function getRuntimeConfig(): RuntimeConfig {
+  if (!cached) throw new Error('runtime config not loaded — call loadRuntimeConfig() first')
   return cached
 }

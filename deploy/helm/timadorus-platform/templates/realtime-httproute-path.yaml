@@ -1,0 +1,26 @@
+{{- if .Values.gateway.pathRouting.hostname }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "timadorus-platform.fullname" . }}-realtime-path
+  labels:
+    {{- include "timadorus-platform.labels" . | nindent 4 }}
+spec:
+  {{- include "timadorus-platform.gatewayParentRefs" . | nindent 2 }}
+  hostnames:
+    - {{ .Values.gateway.pathRouting.hostname | quote }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api/realtime
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplacePrefixMatch
+              replacePrefixMatch: /
+      backendRefs:
+        - name: {{ include "timadorus-platform.fullname" . }}-realtime
+          port: {{ .Values.realtime.containerPort }}
+{{- end }}

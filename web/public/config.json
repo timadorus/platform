@@ -1,6 +1,7 @@
 {
   "commandApiBaseUrl": "http://localhost:8081",
   "queryApiBaseUrl": "http://localhost:8082",
+  "realtimeApiBaseUrl": "http://localhost:8085",
   "oidc": {
     "authority": "http://localhost:8080/realms/timadorus",
     "clientId": "timadorus-web",

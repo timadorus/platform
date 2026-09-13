@@ -185,15 +185,16 @@ func runUp() error {
 		// jwt.WithAudience when non-empty) — issuer + RS256 signature verification against
 		// Zitadel's real JWKS still fully apply either way, which is the security property
 		// this dev cluster is actually meant to demonstrate.
-		JWTAudience:          "",
-		PathRoutingHostname:  "localhost",
-		OIDCAuthority:        zitadel.Authority,
-		OIDCClientID:         zitadel.SPAClientID,
-		OIDCRedirectURI:      fmt.Sprintf("http://localhost:%d/login", devGatewayPort),
-		OIDCPostLogoutURI:    fmt.Sprintf("http://localhost:%d/", devGatewayPort),
-		WebCommandAPIBaseURL: fmt.Sprintf("http://localhost:%d/api/command", devGatewayPort),
-		WebQueryAPIBaseURL:   fmt.Sprintf("http://localhost:%d/api/query", devGatewayPort),
-		ImageTags:            tags,
+		JWTAudience:           "",
+		PathRoutingHostname:   "localhost",
+		OIDCAuthority:         zitadel.Authority,
+		OIDCClientID:          zitadel.SPAClientID,
+		OIDCRedirectURI:       fmt.Sprintf("http://localhost:%d/login", devGatewayPort),
+		OIDCPostLogoutURI:     fmt.Sprintf("http://localhost:%d/", devGatewayPort),
+		WebCommandAPIBaseURL:  fmt.Sprintf("http://localhost:%d/api/command", devGatewayPort),
+		WebQueryAPIBaseURL:    fmt.Sprintf("http://localhost:%d/api/query", devGatewayPort),
+		WebRealtimeAPIBaseURL: fmt.Sprintf("http://localhost:%d/api/realtime", devGatewayPort),
+		ImageTags:             tags,
 	}); err != nil {
 		return fmt.Errorf("install platform: %w", err)
 	}
